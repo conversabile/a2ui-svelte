@@ -1,14 +1,21 @@
 <script lang="ts">
 	import { a2uiState } from '../core/state.svelte';
 	import { serializeSurface } from '../core/serializer';
+	import { setCatalog, type Catalog } from '../authoring/catalog';
+	import { DEFAULT_CATALOG } from '../components/default-catalog';
 	import Component from './Component.svelte';
 	import './styles.css';
 
 	interface Props {
 		surfaceId: string;
+		/** Catalog mapping A2UI type names → Svelte components. Defaults to DEFAULT_CATALOG. */
+		catalog?: Catalog;
 	}
 
-	let { surfaceId }: Props = $props();
+	let { surfaceId, catalog = DEFAULT_CATALOG }: Props = $props();
+
+	// Make the catalog available to descendant <Component> instances via context.
+	setCatalog(catalog);
 
 	// Dynamic mode: read from a2uiState
 	let surface = $derived(a2uiState.getSurface(surfaceId));

@@ -1,12 +1,7 @@
 <script lang="ts">
 	import { a2uiState } from '../core/state.svelte';
 	import { userActionBus } from '../core/registries/event-bus';
-	import Button from '../components/Button.svelte';
-	import Text from '../components/Text.svelte';
-	import Column from '../components/Column.svelte';
-	import Card from '../components/Card.svelte';
-	import Row from '../components/Row.svelte';
-	import TextField from '../components/TextField.svelte';
+	import { getCatalog } from '../authoring/catalog';
 	import Component from './Component.svelte';
 
 	interface Props {
@@ -14,21 +9,14 @@
 		id: string;
 	}
 
-	const COMPONENT_MAP: Record<string, any> = {
-		Button,
-		Text,
-		Column,
-		Card,
-		Row,
-		TextField
-	};
-
 	let { surfaceId, id }: Props = $props();
+
+	const catalog = getCatalog();
 
 	// Reactive derivation of component definition and props
 	let surface = $derived(a2uiState.getSurface(surfaceId));
 	let definition = $derived(surface?.components[id]);
-	let ComponentConstructor = $derived(definition ? COMPONENT_MAP[definition.type] : null);
+	let ComponentConstructor = $derived(definition ? catalog[definition.type] : null);
 
 	$effect(() => {
 		if (definition) {
@@ -163,4 +151,7 @@
 			{/each}
 		{/if}
 	</ComponentConstructor>
+{:else if definition}
+	<!-- Helpful dev-mode error: the catalog has no entry for this type. -->
+	<pre class="a2ui-missing-component">[a2ui-svelte] No component for type "{definition.type}" in catalog.</pre>
 {/if}

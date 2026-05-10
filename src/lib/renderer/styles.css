@@ -29,3 +29,22 @@
 [data-a2ui-glow] {
     animation: a2ui-glow 1s ease-out !important;
 }
+
+/**
+ * Dev-mode warning rendered by Component.svelte when the active catalog has
+ * no entry for a requested component type. Visible enough to catch in
+ * development, low-key enough to not look like an app crash.
+ */
+.a2ui-missing-component {
+    display: block;
+    margin: 0.5rem 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--pico-del-color, #c0392b);
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--pico-del-color, #c0392b) 8%, transparent);
+    color: var(--pico-del-color, #c0392b);
+    font-family: var(--pico-font-family-monospace, ui-monospace, monospace);
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    opacity: 0.8;
+}
