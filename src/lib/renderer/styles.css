@@ -1,0 +1,31 @@
+/* A2UI renderer styles */
+
+/**
+ * A2UI Specific Overrides & Tweaks
+ * Ensures A2UI components behave correctly when nested inside each other,
+ * especially in conjunction with the project's CSS framework (PicoCSS).
+ */
+
+/* Fix: Remove default Pico margins from paragraphs (Text component) inside buttons */
+.a2ui-surface button p {
+    margin: 0;
+    padding: 0;
+    display: inline-block;
+}
+
+/* Agent interaction glow — applied via data-a2ui-glow attribute */
+@keyframes a2ui-glow {
+    0% {
+        box-shadow: 0 0 0 0 var(--pico-primary-focus);
+    }
+    30% {
+        box-shadow: 0 0 12px 4px var(--pico-primary-focus);
+    }
+    100% {
+        box-shadow: 0 0 0 0 transparent;
+    }
+}
+
+[data-a2ui-glow] {
+    animation: a2ui-glow 1s ease-out !important;
+}

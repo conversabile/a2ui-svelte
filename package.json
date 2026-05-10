@@ -1,0 +1,85 @@
+{
+	"name": "a2ui-svelte",
+	"version": "0.0.0",
+	"type": "module",
+	"license": "MIT",
+	"scripts": {
+		"package": "svelte-kit sync && svelte-package && publint",
+		"prepublishOnly": "npm run package",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"lint": "eslint .",
+		"format": "prettier --write .",
+		"test": "vitest"
+	},
+	"exports": {
+		"./core": {
+			"types": "./dist/core/index.d.ts",
+			"svelte": "./dist/core/index.js",
+			"import": "./dist/core/index.js"
+		},
+		"./components": {
+			"types": "./dist/components/index.d.ts",
+			"svelte": "./dist/components/index.js",
+			"import": "./dist/components/index.js"
+		},
+		"./renderer": {
+			"types": "./dist/renderer/index.d.ts",
+			"svelte": "./dist/renderer/index.js",
+			"import": "./dist/renderer/index.js"
+		},
+		"./renderer/styles.css": "./dist/renderer/styles.css",
+		"./authoring": {
+			"types": "./dist/authoring/index.d.ts",
+			"svelte": "./dist/authoring/index.js",
+			"import": "./dist/authoring/index.js"
+		},
+		"./voice": {
+			"types": "./dist/voice/index.d.ts",
+			"svelte": "./dist/voice/index.js",
+			"import": "./dist/voice/index.js"
+		},
+		"./voice/gemini": {
+			"types": "./dist/voice/gemini/index.d.ts",
+			"svelte": "./dist/voice/gemini/index.js",
+			"import": "./dist/voice/gemini/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"peerDependencies": {
+		"svelte": "^5.0.0"
+	},
+	"dependencies": {
+		"@capacitor/core": "^8.1.0",
+		"@google/genai": "^1.41.0",
+		"capacitor-voice-recorder": "^7.0.6",
+		"marked": "^17.0.5"
+	},
+	"devDependencies": {
+		"@sveltejs/kit": "^2.50.1",
+		"@sveltejs/package": "^2.3.0",
+		"@sveltejs/vite-plugin-svelte": "^6.2.4",
+		"eslint": "^9.39.2",
+		"eslint-plugin-svelte": "^3.14.0",
+		"globals": "^17.1.0",
+		"prettier": "^3.8.1",
+		"prettier-plugin-svelte": "^3.4.1",
+		"publint": "^0.3.0",
+		"svelte": "^5.48.2",
+		"svelte-check": "^4.3.5",
+		"typescript": "^5.9.3",
+		"typescript-eslint": "^8.53.1",
+		"vite": "^7.3.1",
+		"vitest": "^4.0.18",
+		"@types/node": "^20"
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"@google/genai",
+			"esbuild",
+			"protobufjs"
+		]
+	}
+}

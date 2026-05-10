@@ -1,0 +1,3 @@
+export { default as StaticSurface } from './StaticSurface.svelte';
+export { default as DynamicSurface } from './DynamicSurface.svelte';
+export { default as Component } from './Component.svelte'; // exposed for advanced users
