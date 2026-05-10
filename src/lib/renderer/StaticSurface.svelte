@@ -1,25 +1,52 @@
 <script lang="ts">
-	import { onDestroy, tick } from 'svelte';
+	import { onDestroy, tick, getContext } from 'svelte';
 	import { SurfaceRegistry, setSurfaceContext, setParentId } from '../core/surface-registry';
 	import { actionRegistry } from '../core/registries/action-registry';
-	// TODO(phase-2): decouple from app store
-	import { geminiSession } from '../voice/gemini-session.svelte';
 	import { highlightElements } from '../core/highlight';
 	import { revealElements } from '../core/reveal';
 	import type { Snippet } from 'svelte';
+	import { SURFACE_FEEDBACK_KEY, type SurfaceFeedback } from './surface-feedback';
 	import './styles.css';
 
 	interface Props {
 		surfaceId: string;
 		children: Snippet;
+		/**
+		 * Optional global-state feedback callbacks. When omitted, the surface
+		 * falls back to a `SurfaceFeedback` set on Svelte context under
+		 * `SURFACE_FEEDBACK_KEY`. If neither is present the tool result simply
+		 * omits `updatedSurface` / `updatedContext`.
+		 */
+		feedback?: SurfaceFeedback;
 	}
 
-	let { surfaceId, children }: Props = $props();
+	let { surfaceId, children, feedback }: Props = $props();
+
+	// Resolve once at init: the surface's own `<script>` may still be running
+	// `buildToolResult` after the host has navigated away and torn this
+	// component down. Reading a `$derived` post-destroy yields an object
+	// without callable methods.
+	const ctxFeedback = getContext<SurfaceFeedback | undefined>(SURFACE_FEEDBACK_KEY);
+	const effectiveFeedback: SurfaceFeedback | undefined = feedback ?? ctxFeedback;
 
 	// Create registry for static surface
 	const registry = new SurfaceRegistry(surfaceId);
 	setSurfaceContext(registry);
 	setParentId('root');
+
+	function buildToolResult(results: Record<string, unknown>[]) {
+		const fb = effectiveFeedback;
+		return {
+			results,
+			...(fb
+				? {
+						updatedSurface: fb.globalSurfaces(),
+						updatedContext: fb.contextInstructions()
+					}
+				: {}),
+			availableElementIds: actionRegistry.listActions()
+		};
+	}
 
 	// Register generic tools — these delegate to ActionRegistry
 	// Both tools accept arrays for bulk operations (single-element arrays work fine for one-off calls)
@@ -70,17 +97,11 @@
 			}
 
 			// Give SvelteKit navigations/mounts a moment to settle, allowing
-			// new StaticSurface components to register in geminiSession.surfaces
+			// new StaticSurface components to register on the host's session.
 			await new Promise((resolve) => setTimeout(resolve, 150));
 			await tick(); // Wait for Svelte to render any reactive updates
 
-			return {
-				results,
-				// Return the comprehensive global state, not just this surface's local registry
-				updatedSurface: JSON.parse(JSON.stringify(geminiSession.surfaces.filter((s) => s && s.type === 'static').map((s) => s.getJson()))),
-				updatedContext: geminiSession.contextInstructions,
-				availableElementIds: actionRegistry.listActions()
-			};
+			return buildToolResult(results);
 		}
 	});
 
@@ -135,17 +156,11 @@
 			}
 
 			// Give SvelteKit navigations/mounts a moment to settle, allowing
-			// new StaticSurface components to register in geminiSession.surfaces
+			// new StaticSurface components to register on the host's session.
 			await new Promise((resolve) => setTimeout(resolve, 150));
 			await tick(); // Wait for Svelte to render any reactive updates
 
-			return {
-				results,
-				// Return the comprehensive global state, not just this surface's local registry
-				updatedSurface: JSON.parse(JSON.stringify(geminiSession.surfaces.filter((s) => s && s.type === 'static').map((s) => s.getJson()))),
-				updatedContext: geminiSession.contextInstructions,
-				availableElementIds: actionRegistry.listActions()
-			};
+			return buildToolResult(results);
 		}
 	});
 
