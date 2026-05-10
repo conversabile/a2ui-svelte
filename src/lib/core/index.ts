@@ -15,3 +15,4 @@ export { userActionBus, type UserAction, type UserActionListener } from './regis
 export { highlightElements, setHighlightEnabled, isHighlightEnabled } from './highlight';
 export { revealElements } from './reveal';
 export { createApiTool, type ApiToolConfig } from './api-bridge';
+export { resolveBoundValue, resolvePath, unwrapProperties } from './bound-value';

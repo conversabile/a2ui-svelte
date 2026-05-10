@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { onDestroy, tick } from 'svelte';
-	import { getSurfaceContext, getParentId } from '../core/surface-registry';
-	import { actionRegistry } from '../core/registries/action-registry';
+	import { tick } from 'svelte';
+	import { defineA2uiComponent } from '../authoring/define-component.svelte';
 	import { marked } from 'marked';
 
 	interface Props {
@@ -57,47 +56,30 @@
 		return marked.parse(value, { async: false }) as string;
 	});
 
-	// A2UI self-registration (only when inside a static Surface)
-	const ctx = getSurfaceContext();
-	let _componentId: string | undefined;
-	if (ctx) {
-		const parentId = getParentId();
-		// Prefer fieldName for semantic IDs
-		_componentId = id || fieldName || ctx.generateId('textfield');
-
-		const textProp: Record<string, any> = {};
-		if (fieldName) {
-			textProp.path = `/${fieldName}`;
-			ctx.registerData(fieldName, () => value);
-		} else {
-			textProp.literalString = value;
-		}
-
-		ctx.register(_componentId, parentId, {
-			TextField: {
-				label: label ? { literalString: label } : undefined,
-				text: textProp,
-				textFieldType: textFieldType
-			}
-		});
-
-		// Register update callback in ActionRegistry for the generic update_text_field tool
-		if (fieldName) {
-			actionRegistry.register(_componentId, 'update', (newValue: string) => {
-				value = newValue;
-				onchange?.(value);
-				return { field: fieldName, message: `Field "${label || fieldName}" updated.` };
-			}, ctx.surfaceId);
-		}
-	}
-
-	onDestroy(() => {
-		if (ctx && _componentId) {
-			actionRegistry.unregister(_componentId);
-			ctx.unregister(_componentId);
-			if (fieldName) ctx.unregisterData(fieldName);
-		}
+	const handle = defineA2uiComponent({
+		type: 'TextField',
+		id: id ?? fieldName,
+		a2ui: () => ({
+			label: label ? { literalString: label } : undefined,
+			text: fieldName ? { path: `/${fieldName}` } : { literalString: value },
+			textFieldType
+		}),
+		data: fieldName ? { key: fieldName, value: () => value } : undefined,
+		action: fieldName
+			? {
+					type: 'update',
+					handler: (newValue: string) => {
+						value = newValue;
+						onchange?.(value);
+						return { field: fieldName, message: `Field "${label || fieldName}" updated.` };
+					}
+				}
+			: undefined
 	});
+
+	export const dataAttr = handle.dataAttr;
+	export const fire = handle.fire;
+	export const componentId = handle.componentId;
 
 	function handleInput(e: Event) {
 		const target = e.target as HTMLTextAreaElement | HTMLInputElement;
@@ -193,8 +175,10 @@
 	}
 </script>
 
-{#if inline}
-	<span class="inline-field {className}" {id} data-a2ui-id={_componentId}>
+{#if handle.isHidden}
+	<!-- Hidden inside <A2UIRepresentation>: registers but renders nothing visible. -->
+{:else if inline}
+	<span class="inline-field {className}" {id} {...dataAttr}>
 		{#if isEditing}
 			<input
 				bind:this={inlineInputEl}
@@ -218,7 +202,7 @@
 		{#if suffix}<span class="inline-suffix">{suffix}</span>{/if}
 	</span>
 {:else}
-<div class="text-field-container {className}" {id} data-a2ui-id={_componentId}>
+<div class="text-field-container {className}" {id} {...dataAttr}>
 	{#if label}
 		<div class="field-header">
 			<label>{label}</label>

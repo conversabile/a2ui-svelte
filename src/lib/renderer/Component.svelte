@@ -2,6 +2,7 @@
 	import { a2uiState } from '../core/state.svelte';
 	import { userActionBus } from '../core/registries/event-bus';
 	import { getCatalog } from '../authoring/catalog';
+	import { resolveBoundValue, resolvePath } from '../core/bound-value';
 	import Component from './Component.svelte';
 
 	interface Props {
@@ -27,36 +28,6 @@
 		}
 	});
 
-	// Resolve a JSON Pointer (RFC 6901) against the surface data model.
-	// Returns undefined if any segment is missing.
-	function resolvePath(pointer: string): any {
-		if (typeof pointer !== 'string') return undefined;
-		const trimmed = pointer.startsWith('/') ? pointer.slice(1) : pointer;
-		if (trimmed === '') return surface?.data;
-		const segments = trimmed
-			.split('/')
-			.map((s) => s.replace(/~1/g, '/').replace(/~0/g, '~'));
-		let current: any = surface?.data;
-		for (const seg of segments) {
-			if (current == null) return undefined;
-			current = current[seg];
-		}
-		return current;
-	}
-
-	/**
-	 * Resolve a BoundValue into its concrete JS value, reading from the surface
-	 * data model for `path` bindings. Mirrors the A2UI v0.8 renderer contract.
-	 */
-	function resolveBoundValue(value: any): any {
-		if (value == null || typeof value !== 'object') return value;
-		if ('literalString' in value) return value.literalString;
-		if ('literalNumber' in value) return value.literalNumber;
-		if ('literalBoolean' in value) return value.literalBoolean;
-		if ('path' in value) return resolvePath(value.path);
-		return value;
-	}
-
 	/**
 	 * Build the context payload for a `userAction` event by resolving every
 	 * BoundValue inside the component's declared `action.context` against the
@@ -66,15 +37,16 @@
 	function resolveActionContext(rawContext: any): Record<string, unknown> {
 		const out: Record<string, unknown> = {};
 		if (rawContext == null) return out;
+		const data = surface?.data;
 		if (Array.isArray(rawContext)) {
 			for (const entry of rawContext) {
 				if (entry && typeof entry.key === 'string') {
-					out[entry.key] = resolveBoundValue(entry.value);
+					out[entry.key] = resolveBoundValue(entry.value, data);
 				}
 			}
 		} else if (typeof rawContext === 'object') {
 			for (const [k, v] of Object.entries(rawContext)) {
-				out[k] = resolveBoundValue(v);
+				out[k] = resolveBoundValue(v, data);
 			}
 		}
 		return out;
@@ -109,7 +81,7 @@
 				else if ('literalBoolean' in value) resolved[key] = value.literalBoolean;
 				else if ('path' in value) {
 					// A2UI v0.8 data binding: resolve via JSON Pointer (RFC 6901).
-					resolved[key] = resolvePath(value.path);
+					resolved[key] = resolvePath(value.path, surface?.data);
 				} else if ('explicitList' in value) {
 					// Pass the list of IDs directly, logic will be handled in template
 					resolved[key] = value.explicitList;

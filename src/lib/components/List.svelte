@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { getSurfaceContext, getParentId, setParentId } from '../core/surface-registry';
+	import type { Snippet } from 'svelte';
+	import { defineA2uiComponent } from '../authoring/define-component.svelte';
 
 	interface Props {
-		children?: import('svelte').Snippet;
+		children?: Snippet;
 		id?: string;
 		class?: string;
 		direction?: 'vertical' | 'horizontal';
@@ -10,20 +11,27 @@
 
 	let { children, id, class: className = '', direction = 'vertical' }: Props = $props();
 
-	const ctx = getSurfaceContext();
-	if (ctx) {
-		const parentId = getParentId();
-		const componentId = id || ctx.generateId('list');
-		ctx.register(componentId, parentId, {
-			List: { children: { explicitList: [] }, direction }
-		});
-		setParentId(componentId);
-	}
+	const handle = defineA2uiComponent({
+		type: 'List',
+		id,
+		a2ui: () => ({ children: { explicitList: [] }, direction }),
+		isContainer: true
+	});
+
+	export const dataAttr = handle.dataAttr;
+	export const componentId = handle.componentId;
 </script>
 
-<div {id} class="a2ui-list {direction === 'horizontal' ? 'a2ui-list--horizontal' : ''} {className}">
+{#if !handle.isHidden}
+	<div
+		{...dataAttr}
+		class="a2ui-list {direction === 'horizontal' ? 'a2ui-list--horizontal' : ''} {className}"
+	>
+		{@render children?.()}
+	</div>
+{:else}
 	{@render children?.()}
-</div>
+{/if}
 
 <style>
 	.a2ui-list {

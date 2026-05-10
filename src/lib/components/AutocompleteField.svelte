@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { onDestroy, tick } from 'svelte';
-	import { getSurfaceContext, getParentId } from '../core/surface-registry';
-	import { actionRegistry } from '../core/registries/action-registry';
+	import { tick } from 'svelte';
+	import A2UIRepresentation from '../authoring/A2UIRepresentation.svelte';
+	import TextField from './TextField.svelte';
 
 	export interface AutocompleteOption {
 		/** The value stored in `value` when this option is selected (e.g. a full CRL). */
@@ -49,27 +49,29 @@
 		footerOption
 	}: Props = $props();
 
-	// ---- Human-facing UI state ----
+	// The agent sees a standard TextField; the user sees the autocomplete UI below.
+	// `<A2UIRepresentation>` registers the TextField with the surface registry but
+	// renders no visible markup — see authoring/A2UIRepresentation.svelte.
+	let inputNode = $state<{
+		componentId: string | undefined;
+		dataAttr: Record<string, string>;
+		fire: (value?: string) => Promise<unknown>;
+	} | undefined>();
+	const a2uiId = $derived(inputNode?.componentId);
+	const a2uiDataAttr = $derived(inputNode?.dataAttr ?? {});
+
+	// Local UI state
 	let open = $state(false);
 	let highlighted = $state(0);
 	let inputEl: HTMLInputElement | undefined = $state();
 	let blurTimer: ReturnType<typeof setTimeout> | undefined;
 
-	/** The currently-selected option (if any), derived from `value`. */
 	const selectedOption = $derived(options.find((o) => o.value === value));
 
-	/**
-	 * What the input displays:
-	 * - while open → the user's current query
-	 * - while closed and an option is selected → that option's label
-	 * - while closed and value is set but no matching option → the raw value (agent path)
-	 * - otherwise empty
-	 */
 	const displayValue = $derived(
 		open ? query : selectedOption ? selectedOption.label : value || ''
 	);
 
-	/** Options filtered by the current query (case-insensitive substring on label + sublabel). */
 	const filtered = $derived.by(() => {
 		if (!open) return options;
 		const q = query.trim().toLowerCase();
@@ -80,7 +82,6 @@
 		});
 	});
 
-	/** Filtered options grouped in original order, preserving group headings. */
 	const groupedFiltered = $derived.by(() => {
 		const groups: Array<{ group: string | undefined; items: AutocompleteOption[] }> = [];
 		for (const opt of filtered) {
@@ -127,10 +128,7 @@
 	}
 
 	function handleBlur() {
-		// Delay so that clicks on option items register before we close.
-		blurTimer = setTimeout(() => {
-			closePopover();
-		}, 150);
+		blurTimer = setTimeout(() => closePopover(), 150);
 	}
 
 	function handleInput(e: Event) {
@@ -138,9 +136,6 @@
 		query = target.value;
 		highlighted = 0;
 		if (!open) open = true;
-		// Typing invalidates a stale selection: if the user is typing something other
-		// than the currently selected option's label, clear the selection so the parent
-		// can treat the typed query as a fresh intent.
 		if (value !== '' && (!selectedOption || target.value !== selectedOption.label)) {
 			value = '';
 			onchange?.('');
@@ -154,7 +149,6 @@
 		footerOption.onSelect(q);
 	}
 
-	/** Total navigable rows: filtered options + (1 if footer present). */
 	const navCount = $derived(filtered.length + (footerOption ? 1 : 0));
 
 	async function handleKeydown(e: KeyboardEvent) {
@@ -187,70 +181,33 @@
 			}
 		}
 	}
-
-	// ---- A2UI self-registration (only when inside a static Surface) ----
-	const ctx = getSurfaceContext();
-	let _componentId: string | undefined;
-	if (ctx) {
-		const parentId = getParentId();
-		_componentId = id || fieldName || ctx.generateId('autocomplete');
-
-		const textProp: Record<string, any> = {};
-		if (fieldName) {
-			textProp.path = `/${fieldName}`;
-			ctx.registerData(fieldName, () => value);
-		} else {
-			textProp.literalString = value;
-		}
-
-		// Register as a standard A2UI TextField so the surface JSON stays spec-compliant
-		// and the agent keeps interacting via the generic update_text_field tool.
-		ctx.register(_componentId, parentId, {
-			TextField: {
-				label: label ? { literalString: label } : undefined,
-				text: textProp,
-				textFieldType: 'shortText'
-			}
-		});
-
-		// Update callback for update_text_field: agent passes the full option.value (e.g. a CRL).
-		if (fieldName) {
-			actionRegistry.register(
-				_componentId,
-				'update',
-				(newValue: string) => {
-					value = newValue;
-					onchange?.(value);
-					return { field: fieldName, message: `Field "${label || fieldName}" updated.` };
-				},
-				ctx.surfaceId
-			);
-		}
-	}
-
-	onDestroy(() => {
-		if (blurTimer) clearTimeout(blurTimer);
-		if (ctx && _componentId) {
-			actionRegistry.unregister(_componentId);
-			ctx.unregister(_componentId);
-			if (fieldName) ctx.unregisterData(fieldName);
-		}
-	});
 </script>
 
-<div class="autocomplete-field {className}" {id} data-a2ui-id={_componentId}>
+<A2UIRepresentation>
+	<TextField
+		bind:this={inputNode}
+		{id}
+		{label}
+		bind:value
+		{fieldName}
+		textFieldType="shortText"
+		{onchange}
+	/>
+</A2UIRepresentation>
+
+<div class="autocomplete-field {className}" {id} {...a2uiDataAttr}>
 	{#if label}
-		<label for="{_componentId}-input">{label}</label>
+		<label for="{a2uiId}-input">{label}</label>
 	{/if}
 	<div class="combo" class:open>
 		<input
 			bind:this={inputEl}
-			id="{_componentId}-input"
+			id="{a2uiId}-input"
 			type="text"
 			role="combobox"
 			aria-expanded={open}
 			aria-autocomplete="list"
-			aria-controls="{_componentId}-listbox"
+			aria-controls="{a2uiId}-listbox"
 			autocomplete="off"
 			{placeholder}
 			value={displayValue}
@@ -271,7 +228,7 @@
 			>
 		{/if}
 		{#if open}
-			<ul id="{_componentId}-listbox" class="popover" role="listbox">
+			<ul id="{a2uiId}-listbox" class="popover" role="listbox">
 				{#if filtered.length === 0 && !footerOption}
 					<li class="empty">No matches</li>
 				{:else}

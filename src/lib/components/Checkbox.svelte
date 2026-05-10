@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
-	import { getSurfaceContext, getParentId } from '../core/surface-registry';
+	import { defineA2uiComponent } from '../authoring/define-component.svelte';
+	import { getSurfaceContext } from '../core/surface-registry';
 	import { actionRegistry } from '../core/registries/action-registry';
 
 	interface Props {
@@ -23,75 +23,62 @@
 		class: className = ''
 	}: Props = $props();
 
-	const ctx = getSurfaceContext();
-	let _componentId: string | undefined;
-	if (ctx) {
-		const parentId = getParentId();
-		_componentId = id || fieldName || ctx.generateId('checkbox');
-
-		const valueProp: Record<string, any> = {};
-		if (fieldName) {
-			valueProp.path = `/${fieldName}`;
-			ctx.registerData(fieldName, () => checked);
-		} else {
-			valueProp.literalBoolean = checked;
-		}
-
-		ctx.register(_componentId, parentId, {
-			CheckBox: {
-				label: { literalString: label },
-				value: valueProp
+	const handle = defineA2uiComponent({
+		type: 'CheckBox',
+		id: id ?? fieldName,
+		a2ui: () => ({
+			label: { literalString: label },
+			value: fieldName ? { path: `/${fieldName}` } : { literalBoolean: checked }
+		}),
+		data: fieldName ? { key: fieldName, value: () => checked } : undefined,
+		action: {
+			type: 'update',
+			handler: async (next: string): Promise<unknown> => {
+				const asBool =
+					typeof next === 'string'
+						? next.toLowerCase() === 'true'
+						: Boolean(next);
+				checked = asBool;
+				await onchange?.(checked);
+				return { field: fieldName ?? id ?? '', message: `"${label}" set to ${checked}.` };
 			}
-		});
+		}
+	});
 
+	// Checkbox supports two action verbs: 'update' (set explicit boolean) is
+	// wired through defineA2uiComponent; 'click' (toggle) is added directly.
+	const _ctx = getSurfaceContext();
+	const _cbId = handle.componentId;
+	if (_ctx && _cbId) {
 		actionRegistry.register(
-			_componentId,
+			_cbId,
 			'click',
 			async () => {
 				checked = !checked;
 				await onchange?.(checked);
-				return { field: fieldName ?? _componentId!, message: `"${label}" set to ${checked}.` };
+				return { field: fieldName ?? _cbId, message: `"${label}" set to ${checked}.` };
 			},
-			ctx.surfaceId
-		);
-
-		actionRegistry.register(
-			_componentId,
-			'update',
-			async (next: unknown) => {
-				const asBool =
-					typeof next === 'boolean'
-						? next
-						: typeof next === 'string'
-							? next.toLowerCase() === 'true'
-							: Boolean(next);
-				checked = asBool;
-				await onchange?.(checked);
-				return { field: fieldName ?? _componentId!, message: `"${label}" set to ${checked}.` };
-			},
-			ctx.surfaceId
+			_ctx.surfaceId
 		);
 	}
-
-	onDestroy(() => {
-		if (ctx && _componentId) {
-			actionRegistry.unregister(_componentId);
-			ctx.unregister(_componentId);
-			if (fieldName) ctx.unregisterData(fieldName);
-		}
-	});
 
 	async function handleChange(e: Event) {
 		const target = e.target as HTMLInputElement;
 		checked = target.checked;
 		await onchange?.(checked);
 	}
+
+	export const dataAttr = handle.dataAttr;
+	export const fire = handle.fire;
+	export const componentId = handle.componentId;
 </script>
 
-<label class="checkbox {className}" data-a2ui-id={_componentId}>
-	<input type="checkbox" {id} checked={checked} {disabled} onchange={handleChange} />
-	<span class="label-text">{label}</span>
-</label>
+{#if !handle.isHidden}
+	<label class="checkbox {className}" {...dataAttr}>
+		<input type="checkbox" {id} {checked} {disabled} onchange={handleChange} />
+		<span class="label-text">{label}</span>
+	</label>
+{/if}
 
 <style>
 	.checkbox {

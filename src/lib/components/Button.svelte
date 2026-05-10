@@ -1,10 +1,11 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { onDestroy } from 'svelte';
-	import { getSurfaceContext, getParentId } from '../core/surface-registry';
-	import { actionRegistry } from '../core/registries/action-registry';
+	import { getSurfaceContext } from '../core/surface-registry';
+	import { defineA2uiComponent } from '../authoring/define-component.svelte';
 
 	interface Props {
-		children?: import('svelte').Snippet;
+		children?: Snippet;
 		id?: string;
 		primary?: boolean;
 		label?: string;
@@ -25,53 +26,50 @@
 		class: className = ''
 	}: Props = $props();
 
-	// A2UI self-registration (only when inside a static Surface)
+	// Pre-resolve the component id so the synthetic label child can reference it.
 	const ctx = getSurfaceContext();
-	let _componentId: string | undefined;
-	let _labelId: string | undefined;
-	if (ctx) {
-		const parentId = getParentId();
-		// Prefer action.name for semantic IDs, fallback to auto-generated
-		_componentId = id || action?.name || ctx.generateId('button');
-		const buttonDef: Record<string, any> = { primary, action };
+	const _componentId: string | undefined = ctx
+		? (id ?? action?.name ?? ctx.generateId('button'))
+		: undefined;
+	const labelId = label && _componentId ? `${_componentId}-label` : undefined;
 
-		// If a label is provided, register a synthetic Text child for it
-		if (label) {
-			_labelId = `${_componentId}-label`;
-			buttonDef.child = _labelId;
-			ctx.register(_labelId, null, {
-				Text: { text: { literalString: label } }
-			});
-		}
+	const handle = defineA2uiComponent<{
+		primary: boolean;
+		action?: { name: string };
+		child?: string;
+	}>({
+		type: 'Button',
+		id: _componentId,
+		a2ui: () => ({ primary, action, ...(labelId ? { child: labelId } : {}) }),
+		action: action ? { type: 'click', handler: () => onclick?.() } : undefined
+	});
 
-		ctx.register(_componentId, parentId, { Button: buttonDef });
-
-		// Register click callback in ActionRegistry for the generic click_button tool
-		if (action) {
-			actionRegistry.register(_componentId, 'click', handleClick, ctx.surfaceId);
-		}
+	// Per A2UI spec, Button has a single `child` (its label Text node).
+	// The label is registered as a free-standing Text component referenced
+	// by `child` — not as a positional child of any container.
+	if (ctx && labelId) {
+		$effect(() => {
+			ctx.register(labelId, null, { Text: { text: { literalString: label ?? '' } } });
+		});
 	}
 
 	onDestroy(() => {
-		if (ctx && _componentId) {
-			actionRegistry.unregister(_componentId);
-			ctx.unregister(_componentId);
-			if (_labelId) ctx.unregister(_labelId);
-		}
+		if (ctx && labelId) ctx.unregister(labelId);
 	});
 
-	function handleClick() {
-		if (action) {
-			console.log(`Action triggered: ${action.name}`);
-		}
-		return onclick?.();
-	}
+	export const dataAttr = handle.dataAttr;
+	export const fire = handle.fire;
+	export const componentId = _componentId;
 </script>
 
-<button {id} {type} onclick={handleClick} class="{className} {primary ? '' : 'secondary'}" data-a2ui-id={_componentId}>
-	{#if children}
-		{@render children()}
-	{:else if label}
-		{label}
-	{/if}
-</button>
+{#if !handle.isHidden}
+	<button
+		{...dataAttr}
+		{id}
+		{type}
+		onclick={() => handle.fire()}
+		class="{className} {primary ? '' : 'secondary'}"
+	>
+		{#if children}{@render children()}{:else if label}{label}{/if}
+	</button>
+{/if}

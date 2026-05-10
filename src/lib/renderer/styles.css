@@ -1,4 +1,31 @@
-/* A2UI renderer styles */
+/**
+ * A2UI library tokens — override these to theme the built-in catalog.
+ *
+ * Each token defaults to a Pico CSS variable when present, with a plain
+ * fallback so consumers do not need to load Pico. To re-skin the
+ * library, override any of these in your app's stylesheet (or pass a
+ * custom catalog via `<DynamicSurface catalog={...}>`).
+ */
+:root {
+	--a2ui-spacing: var(--pico-spacing, 1rem);
+	--a2ui-border-radius: var(--pico-border-radius, 0.25rem);
+	--a2ui-font-family: var(--pico-font-family, system-ui, sans-serif);
+
+	--a2ui-card-bg: var(--pico-card-background-color, #fff);
+	--a2ui-card-border: 1px solid color-mix(in srgb, var(--pico-secondary, #888) 25%, transparent);
+	--a2ui-card-radius: var(--a2ui-border-radius);
+
+	--a2ui-button-primary-bg: var(--pico-primary, #1095c1);
+	--a2ui-button-primary-fg: var(--pico-primary-inverse, #fff);
+	--a2ui-button-secondary-bg: transparent;
+	--a2ui-button-secondary-fg: var(--pico-secondary, #525252);
+
+	--a2ui-input-bg: var(--pico-form-element-background-color, #fff);
+	--a2ui-input-border: var(--pico-form-element-border-color, #ccc);
+	--a2ui-input-fg: var(--pico-form-element-color, #333);
+
+	--a2ui-glow-color: var(--pico-primary-focus, rgba(16, 149, 193, 0.4));
+}
 
 /**
  * A2UI Specific Overrides & Tweaks
@@ -8,26 +35,26 @@
 
 /* Fix: Remove default Pico margins from paragraphs (Text component) inside buttons */
 .a2ui-surface button p {
-    margin: 0;
-    padding: 0;
-    display: inline-block;
+	margin: 0;
+	padding: 0;
+	display: inline-block;
 }
 
 /* Agent interaction glow — applied via data-a2ui-glow attribute */
 @keyframes a2ui-glow {
-    0% {
-        box-shadow: 0 0 0 0 var(--pico-primary-focus);
-    }
-    30% {
-        box-shadow: 0 0 12px 4px var(--pico-primary-focus);
-    }
-    100% {
-        box-shadow: 0 0 0 0 transparent;
-    }
+	0% {
+		box-shadow: 0 0 0 0 var(--a2ui-glow-color);
+	}
+	30% {
+		box-shadow: 0 0 12px 4px var(--a2ui-glow-color);
+	}
+	100% {
+		box-shadow: 0 0 0 0 transparent;
+	}
 }
 
 [data-a2ui-glow] {
-    animation: a2ui-glow 1s ease-out !important;
+	animation: a2ui-glow 1s ease-out !important;
 }
 
 /**
@@ -36,15 +63,15 @@
  * development, low-key enough to not look like an app crash.
  */
 .a2ui-missing-component {
-    display: block;
-    margin: 0.5rem 0;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--pico-del-color, #c0392b);
-    border-radius: 0.25rem;
-    background: color-mix(in srgb, var(--pico-del-color, #c0392b) 8%, transparent);
-    color: var(--pico-del-color, #c0392b);
-    font-family: var(--pico-font-family-monospace, ui-monospace, monospace);
-    font-size: 0.8rem;
-    white-space: pre-wrap;
-    opacity: 0.8;
+	display: block;
+	margin: 0.5rem 0;
+	padding: 0.5rem 0.75rem;
+	border: 1px solid var(--pico-del-color, #c0392b);
+	border-radius: var(--a2ui-border-radius);
+	background: color-mix(in srgb, var(--pico-del-color, #c0392b) 8%, transparent);
+	color: var(--pico-del-color, #c0392b);
+	font-family: var(--pico-font-family-monospace, ui-monospace, monospace);
+	font-size: 0.8rem;
+	white-space: pre-wrap;
+	opacity: 0.8;
 }

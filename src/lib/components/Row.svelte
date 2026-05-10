@@ -1,35 +1,39 @@
 <script lang="ts">
-	import { getSurfaceContext, getParentId, setParentId } from '../core/surface-registry';
+	import type { Snippet } from 'svelte';
+	import { defineA2uiComponent } from '../authoring/define-component.svelte';
 
 	interface Props {
-		children?: import('svelte').Snippet;
+		children?: Snippet;
 		id?: string;
 		class?: string;
 	}
 
 	let { children, id, class: className = '' }: Props = $props();
 
-	// A2UI self-registration (only when inside a static Surface)
-	const ctx = getSurfaceContext();
-	if (ctx) {
-		const parentId = getParentId();
-		const componentId = id || ctx.generateId('row');
-		// Register with empty children; toJSON() will fill them from the registry
-		ctx.register(componentId, parentId, { Row: { children: { explicitList: [] } } });
-		// Set this Row as the parent for nested children
-		setParentId(componentId);
-	}
+	const handle = defineA2uiComponent({
+		type: 'Row',
+		id,
+		a2ui: () => ({ children: { explicitList: [] } }),
+		isContainer: true
+	});
+
+	export const dataAttr = handle.dataAttr;
+	export const componentId = handle.componentId;
 </script>
 
-<div class={`${className} row`}>
+{#if !handle.isHidden}
+	<div {...dataAttr} class={`${className} row`}>
+		{@render children?.()}
+	</div>
+{:else}
 	{@render children?.()}
-</div>
+{/if}
 
 <style>
 	.row {
 		display: flex;
 		flex-direction: row;
-		gap: var(--pico-spacing);
+		gap: var(--a2ui-spacing);
 		align-items: flex-end;
 	}
 

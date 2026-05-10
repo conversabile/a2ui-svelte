@@ -1,42 +1,41 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
-	import { getSurfaceContext, getParentId, setParentId } from '../core/surface-registry';
+	import type { Snippet } from 'svelte';
+	import { defineA2uiComponent } from '../authoring/define-component.svelte';
 
 	interface Props {
-		children?: import('svelte').Snippet;
+		children?: Snippet;
 		id?: string;
 		class?: string;
 	}
 
 	let { children, id, class: className = '' }: Props = $props();
 
-	// A2UI self-registration (only when inside a static Surface).
-	// Per A2UI spec, Card has a single `child` slot — always wrap
-	// multiple elements in a Column or Row before placing inside a Card.
-	const ctx = getSurfaceContext();
-	let _componentId: string | undefined;
-	if (ctx) {
-		const parentId = getParentId();
-		_componentId = id || ctx.generateId('card');
-		ctx.register(_componentId, parentId, { Card: {} });
-		// Children rendered inside <Card> become children of this Card in the registry.
-		setParentId(_componentId);
-	}
-
-	onDestroy(() => {
-		if (ctx && _componentId) {
-			ctx.unregister(_componentId);
-		}
+	// Per A2UI spec, Card has a single `child` slot — wrap multiple
+	// elements in a Column or Row before placing inside a Card.
+	const handle = defineA2uiComponent({
+		type: 'Card',
+		id,
+		a2ui: () => ({}),
+		isContainer: true
 	});
+
+	export const dataAttr = handle.dataAttr;
+	export const componentId = handle.componentId;
 </script>
 
-<article {id} class={className}>
+{#if !handle.isHidden}
+	<article {...dataAttr} class={className}>
+		{@render children?.()}
+	</article>
+{:else}
 	{@render children?.()}
-</article>
+{/if}
 
 <style>
 	article {
 		margin-bottom: 1em;
-		border: 1px solid rgb(from var(--pico-secondary) r g b / 25%);
+		border: var(--a2ui-card-border);
+		border-radius: var(--a2ui-card-radius);
+		background: var(--a2ui-card-bg);
 	}
 </style>

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
-	import { getSurfaceContext, getParentId, setParentId } from '../core/surface-registry';
+	import type { Snippet } from 'svelte';
+	import { defineA2uiComponent } from '../authoring/define-component.svelte';
 
 	interface TabSpec {
 		key: string;
@@ -10,36 +10,21 @@
 	interface Props {
 		id?: string;
 		tabs: TabSpec[];
-		content: import('svelte').Snippet<[string]>;
+		content: Snippet<[string]>;
 		class?: string;
 	}
 
 	let { id, tabs, content, class: className = '' }: Props = $props();
 
-	const ctx = getSurfaceContext();
-	let _componentId: string | undefined;
-	if (ctx) {
-		const parentId = getParentId();
-		_componentId = id || ctx.generateId('tabs');
-		ctx.register(_componentId, parentId, {
-			Tabs: { tabItems: tabs.map((t) => ({ title: { literalString: t.title } })) }
-		});
-		// Children rendered inside each tab panel become children of this Tabs.
-		// toJSON() pairs childrenByParent[i] with tabItems[i].
-		setParentId(_componentId);
-	}
-
-	// Keep the registered titles in sync when the tabs prop changes.
-	$effect(() => {
-		if (ctx && _componentId) {
-			ctx.register(_componentId, getParentId(), {
-				Tabs: { tabItems: tabs.map((t) => ({ title: { literalString: t.title } })) }
-			});
-		}
-	});
-
-	onDestroy(() => {
-		if (ctx && _componentId) ctx.unregister(_componentId);
+	// `tabItems` is registered with titles only; SurfaceRegistry.toJSON()
+	// pairs them with the children registered under this Tabs (order = tab order).
+	const handle = defineA2uiComponent({
+		type: 'Tabs',
+		id,
+		a2ui: () => ({
+			tabItems: tabs.map((t) => ({ title: { literalString: t.title } }))
+		}),
+		isContainer: true
 	});
 
 	let activeIndex = $state(0);
@@ -63,42 +48,47 @@
 			}
 		};
 	}
+
+	export const dataAttr = handle.dataAttr;
+	export const componentId = handle.componentId;
 </script>
 
-<div
-	class="tabs {className}"
-	data-a2ui-id={_componentId}
-	data-a2ui-tabs-root
-	use:attachReveal
->
-	<div class="tab-headers" role="tablist">
-		{#each tabs as tab, i (tab.key)}
-			<button
-				type="button"
-				role="tab"
-				class="tab-header"
-				class:active={activeIndex === i}
-				aria-selected={activeIndex === i}
-				onclick={() => (activeIndex = i)}
-			>
-				{tab.title}
-			</button>
-		{/each}
+{#if handle.isHidden}
+	<!-- Inside <A2UIRepresentation>: still render content snippets so descendants register -->
+	{#each tabs as tab (tab.key)}
+		{@render content(tab.key)}
+	{/each}
+{:else}
+	<div class="tabs {className}" {...dataAttr} data-a2ui-tabs-root use:attachReveal>
+		<div class="tab-headers" role="tablist">
+			{#each tabs as tab, i (tab.key)}
+				<button
+					type="button"
+					role="tab"
+					class="tab-header"
+					class:active={activeIndex === i}
+					aria-selected={activeIndex === i}
+					onclick={() => (activeIndex = i)}
+				>
+					{tab.title}
+				</button>
+			{/each}
+		</div>
+		<div class="tab-panels">
+			{#each tabs as tab, i (tab.key)}
+				<div
+					class="tab-panel"
+					class:active={activeIndex === i}
+					role="tabpanel"
+					data-a2ui-tab-panel-index={i}
+					aria-hidden={activeIndex !== i}
+				>
+					{@render content(tab.key)}
+				</div>
+			{/each}
+		</div>
 	</div>
-	<div class="tab-panels">
-		{#each tabs as tab, i (tab.key)}
-			<div
-				class="tab-panel"
-				class:active={activeIndex === i}
-				role="tabpanel"
-				data-a2ui-tab-panel-index={i}
-				aria-hidden={activeIndex !== i}
-			>
-				{@render content(tab.key)}
-			</div>
-		{/each}
-	</div>
-</div>
+{/if}
 
 <style>
 	.tabs {
