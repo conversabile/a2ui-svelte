@@ -1,0 +1,30 @@
+@import 'a2ui-svelte/renderer/styles.css';
+
+:root {
+	font-family: system-ui, sans-serif;
+	color-scheme: light dark;
+
+	/* Prove theming works: indigo override of the primary token. */
+	--a2ui-button-primary-bg: #6d28d9;
+	--a2ui-button-primary-fg: #ffffff;
+	--a2ui-glow-color: rgba(109, 40, 217, 0.5);
+	--a2ui-card-radius: 12px;
+}
+
+body {
+	margin: 0;
+	padding: 1.5rem;
+	max-width: 720px;
+	margin-inline: auto;
+}
+
+nav a {
+	margin-right: 1rem;
+}
+
+[data-theme='dark'] {
+	--a2ui-card-bg: #1a1a1a;
+	--a2ui-input-bg: #222;
+	--a2ui-input-fg: #eee;
+	--a2ui-input-border: #444;
+}
