@@ -10,6 +10,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
+    "@picocss/pico": "^2.1.1",
     "a2ui-svelte": "workspace:*"
   },
   "devDependencies": {
