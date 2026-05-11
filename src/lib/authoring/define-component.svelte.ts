@@ -148,7 +148,19 @@ export function defineA2uiComponent<P extends A2uiProperties = A2uiProperties>(
 	const resolved = $derived.by(() => unwrapProperties(opts.a2ui()) as P);
 
 	const fire = async (value?: string): Promise<unknown> => {
-		if (!componentId || !opts.action) return undefined;
+		if (!opts.action) return undefined;
+		// Without a surface-registry context (e.g. inside a <DynamicSurface>),
+		// no actionRegistry entry was created at setup. Invoke the handler
+		// directly so the user-click → action-handler path still fires; in
+		// dynamic mode the handler is the synthetic `onclick` injected by the
+		// renderer's Component.svelte, which forwards a userAction event back
+		// to the agent.
+		if (!componentId) {
+			if (opts.action.type === 'update') {
+				return (opts.action as { type: 'update'; handler: (v: string) => unknown }).handler(value ?? '');
+			}
+			return (opts.action as { type: 'click'; handler: () => unknown }).handler();
+		}
 		const type: ActionType = opts.action.type;
 		if (type === 'update') {
 			return actionRegistry.execute(componentId, type, value ?? '');
