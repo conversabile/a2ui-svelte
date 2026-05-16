@@ -125,6 +125,31 @@ class A2UIStateManager {
 
         console.log(`[A2UI] Updated data for ${surfaceId}`, surface.data);
     }
+
+    /**
+     * Write a single value at a JSON-Pointer location in a surface's data
+     * model. Used by the dynamic-surface renderer to push user input back
+     * into the data model so components bound via `{ path }` stay in sync
+     * with what the user typed (and so the surface JSON sent to the agent
+     * reflects the current UI state).
+     *
+     * Intermediate objects are created as needed. A root pointer (`''` or
+     * `'/'`) is a no-op because a leaf value can't replace the root map.
+     */
+    setDataAtPath(surfaceId: string, pointer: string, value: unknown) {
+        const surface = this.getOrCreateSurface(surfaceId);
+        const segments = parseJsonPointer(pointer);
+        if (segments.length === 0) return;
+        const last = segments.pop()!;
+        let target: any = surface.data;
+        for (const seg of segments) {
+            if (target[seg] == null || typeof target[seg] !== 'object') {
+                target[seg] = {};
+            }
+            target = target[seg];
+        }
+        target[last] = value;
+    }
 }
 
 export const a2uiState = new A2UIStateManager();

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { defineA2uiComponent } from '../authoring/define-component.svelte';
 	import { marked } from 'marked';
 
@@ -24,6 +24,13 @@
 		inline?: boolean;
 		/** Static text shown next to the value in inline mode (e.g. "g", "%"). */
 		suffix?: string;
+		/**
+		 * Internal: injected by the dynamic-surface renderer when a prop is
+		 * bound via `{ path }`. Calling `_a2uiSetters.text(newValue)` writes
+		 * the new value into `surface.data` at the bound path so the agent's
+		 * view of the UI stays in sync with what the user typed.
+		 */
+		_a2uiSetters?: Record<string, (value: unknown) => void>;
 	}
 
 	let {
@@ -38,12 +45,25 @@
 		class: className = '',
 		disabled = false,
 		inline = false,
-		suffix
+		suffix,
+		_a2uiSetters
 	}: Props = $props();
 
-	// Allow A2UI dynamic surface to pass `text` as an alias for `value`
+	function pushToSurfaceData(newValue: string) {
+		_a2uiSetters?.text?.(newValue);
+	}
+
+	// Allow A2UI dynamic surface to pass `text` as an alias for `value`.
+	// Only react to changes in `text` (the incoming prop) — reading `value`
+	// inside an effect would create a feedback loop where typing into the
+	// input gets immediately overwritten by the stale prop value, making
+	// the field appear read-only.
 	$effect(() => {
-		if (text !== undefined && text !== value) value = text;
+		if (text === undefined) return;
+		const incoming = text;
+		untrack(() => {
+			if (incoming !== value) value = incoming;
+		});
 	});
 
 	let isPreview = $state(true);
@@ -84,10 +104,12 @@
 	function handleInput(e: Event) {
 		const target = e.target as HTMLTextAreaElement | HTMLInputElement;
 		value = target.value;
+		pushToSurfaceData(value);
 		onchange?.(value);
 	}
 
 	function handleBlur() {
+		pushToSurfaceData(value);
 		onchange?.(value);
 	}
 
@@ -101,6 +123,7 @@
 
 	function commitLongTextEdit() {
 		isPreview = true;
+		pushToSurfaceData(value);
 		onchange?.(value);
 	}
 
@@ -147,6 +170,7 @@
 			// the parent owns the source of truth and will refresh the prop
 			// after a successful update (or leave it untouched on validation
 			// failure, so the UI snaps back to the canonical value).
+			pushToSurfaceData(inlineDraft);
 			onchange?.(inlineDraft);
 		}
 	}

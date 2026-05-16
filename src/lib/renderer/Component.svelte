@@ -96,6 +96,24 @@
 		return resolved;
 	}
 
+	/**
+	 * Collect a map of `propName → JSON-Pointer` for every property whose
+	 * raw definition is a `{ path }` BoundValue. Interactive components
+	 * (TextField, CheckBox, …) use this to write user input back into the
+	 * surface data model — without it the agent's view of the UI would
+	 * stay frozen at whatever value the data started with.
+	 */
+	function collectPathBindings(props: Record<string, any>): Record<string, string> {
+		const out: Record<string, string> = {};
+		if (!props) return out;
+		for (const [key, value] of Object.entries(props)) {
+			if (value && typeof value === 'object' && 'path' in value && typeof (value as any).path === 'string') {
+				out[key] = (value as any).path;
+			}
+		}
+		return out;
+	}
+
 	let resolvedProps = $derived.by(() => {
 		if (!definition) return {} as Record<string, any>;
 		const props = resolveProps(definition.properties);
@@ -106,6 +124,16 @@
 		// metadata (e.g. name) if needed.
 		if (definition.properties?.action?.name) {
 			props.onclick = emitUserAction;
+		}
+		// Build setters for every path-bound prop so input-handling
+		// components can push user changes back into surface.data.
+		const bindings = collectPathBindings(definition.properties);
+		if (Object.keys(bindings).length > 0) {
+			const setters: Record<string, (value: unknown) => void> = {};
+			for (const [propName, path] of Object.entries(bindings)) {
+				setters[propName] = (value) => a2uiState.setDataAtPath(surfaceId, path, value);
+			}
+			props._a2uiSetters = setters;
 		}
 		return props;
 	});

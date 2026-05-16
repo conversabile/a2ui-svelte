@@ -11,6 +11,8 @@
 		onchange?: (next: boolean) => void | Promise<void>;
 		disabled?: boolean;
 		class?: string;
+		/** Internal: injected by the dynamic-surface renderer; see TextField. */
+		_a2uiSetters?: Record<string, (value: unknown) => void>;
 	}
 
 	let {
@@ -20,8 +22,13 @@
 		checked = $bindable(false),
 		onchange,
 		disabled = false,
-		class: className = ''
+		class: className = '',
+		_a2uiSetters
 	}: Props = $props();
+
+	function pushToSurfaceData(next: boolean) {
+		_a2uiSetters?.value?.(next);
+	}
 
 	const handle = defineA2uiComponent({
 		type: 'CheckBox',
@@ -65,6 +72,7 @@
 	async function handleChange(e: Event) {
 		const target = e.target as HTMLInputElement;
 		checked = target.checked;
+		pushToSurfaceData(checked);
 		await onchange?.(checked);
 	}
 
