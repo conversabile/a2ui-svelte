@@ -22,7 +22,8 @@ export function processMessage(message: ClientMessage) {
         a2uiState.updateData(surfaceId, path, contents);
     } else if ('beginRendering' in message) {
         console.log('[A2UI] Processing beginRendering', message.beginRendering);
-        const { surfaceId, root } = message.beginRendering;
+        const { surfaceId, root, catalogId } = message.beginRendering;
+        if (catalogId) a2uiState.setCatalogId(surfaceId, catalogId);
         a2uiState.setRoot(surfaceId, root);
     } else if ('deleteSurface' in message) {
         console.log('[A2UI] Processing deleteSurface', message.deleteSurface);

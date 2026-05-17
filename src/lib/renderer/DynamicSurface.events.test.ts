@@ -91,7 +91,9 @@ describe('Dynamic surface rendering', () => {
 
         expect(events.length).toBe(1);
         expect(events[0].name).toBe('go_yes');
-        expect(events[0].componentId).toBe('btn-1');
+        expect(events[0].sourceComponentId).toBe('btn-1');
         expect(events[0].surfaceId).toBe('test-btn');
+        expect(typeof events[0].timestamp).toBe('string');
+        expect(Number.isNaN(Date.parse(events[0].timestamp))).toBe(false);
     });
 });

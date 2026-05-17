@@ -12,6 +12,8 @@
 		action?: { name: string };
 		onclick?: () => void | Promise<void>;
 		type?: 'button' | 'submit' | 'reset';
+		accessibility?: { label?: string; role?: string };
+		weight?: number;
 		class?: string;
 	}
 
@@ -23,6 +25,8 @@
 		action,
 		onclick,
 		type = 'button',
+		accessibility,
+		weight,
 		class: className = ''
 	}: Props = $props();
 
@@ -40,7 +44,13 @@
 	}>({
 		type: 'Button',
 		id: _componentId,
-		a2ui: () => ({ primary, action, ...(labelId ? { child: labelId } : {}) }),
+		a2ui: () => ({
+			primary,
+			action,
+			...(labelId ? { child: labelId } : {}),
+			...(accessibility ? { accessibility } : {}),
+			...(weight != null ? { weight } : {})
+		}),
 		action: action ? { type: 'click', handler: () => onclick?.() } : undefined
 	});
 
@@ -65,10 +75,12 @@
 {#if !handle.isHidden}
 	<button
 		{...dataAttr}
+		{...handle.a11yAttr}
 		{id}
 		{type}
 		onclick={() => handle.fire()}
 		class="{className} {primary ? '' : 'secondary'}"
+		style={handle.weightStyle}
 	>
 		{#if children}{@render children()}{:else if label}{label}{/if}
 	</button>

@@ -657,3 +657,37 @@ npm start -- gallery
 
 - **[Defining Your Own Catalog](../guides/defining-your-own-catalog.md)**: Build your own components
 - **[Theming Guide](../guides/theming.md)**: Style components to match your brand
+
+---
+
+## Extensions — authoring-only composite components
+
+`a2ui-svelte` ships two helpers that are **not** part of the A2UI v0.8
+standard catalog and are therefore **deliberately excluded from
+`DEFAULT_CATALOG`**. They exist purely for *static-surface authoring* — a
+human developer composes them in a Svelte template, and the agent still sees
+a 100%-spec-compliant component tree.
+
+| Helper | Exported from | Purpose |
+|---|---|---|
+| `AutocompleteField` | `a2ui-svelte/components` | A typeahead input. Registers itself to the agent as a standard **`TextField`** while rendering bespoke autocomplete HTML underneath. |
+| `A2UIRepresentation` | `a2ui-svelte/authoring` | A wrapper that lets a component declare a different (spec-standard) A2UI representation than the HTML it actually renders — the children inside it register with the surface but render nothing. |
+
+### The composite-pattern contract
+
+A *composite component* renders bespoke HTML for the human user, but to the
+agent it MUST appear as one of the 16 standard catalog types. The contract:
+
+1. **Register as a standard type.** Call `defineA2uiComponent({ type: 'TextField' | … })` — never invent a non-standard `type`. The surface JSON the agent receives only ever contains standard component types.
+2. **Keep screen/tree parity.** Everything the agent sees in the tree must be visible on screen, and vice-versa. Use `<A2UIRepresentation>` to register the standard sub-tree; its `isHidden` children render nothing themselves so there is no duplicated/hidden DOM.
+3. **Route interaction through the standard action.** The agent drives the component with the generic tools (`click_button`, `update_text_field`) targeting the standard type's action — the bespoke HTML is a presentation detail only.
+4. **Stay out of `DEFAULT_CATALOG`.** Composites are for static authoring. To make one agent-renderable on a *dynamic* surface, opt in explicitly:
+
+   ```ts
+   import { DEFAULT_CATALOG, extendCatalog } from 'a2ui-svelte/authoring';
+   import { AutocompleteField } from 'a2ui-svelte/components';
+   const MY_CATALOG = extendCatalog(DEFAULT_CATALOG, { AutocompleteField });
+   ```
+
+See the [composite-components guide](../guides/composite-components.md) for a
+full walk-through.

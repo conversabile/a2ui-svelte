@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { a2uiState } from '../core/state.svelte';
 	import { userActionBus } from '../core/registries/event-bus';
-	import { getCatalog } from '../authoring/catalog';
+	import { getCatalogAccessor } from '../authoring/catalog';
 	import { resolveBoundValue, resolvePath } from '../core/bound-value';
 	import Component from './Component.svelte';
 
@@ -12,12 +12,12 @@
 
 	let { surfaceId, id }: Props = $props();
 
-	const catalog = getCatalog();
+	const catalogAccessor = getCatalogAccessor();
 
 	// Reactive derivation of component definition and props
 	let surface = $derived(a2uiState.getSurface(surfaceId));
 	let definition = $derived(surface?.components[id]);
-	let ComponentConstructor = $derived(definition ? catalog[definition.type] : null);
+	let ComponentConstructor = $derived(definition ? catalogAccessor()[definition.type] : null);
 
 	$effect(() => {
 		if (definition) {
@@ -63,7 +63,8 @@
 		userActionBus.emit({
 			name: rawAction.name,
 			surfaceId,
-			componentId: id,
+			sourceComponentId: id,
+			timestamp: new Date().toISOString(),
 			context: resolveActionContext(rawAction.context)
 		});
 	}
@@ -141,13 +142,39 @@
 		Array.isArray(resolvedProps.children) ? resolvedProps.children :
 		(typeof resolvedProps.child === 'string' ? [resolvedProps.child] : undefined)
 	);
+
+	// Flex containers translate each child's spec-standard `weight` common
+	// property into `flex-grow` on a wrapping element (per A2UI v0.8).
+	const isFlexContainer = $derived(
+		definition?.type === 'Row' || definition?.type === 'Column' || definition?.type === 'List'
+	);
+
+	/** Read a child's declared `weight` (a plain number or `{ literalNumber }`). */
+	function childWeight(childId: string): number | undefined {
+		const props = surface?.components[childId]?.properties;
+		const w = props?.weight;
+		if (typeof w === 'number') return w;
+		if (w && typeof w === 'object' && typeof w.literalNumber === 'number') return w.literalNumber;
+		return undefined;
+	}
 </script>
 
+{#snippet renderChild(childId: string)}
+	<Component {surfaceId} id={childId} />
+{/snippet}
+
 {#if definition && ComponentConstructor}
-	<ComponentConstructor {...resolvedProps}>
+	<ComponentConstructor {...resolvedProps} {renderChild}>
 		{#if childIds}
 			{#each childIds as childId (childId)}
-				<Component {surfaceId} id={childId} />
+				{@const w = isFlexContainer ? childWeight(childId) : undefined}
+				{#if w != null}
+					<div class="a2ui-weighted-child" style="flex-grow: {w};">
+						<Component {surfaceId} id={childId} />
+					</div>
+				{:else}
+					<Component {surfaceId} id={childId} />
+				{/if}
 			{/each}
 		{/if}
 	</ComponentConstructor>

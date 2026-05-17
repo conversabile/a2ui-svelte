@@ -15,14 +15,17 @@ Open http://localhost:5173.
 
 ## Routes
 
-- `/` — **Static surface.** Card → Column with a TextField and a primary
-  Button. Try: "fill in the name with Ada and click save".
-- `/canvas` — **Dynamic surface.** Empty `<DynamicSurface>`. Try: "render
-  a card with a yes button and a no button".
-- `/composite` — **Composite component.** Uses `<A2UIRepresentation>`
-  via `SaveTextField`. Try: "type 'hello' and click save". The agent
-  sees a Column→[TextField, Button] and updates value through the
-  bespoke HTML.
+- `/` — **Static surface.** UI you lay out by hand in Svelte; A2UI makes
+  it legible to the agent. Shows all 16 standard components. Try: "set
+  name to Alice, rating to 9, and click Submit".
+- `/canvas` — **Dynamic surface.** An empty `<DynamicSurface>` the agent
+  fills in itself at runtime from a component catalog. Try: "render a
+  card with a yes button and a no button".
+- `/custom-elements` — **Custom elements.** How to build widgets the
+  16-component catalog lacks. Demonstrates the *composite* pattern: a
+  `StarRating` that the agent sees as a plain `MultipleChoice` (via
+  `<A2UIRepresentation>`) while the user sees clickable stars. Try:
+  "give it four stars".
 
 ## What this app demonstrates
 
@@ -33,4 +36,4 @@ Open http://localhost:5173.
 - The `SurfaceFeedback` context for tool-result reporting.
 - CSS variable theming (see `app.css` for indigo override of
   `--a2ui-button-primary-bg`).
-- The `<A2UIRepresentation>` boundary in `lib/SaveTextField.svelte`.
+- The `<A2UIRepresentation>` boundary in `lib/StarRating.svelte`.

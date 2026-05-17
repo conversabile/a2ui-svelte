@@ -7,14 +7,81 @@
 		title: string;
 	}
 
+	/**
+	 * An A2UI `tabItems` entry as it arrives from a dynamic surface's JSON:
+	 * a `title` BoundValue (or plain string) plus the `child` component id.
+	 */
+	interface TabItem {
+		title: string | { literalString?: string; literalNumber?: number };
+		child?: string;
+	}
+
 	interface Props {
 		id?: string;
-		tabs: TabSpec[];
-		content: Snippet<[string]>;
+		/** Static-authoring API: explicit tab list, paired with the `content` snippet. */
+		tabs?: TabSpec[];
+		content?: Snippet<[string]>;
+		/**
+		 * Dynamic-surface API: the A2UI `tabItems` property and the renderer's
+		 * `renderChild` snippet. The renderer passes both when a Tabs is built
+		 * from JSON; `tabs`/`content` are then absent.
+		 */
+		tabItems?: TabItem[];
+		renderChild?: Snippet<[string]>;
+		accessibility?: { label?: string; role?: string };
+		weight?: number;
 		class?: string;
 	}
 
-	let { id, tabs, content, class: className = '' }: Props = $props();
+	let {
+		id,
+		tabs,
+		content,
+		tabItems,
+		renderChild,
+		accessibility,
+		weight,
+		class: className = ''
+	}: Props = $props();
+
+	/** Unwrap a `tabItems` title, which may be a plain string or a BoundValue. */
+	function tabItemTitle(title: TabItem['title']): string {
+		if (typeof title === 'string') return title;
+		if (title && typeof title === 'object') {
+			if (typeof title.literalString === 'string') return title.literalString;
+			if (typeof title.literalNumber === 'number') return String(title.literalNumber);
+		}
+		return '';
+	}
+
+	// Normalise the two input shapes into a single `{ key, title }[]`. On a
+	// dynamic surface the tab key is the child component id — exactly what
+	// `renderChild` expects — so switching tabs and rendering both work off it.
+	const resolvedTabs = $derived.by<TabSpec[]>(() => {
+		if (tabs && tabs.length) return tabs;
+		if (tabItems && tabItems.length) {
+			return tabItems.map((t, i) => ({
+				key: typeof t.child === 'string' ? t.child : String(i),
+				title: tabItemTitle(t.title)
+			}));
+		}
+		return [];
+	});
+
+	let activeIndex = $state(0);
+
+	// Resolve an agent-supplied selector (tab key, title, or numeric index)
+	// to a tab index. Returns -1 when nothing matches.
+	function resolveTabIndex(selector: string): number {
+		const trimmed = selector.trim();
+		const byKeyOrTitle = resolvedTabs.findIndex(
+			(t) => t.key === trimmed || t.title.toLowerCase() === trimmed.toLowerCase()
+		);
+		if (byKeyOrTitle >= 0) return byKeyOrTitle;
+		const asNum = Number(trimmed);
+		if (Number.isInteger(asNum) && asNum >= 0 && asNum < resolvedTabs.length) return asNum;
+		return -1;
+	}
 
 	// `tabItems` is registered with titles only; SurfaceRegistry.toJSON()
 	// pairs them with the children registered under this Tabs (order = tab order).
@@ -22,22 +89,41 @@
 		type: 'Tabs',
 		id,
 		a2ui: () => ({
-			tabItems: tabs.map((t) => ({ title: { literalString: t.title } }))
+			tabItems: resolvedTabs.map((t) => ({ title: { literalString: t.title } })),
+			...(accessibility ? { accessibility } : {}),
+			...(weight != null ? { weight } : {})
 		}),
-		isContainer: true
+		isContainer: true,
+		// Lets the agent switch the active panel via `update_text_field`,
+		// passing a tab title, key, or index as the value.
+		action: {
+			type: 'update',
+			handler: (next: string): unknown => {
+				const idx = resolveTabIndex(String(next));
+				if (idx < 0) {
+					return {
+						field: id ?? 'tabs',
+						message: `No tab matching "${next}". Available tabs: ${resolvedTabs.map((t) => t.title).join(', ')}.`
+					};
+				}
+				activeIndex = idx;
+				return {
+					field: id ?? 'tabs',
+					message: `Switched to the "${resolvedTabs[idx].title}" tab.`
+				};
+			}
+		}
 	});
 
-	let activeIndex = $state(0);
-
 	$effect(() => {
-		if (activeIndex >= tabs.length) activeIndex = 0;
+		if (activeIndex >= resolvedTabs.length) activeIndex = 0;
 	});
 
 	function attachReveal(node: HTMLElement) {
 		const handler = (e: Event) => {
 			const detail = (e as CustomEvent<{ index: number }>).detail;
 			if (!detail) return;
-			if (detail.index >= 0 && detail.index < tabs.length) {
+			if (detail.index >= 0 && detail.index < resolvedTabs.length) {
 				activeIndex = detail.index;
 			}
 		};
@@ -53,15 +139,33 @@
 	export const componentId = handle.componentId;
 </script>
 
+<!-- Render a tab's body via whichever slot the host provided: the static
+     `content` snippet (keyed by tab key) or the dynamic `renderChild`
+     snippet (keyed by the child component id). -->
+{#snippet tabBody(key: string)}
+	{#if content}
+		{@render content(key)}
+	{:else if renderChild}
+		{@render renderChild(key)}
+	{/if}
+{/snippet}
+
 {#if handle.isHidden}
 	<!-- Inside <A2UIRepresentation>: still render content snippets so descendants register -->
-	{#each tabs as tab (tab.key)}
-		{@render content(tab.key)}
+	{#each resolvedTabs as tab (tab.key)}
+		{@render tabBody(tab.key)}
 	{/each}
 {:else}
-	<div class="tabs {className}" {...dataAttr} data-a2ui-tabs-root use:attachReveal>
+	<div
+		class="tabs {className}"
+		{...dataAttr}
+		{...handle.a11yAttr}
+		style={handle.weightStyle}
+		data-a2ui-tabs-root
+		use:attachReveal
+	>
 		<div class="tab-headers" role="tablist">
-			{#each tabs as tab, i (tab.key)}
+			{#each resolvedTabs as tab, i (tab.key)}
 				<button
 					type="button"
 					role="tab"
@@ -75,7 +179,7 @@
 			{/each}
 		</div>
 		<div class="tab-panels">
-			{#each tabs as tab, i (tab.key)}
+			{#each resolvedTabs as tab, i (tab.key)}
 				<div
 					class="tab-panel"
 					class:active={activeIndex === i}
@@ -83,7 +187,7 @@
 					data-a2ui-tab-panel-index={i}
 					aria-hidden={activeIndex !== i}
 				>
-					{@render content(tab.key)}
+					{@render tabBody(tab.key)}
 				</div>
 			{/each}
 		</div>

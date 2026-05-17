@@ -134,14 +134,24 @@ Every text/number/boolean property on a component MUST be wrapped in a **value o
 Never invent mustache/handlebars placeholders like \`{{foo}}\` — A2UI does not interpolate strings. If you want a dynamic value, use \`{ "path": "/foo" }\` and push the value with \`dataModelUpdate\`.
 
 ### Available component types
-Component definitions are wrapped under their type key. Properties use value objects as described above.
-- **Text**: \`{ "Text": { "text": <valueObject>, "usageHint": "h1" | "h2" | "h3" | "body" | "caption" } }\`
+The full A2UI v0.8 standard catalog (16 component types). Component definitions are wrapped under their type key. Properties use value objects as described above.
+- **Text**: \`{ "Text": { "text": <valueObject>, "usageHint": "h1" | "h2" | "h3" | "h4" | "h5" | "body" | "caption" } }\`
+- **Image**: \`{ "Image": { "url": <valueObject>, "fit": "cover" | "contain" | "fill" | "none" | "scaleDown", "usageHint": "<free-form hint>" } }\`
+- **Icon**: \`{ "Icon": { "name": <valueObject> } }\` — \`name\` is one of: check, x, plus, minus, search, menu, home, user, calendar, clock, trash, edit, info, alert, star, heart, mail, settings, chevron-right, chevron-left, chevron-down, chevron-up
+- **Divider**: \`{ "Divider": { "axis": "horizontal" | "vertical" } }\`  (visual separator)
 - **Button**: \`{ "Button": { "primary": true, "child": "<id-of-child-component>", "action": { "name": "my_action" } } }\`
   *(\`child\` is an ID reference to another component — typically a Text — not a raw string)*
-- **Column**: \`{ "Column": { "children": { "explicitList": ["<id1>", "<id2>"] } } }\`  (vertical stack)
-- **Row**: \`{ "Row": { "children": { "explicitList": ["<id1>", "<id2>"] } } }\`  (horizontal)
-- **Card**: \`{ "Card": { "children": { "explicitList": ["<id1>"] } } }\`  (card container)
-- **TextField**: \`{ "TextField": { "label": <valueObject>, "text": <valueObject>, "textFieldType": "shortText" | "longText" | "number" | "date" | "time" | "obscured" } }\` — use \`"time"\` for HH:MM time inputs (values are strings like \`"12:30"\`)
+- **TextField**: \`{ "TextField": { "label": <valueObject>, "text": <valueObject>, "textFieldType": "shortText" | "longText" | "number" | "date" | "obscured" } }\`
+- **CheckBox**: \`{ "CheckBox": { "label": <valueObject>, "value": <valueObject (boolean)> } }\`
+- **Slider**: \`{ "Slider": { "value": <valueObject (number)>, "minValue": 0, "maxValue": 100 } }\`
+- **DateTimeInput**: \`{ "DateTimeInput": { "value": <valueObject>, "enableDate": true, "enableTime": false } }\` — set \`enableTime: true\` for HH:MM time capture; \`enableDate: false, enableTime: true\` for time-only
+- **MultipleChoice**: \`{ "MultipleChoice": { "options": [ { "label": <valueObject>, "value": "<v>" } ], "selections": { "path": "/..." }, "maxAllowedSelections": 1 } }\`
+- **Column**: \`{ "Column": { "children": { "explicitList": ["<id1>", "<id2>"] }, "distribution": "start", "alignment": "stretch" } }\`  (vertical stack)
+- **Row**: \`{ "Row": { "children": { "explicitList": ["<id1>", "<id2>"] }, "distribution": "start", "alignment": "center" } }\`  (horizontal)
+- **List**: \`{ "List": { "children": { "explicitList": ["<id1>", "<id2>"] }, "direction": "vertical" | "horizontal" } }\`
+- **Card**: \`{ "Card": { "child": "<id1>" } }\`  (single-child card container — wrap multiple elements in a Column/Row)
+- **Modal**: \`{ "Modal": { "entryPointChild": "<id-of-trigger>", "contentChild": "<id-of-overlay-content>" } }\`
+- **Tabs**: \`{ "Tabs": { "tabItems": [ { "title": <valueObject>, "child": "<id>" } ] } }\`
 
 ### The dataModelUpdate tool (A2UI v0.8)
 \`dataModelUpdate\` takes:
@@ -231,7 +241,8 @@ You will get a realtime text message shaped like:
   "userAction": {
     "name": "save_mise_en_place",
     "surfaceId": "${fallbackId}",
-    "componentId": "save-btn",
+    "sourceComponentId": "save-btn",
+    "timestamp": "2026-05-16T14:32:07.000Z",
     "context": {
       "text": "**Linee guida**\\n1. Tovagliato …",
       "restaurantId": "abc123"

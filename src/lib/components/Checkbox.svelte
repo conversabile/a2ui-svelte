@@ -10,6 +10,8 @@
 		checked?: boolean;
 		onchange?: (next: boolean) => void | Promise<void>;
 		disabled?: boolean;
+		accessibility?: { label?: string; role?: string };
+		weight?: number;
 		class?: string;
 		/** Internal: injected by the dynamic-surface renderer; see TextField. */
 		_a2uiSetters?: Record<string, (value: unknown) => void>;
@@ -22,6 +24,8 @@
 		checked = $bindable(false),
 		onchange,
 		disabled = false,
+		accessibility,
+		weight,
 		class: className = '',
 		_a2uiSetters
 	}: Props = $props();
@@ -35,7 +39,9 @@
 		id: id ?? fieldName,
 		a2ui: () => ({
 			label: { literalString: label },
-			value: fieldName ? { path: `/${fieldName}` } : { literalBoolean: checked }
+			value: fieldName ? { path: `/${fieldName}` } : { literalBoolean: checked },
+			...(accessibility ? { accessibility } : {}),
+			...(weight != null ? { weight } : {})
 		}),
 		data: fieldName ? { key: fieldName, value: () => checked } : undefined,
 		action: {
@@ -82,7 +88,7 @@
 </script>
 
 {#if !handle.isHidden}
-	<label class="checkbox {className}" {...dataAttr}>
+	<label class="checkbox {className}" {...dataAttr} {...handle.a11yAttr} style={handle.weightStyle}>
 		<input type="checkbox" {id} {checked} {disabled} onchange={handleChange} />
 		<span class="label-text">{label}</span>
 	</label>

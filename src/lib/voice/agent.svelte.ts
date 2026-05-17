@@ -425,7 +425,8 @@ export class VoiceAgent {
 			userAction: {
 				name: action.name,
 				surfaceId: action.surfaceId,
-				componentId: action.componentId,
+				sourceComponentId: action.sourceComponentId,
+				timestamp: action.timestamp,
 				context: action.context
 			}
 		};

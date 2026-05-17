@@ -68,6 +68,22 @@ export interface A2uiComponentHandle<P extends A2uiProperties = A2uiProperties> 
 	readonly dataAttr: Record<string, string>;
 
 	/**
+	 * Accessibility attributes derived from the spec-standard `accessibility`
+	 * common property (`{ label, role }`). Spread on the rendered HTML root
+	 * alongside `dataAttr`: `<p {...dataAttr} {...a11yAttr}>`. Empty when the
+	 * component declares no `accessibility`.
+	 */
+	readonly a11yAttr: Record<string, string>;
+
+	/**
+	 * CSS declaration translating the spec-standard `weight` common property
+	 * into `flex-grow`, so a component placed inside a Row/Column/List can
+	 * claim proportional space. Empty string when no `weight` is declared.
+	 * Apply via `style={weightStyle}` on the rendered HTML root.
+	 */
+	readonly weightStyle: string;
+
+	/**
 	 * `true` when this component lives inside an `<A2UIRepresentation>` —
 	 * the template should suppress its visible markup.
 	 */
@@ -145,6 +161,23 @@ export function defineA2uiComponent<P extends A2uiProperties = A2uiProperties>(
 		? { 'data-a2ui-id': componentId }
 		: {};
 
+	// Honour the spec-standard common properties `accessibility` and `weight`.
+	// Both are read from the component's declared A2UI properties so they are
+	// also serialized into the surface JSON. They are treated as static here
+	// (a reactive accessibility label is vanishingly rare); the probe call is
+	// a pure thunk so calling it once more is cheap.
+	const commonProbe = opts.a2ui();
+	const a11yAttr: Record<string, string> = {};
+	const accessibility = commonProbe?.accessibility as
+		| { label?: string; role?: string }
+		| undefined;
+	if (accessibility && typeof accessibility === 'object') {
+		if (typeof accessibility.label === 'string') a11yAttr['aria-label'] = accessibility.label;
+		if (typeof accessibility.role === 'string') a11yAttr['role'] = accessibility.role;
+	}
+	const weight = commonProbe?.weight;
+	const weightStyle = typeof weight === 'number' ? `flex-grow: ${weight};` : '';
+
 	const resolved = $derived.by(() => unwrapProperties(opts.a2ui()) as P);
 
 	const fire = async (value?: string): Promise<unknown> => {
@@ -171,6 +204,8 @@ export function defineA2uiComponent<P extends A2uiProperties = A2uiProperties>(
 	return {
 		componentId,
 		dataAttr,
+		a11yAttr,
+		weightStyle,
 		isHidden,
 		get resolved() {
 			return resolved;

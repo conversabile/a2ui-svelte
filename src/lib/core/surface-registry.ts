@@ -117,6 +117,13 @@ export class SurfaceRegistry {
                 } else {
                     delete clone.component.Card.child;
                 }
+            } else if (type === 'Modal') {
+                // Per A2UI spec, Modal references an `entryPointChild` and a
+                // `contentChild` by id. Modal.svelte registers them as its
+                // first and second children (entry point, then content).
+                const children = this.childrenByParent.get(comp.id) || [];
+                if (children[0]) clone.component.Modal.entryPointChild = children[0];
+                if (children[1]) clone.component.Modal.contentChild = children[1];
             } else if (type === 'Tabs') {
                 // Per A2UI spec, Tabs.tabItems is an array of { title, child }.
                 // Tabs.svelte registers tabItems with titles only; pair them here with

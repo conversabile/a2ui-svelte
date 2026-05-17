@@ -20,8 +20,13 @@ export interface UserAction {
     name: string;
     /** The surface that originated the interaction. */
     surfaceId: string;
-    /** The ID of the component that triggered the action. */
-    componentId: string;
+    /**
+     * The ID of the component that triggered the action. Named
+     * `sourceComponentId` to match the A2UI v0.8 `userAction` event schema.
+     */
+    sourceComponentId: string;
+    /** ISO-8601 timestamp of when the interaction occurred (spec-mandated). */
+    timestamp: string;
     /**
      * Resolved context payload — map of key → value, where every BoundValue
      * in the original `action.context` has already been resolved against the

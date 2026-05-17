@@ -17,12 +17,26 @@ export type Catalog = Record<string, Component<any>>;
 
 const CATALOG_KEY = Symbol('a2ui:catalog');
 
-export function setCatalog(catalog: Catalog): void {
-	setContext(CATALOG_KEY, catalog);
+/**
+ * The context value is an accessor thunk rather than a plain catalog so the
+ * renderer can react to per-surface catalog selection — a `<DynamicSurface>`
+ * resolves its catalog from `surface.catalogId` (set by `beginRendering`),
+ * which arrives *after* component init. Reading it through a thunk inside a
+ * `$derived` keeps the renderer reactive to that late selection.
+ */
+type CatalogAccessor = () => Catalog;
+
+export function setCatalog(catalog: Catalog | CatalogAccessor): void {
+	const accessor: CatalogAccessor = typeof catalog === 'function' ? catalog : () => catalog;
+	setContext(CATALOG_KEY, accessor);
 }
 
-export function getCatalog(): Catalog {
-	const c = getContext<Catalog | undefined>(CATALOG_KEY);
+/**
+ * Returns the catalog accessor from context. Call the returned thunk inside
+ * a reactive scope (`$derived`) so catalog switches are picked up.
+ */
+export function getCatalogAccessor(): CatalogAccessor {
+	const c = getContext<CatalogAccessor | undefined>(CATALOG_KEY);
 	if (!c) {
 		throw new Error(
 			'[a2ui-svelte] No catalog in context. ' +
@@ -31,6 +45,11 @@ export function getCatalog(): Catalog {
 		);
 	}
 	return c;
+}
+
+/** Convenience: resolve the current catalog once (non-reactive). */
+export function getCatalog(): Catalog {
+	return getCatalogAccessor()();
 }
 
 /**

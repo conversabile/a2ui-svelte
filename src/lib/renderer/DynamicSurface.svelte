@@ -8,17 +8,36 @@
 
 	interface Props {
 		surfaceId: string;
-		/** Catalog mapping A2UI type names → Svelte components. Defaults to DEFAULT_CATALOG. */
+		/**
+		 * Catalog mapping A2UI type names → Svelte components, used as the
+		 * default / fallback. Defaults to DEFAULT_CATALOG.
+		 */
 		catalog?: Catalog;
+		/**
+		 * Optional registry of named catalogs. When the agent's `beginRendering`
+		 * declares a `catalogId`, the matching entry here is used; otherwise the
+		 * `'standard'` entry (if present) or the `catalog` prop is used.
+		 */
+		catalogs?: Record<string, Catalog>;
 	}
 
-	let { surfaceId, catalog = DEFAULT_CATALOG }: Props = $props();
-
-	// Make the catalog available to descendant <Component> instances via context.
-	setCatalog(catalog);
+	let { surfaceId, catalog = DEFAULT_CATALOG, catalogs }: Props = $props();
 
 	// Dynamic mode: read from a2uiState
 	let surface = $derived(a2uiState.getSurface(surfaceId));
+
+	/**
+	 * Resolve the active catalog from the surface's declared `catalogId`.
+	 * `catalogId` arrives with `beginRendering` (after init), so this is
+	 * reactive — the catalog context holds a thunk that reads it.
+	 */
+	const resolvedCatalog = $derived.by<Catalog>(() => {
+		const id = surface?.catalogId ?? 'standard';
+		return catalogs?.[id] ?? catalogs?.['standard'] ?? catalog;
+	});
+
+	// Make the catalog available to descendant <Component> instances via context.
+	setCatalog(() => resolvedCatalog);
 
 	// Expose properties for GeminiLive
 	export const id = surfaceId;

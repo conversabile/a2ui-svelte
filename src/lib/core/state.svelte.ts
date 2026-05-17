@@ -49,6 +49,7 @@ class Surface implements ISurfaceState {
     components = $state<Record<string, ComponentDefinition>>({});
     data = $state<Record<string, any>>({});
     isRendering = $state(false);
+    catalogId = $state<string | undefined>(undefined);
 
     constructor(id: string) {
         this.id = id;
@@ -89,6 +90,17 @@ class A2UIStateManager {
         const surface = this.getOrCreateSurface(surfaceId);
         surface.rootId = rootId;
         surface.isRendering = true;
+    }
+
+    /**
+     * Record the catalog the agent declared for a surface (from the
+     * `catalogId` field of `beginRendering`). `<DynamicSurface>` uses it
+     * to select a catalog from its `catalogs` registry.
+     */
+    setCatalogId(surfaceId: string, catalogId: string) {
+        console.log(`[A2UI] Setting catalogId for ${surfaceId} to ${catalogId}`);
+        const surface = this.getOrCreateSurface(surfaceId);
+        surface.catalogId = catalogId;
     }
 
     updateData(

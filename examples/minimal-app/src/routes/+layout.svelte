@@ -44,10 +44,15 @@
 
 <header>
 	<h1>a2ui-svelte minimal app</h1>
+	<p class="intro">
+		A2UI lets a human and an AI voice agent operate the <em>same</em> Svelte
+		UI at once. Each tab below demonstrates one way to build that UI — open
+		one and use the voice button in the corner to talk to the agent.
+	</p>
 	<nav>
 		<a href="/">Static surface</a>
 		<a href="/canvas">Dynamic surface</a>
-		<a href="/composite">Composite</a>
+		<a href="/custom-elements">Custom elements</a>
 	</nav>
 </header>
 
@@ -71,6 +76,11 @@
 	h1 {
 		margin: 0 0 0.5rem;
 		font-size: 1.4rem;
+	}
+	.intro {
+		margin: 0 0 0.75rem;
+		font-size: 0.9rem;
+		color: var(--a2ui-muted-color, #888);
 	}
 	main {
 		padding-bottom: 6rem;

@@ -9,11 +9,17 @@
 		value?: string;
 		/** A2UI dynamic surface alias for value */
 		text?: string;
-		textFieldType?: 'shortText' | 'longText' | 'number' | 'date' | 'time' | 'obscured';
+		/**
+		 * A2UI v0.8 standard TextField types. For time capture use the
+		 * dedicated `DateTimeInput` component (`enableDate=false`).
+		 */
+		textFieldType?: 'shortText' | 'longText' | 'number' | 'date' | 'obscured';
 		/** Field name used for data binding and action registration */
 		fieldName?: string;
 		onchange?: (value: string) => void;
 		placeholder?: string;
+		accessibility?: { label?: string; role?: string };
+		weight?: number;
 		class?: string;
 		disabled?: boolean;
 		/**
@@ -42,6 +48,8 @@
 		fieldName,
 		onchange,
 		placeholder = '',
+		accessibility,
+		weight,
 		class: className = '',
 		disabled = false,
 		inline = false,
@@ -82,7 +90,9 @@
 		a2ui: () => ({
 			label: label ? { literalString: label } : undefined,
 			text: fieldName ? { path: `/${fieldName}` } : { literalString: value },
-			textFieldType
+			textFieldType,
+			...(accessibility ? { accessibility } : {}),
+			...(weight != null ? { weight } : {})
 		}),
 		data: fieldName ? { key: fieldName, value: () => value } : undefined,
 		action: fieldName
@@ -145,11 +155,9 @@
 			? 'number'
 			: textFieldType === 'date'
 				? 'date'
-				: textFieldType === 'time'
-					? 'time'
-					: textFieldType === 'obscured'
-						? 'password'
-						: 'text'
+				: textFieldType === 'obscured'
+					? 'password'
+					: 'text'
 	);
 
 	async function enterInlineEdit() {
@@ -202,7 +210,7 @@
 {#if handle.isHidden}
 	<!-- Hidden inside <A2UIRepresentation>: registers but renders nothing visible. -->
 {:else if inline}
-	<span class="inline-field {className}" {id} {...dataAttr}>
+	<span class="inline-field {className}" {id} {...dataAttr} {...handle.a11yAttr} style={handle.weightStyle}>
 		{#if isEditing}
 			<input
 				bind:this={inlineInputEl}
@@ -226,7 +234,7 @@
 		{#if suffix}<span class="inline-suffix">{suffix}</span>{/if}
 	</span>
 {:else}
-<div class="text-field-container {className}" {id} {...dataAttr}>
+<div class="text-field-container {className}" {id} {...dataAttr} {...handle.a11yAttr} style={handle.weightStyle}>
 	{#if label}
 		<div class="field-header">
 			<label>{label}</label>
@@ -269,15 +277,6 @@
 	{:else if textFieldType === 'date'}
 		<input
 			type="date"
-			{placeholder}
-			{disabled}
-			value={value}
-			oninput={handleInput}
-			onblur={handleBlur}
-		/>
-	{:else if textFieldType === 'time'}
-		<input
-			type="time"
 			{placeholder}
 			{disabled}
 			value={value}

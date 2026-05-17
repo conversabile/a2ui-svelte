@@ -50,4 +50,10 @@ export interface SurfaceState {
     components: Record<string, ComponentDefinition>;
     data: Record<string, any>;
     isRendering: boolean;
+    /**
+     * Catalog the agent declared for this surface in `beginRendering`.
+     * Used by `<DynamicSurface>` to pick a catalog from its `catalogs`
+     * registry. Defaults to `'standard'` when the agent omits it.
+     */
+    catalogId?: string;
 }

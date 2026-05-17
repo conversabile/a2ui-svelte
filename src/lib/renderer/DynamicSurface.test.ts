@@ -19,6 +19,36 @@ describe('DynamicSurface catalog', () => {
 		expect(getByText('hello')).toBeTruthy();
 	});
 
+	it('renders a Tabs built from JSON, pairing tabItems with their child components', async () => {
+		a2uiState.getOrCreateSurface('tabs');
+		a2uiState.updateComponent('tabs', 'tabs-root', {
+			type: 'Tabs',
+			properties: {
+				tabItems: [
+					{ title: { literalString: 'First' }, child: 'panel-a' },
+					{ title: { literalString: 'Second' }, child: 'panel-b' }
+				]
+			}
+		});
+		a2uiState.updateComponent('tabs', 'panel-a', {
+			type: 'Text',
+			properties: { text: { literalString: 'Panel A body' } }
+		});
+		a2uiState.updateComponent('tabs', 'panel-b', {
+			type: 'Text',
+			properties: { text: { literalString: 'Panel B body' } }
+		});
+		a2uiState.setRoot('tabs', 'tabs-root');
+
+		const { getByText } = render(DynamicSurface, { surfaceId: 'tabs' });
+		// Tab headers carry the resolved titles…
+		expect(getByText('First')).toBeTruthy();
+		expect(getByText('Second')).toBeTruthy();
+		// …and each panel's child component is rendered via `renderChild`.
+		expect(getByText('Panel A body')).toBeTruthy();
+		expect(getByText('Panel B body')).toBeTruthy();
+	});
+
 	it('renders the missing-component warning when the type is not in the catalog', async () => {
 		a2uiState.getOrCreateSurface('missing');
 		a2uiState.updateComponent('missing', 'root', {

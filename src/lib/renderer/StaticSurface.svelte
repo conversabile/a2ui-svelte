@@ -108,7 +108,7 @@
 	registry.registerTool({
 		name: 'update_text_field',
 		description:
-			'Update one or more text field values in the UI. Each element_id must match a TextField component ID from the surface JSON.',
+			'Update the value of one or more input components in the UI. Works for any value-bearing component: TextField, Slider, DateTimeInput, CheckBox, MultipleChoice, and Tabs. Each element_id must match a component ID from the surface JSON. Pass the new value as a string — a number for Slider, an ISO date/time for DateTimeInput, "true"/"false" for CheckBox, an option value for MultipleChoice, or a tab title for Tabs.',
 		parameters: {
 			type: 'object',
 			properties: {
