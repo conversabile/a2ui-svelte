@@ -161,6 +161,22 @@ GEMINI_API_KEY=... pnpm --filter minimal-app dev
 - [Theming](docs/guides/theming.md)
 - [Voice integration](docs/guides/voice-integration.md)
 
+## Releasing
+
+Versioning is handled by [`standard-version`](https://github.com/conventional-changelog/standard-version). To cut a new release:
+
+```bash
+pnpm run release
+```
+
+This bumps `package.json`, regenerates `CHANGELOG.md`, and triggers a `precommit` hook that syncs `src/lib/version.json` (exposed as `a2ui-svelte/version`) with the new version and release date.
+
+Dry run (no commits, no tags, no file writes): `pnpm run release:dry`.
+
+> Don't use `pnpm run release -- --dry-run` — pnpm forwards the literal `--`,
+> which `standard-version` (yargs) treats as the end-of-options marker, so the
+> `--dry-run` flag silently gets discarded and a real release goes through.
+
 ## License
 
 MIT

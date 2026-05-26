@@ -18,6 +18,13 @@ All notable changes to this project will be documented in this file. See [standa
 * fix button click actions in dynamic surfaces ([2287350](https://github.com/conversabile/a2ui-svelte/commit/22873505849a7e8d79cc86cf36cb41cd4c4b0ea1))
 * fix text field interactions in dynamic surfaces ([0f208a6](https://github.com/conversabile/a2ui-svelte/commit/0f208a6433eb624b5ba97712ba616024c88f2938))
 
+
+### Refactors
+
+* split responsibilities of the GeminiLive component into transport, agent and shell ([4493045](https://github.com/conversabile/a2ui-svelte/commit/4493045))
+* implement pluggable component catalogs ([25f4a96](https://github.com/conversabile/a2ui-svelte/commit/25f4a96))
+* replace gemini-session with a callback pattern to decouple from Svelte state management ([cf113dc](https://github.com/conversabile/a2ui-svelte/commit/cf113dc))
+
 ## 0.0.1 (2026-05-10)
 
 ### Features

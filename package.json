@@ -12,6 +12,7 @@
 		"format": "prettier --write .",
 		"test": "vitest",
 		"release": "standard-version",
+		"release:dry": "standard-version --dry-run",
 		"update-version-file": "node scripts/update-version.js"
 	},
 	"exports": {
@@ -100,6 +101,19 @@
 		],
 		"scripts": {
 			"precommit": "node scripts/update-version.js && git add src/lib/version.json"
-		}
+		},
+		"types": [
+			{ "type": "feat", "section": "Features" },
+			{ "type": "fix", "section": "Bug Fixes" },
+			{ "type": "refactor", "section": "Refactors" },
+			{ "type": "perf", "section": "Performance" },
+			{ "type": "revert", "section": "Reverts" },
+			{ "type": "docs", "section": "Documentation", "hidden": true },
+			{ "type": "style", "hidden": true },
+			{ "type": "chore", "hidden": true },
+			{ "type": "test", "hidden": true },
+			{ "type": "build", "hidden": true },
+			{ "type": "ci", "hidden": true }
+		]
 	}
 }
