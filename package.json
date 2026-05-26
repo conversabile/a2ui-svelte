@@ -1,6 +1,6 @@
 {
 	"name": "a2ui-svelte",
-	"version": "0.0.0",
+	"version": "0.0.1",
 	"type": "module",
 	"license": "MIT",
 	"scripts": {
@@ -10,7 +10,9 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "eslint .",
 		"format": "prettier --write .",
-		"test": "vitest"
+		"test": "vitest",
+		"release": "standard-version",
+		"update-version-file": "node scripts/update-version.js"
 	},
 	"exports": {
 		"./core": {
@@ -45,7 +47,8 @@
 			"import": "./dist/voice/gemini/index.js"
 		},
 		"./skills": "./dist/skills/index.json",
-		"./skills/*": "./dist/skills/*.md"
+		"./skills/*": "./dist/skills/*.md",
+		"./version": "./dist/version.json"
 	},
 	"files": [
 		"dist"
@@ -77,7 +80,8 @@
 		"typescript": "^5.9.3",
 		"typescript-eslint": "^8.53.1",
 		"vite": "^7.3.1",
-		"vitest": "^4.0.18"
+		"vitest": "^4.0.18",
+		"standard-version": "^9.5.0"
 	},
 	"pnpm": {
 		"onlyBuiltDependencies": [
@@ -85,5 +89,17 @@
 			"esbuild",
 			"protobufjs"
 		]
+	},
+	"standard-version": {
+		"bumpFiles": [
+			"package.json",
+			{
+				"filename": "src/lib/version.json",
+				"type": "json"
+			}
+		],
+		"scripts": {
+			"precommit": "node scripts/update-version.js && git add src/lib/version.json"
+		}
 	}
 }
