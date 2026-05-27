@@ -46,6 +46,25 @@ literal when Pico isn't loaded.
 | `--a2ui-shell-border`          | `--pico-muted-border-color`              | `<VoiceShell>` border          |
 | `--a2ui-shell-glow`            | `--pico-primary-focus`                   | `<VoiceShell>` active glow     |
 | `--a2ui-shell-border-active`   | `--pico-primary-border`                  | `<VoiceShell>` active border   |
+| `--a2ui-shell-left`            | `0`                                      | `<VoiceShell>` left inset (e.g. for a sidebar layout) |
+| `--a2ui-shell-right`           | `0`                                      | `<VoiceShell>` right inset      |
+
+The shell is `position: fixed` and spans the full viewport width by default.
+If your app has a fixed sidebar or right panel, set `--a2ui-shell-left` /
+`--a2ui-shell-right` on any ancestor (typically `:root`) to inset the bar so
+it aligns with your main content area. Because CSS custom properties cascade
+through the DOM (not the layout tree), the values reach the shell even though
+it's fixed-positioned. Combine with a media query to collapse the inset on
+small screens:
+
+```css
+:root {
+  --a2ui-shell-left: 280px; /* matches your sidebar width */
+}
+@media (max-width: 768px) {
+  :root { --a2ui-shell-left: 0; }
+}
+```
 
 ### Override example
 

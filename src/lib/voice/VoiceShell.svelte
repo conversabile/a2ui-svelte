@@ -202,8 +202,12 @@
 	.a2ui-voice-shell {
 		position: fixed;
 		bottom: 0;
-		left: clamp(220px, 18vw, 450px);
-		right: 0;
+		/* Defaults to full-width. Apps with a side layout (e.g. fixed sidebar)
+		   can inset the shell by setting `--a2ui-shell-left` / `--a2ui-shell-right`
+		   on any ancestor — CSS custom properties cascade through the DOM tree
+		   regardless of position:fixed. */
+		left: var(--a2ui-shell-left, 0);
+		right: var(--a2ui-shell-right, 0);
 		background: var(--a2ui-shell-bg, var(--pico-card-background-color));
 		border-top: 1px solid var(--a2ui-shell-border, var(--pico-muted-border-color));
 		z-index: 999;
@@ -211,12 +215,6 @@
 		transition:
 			box-shadow 0.3s ease,
 			border-top-color 0.3s ease;
-	}
-
-	@media (max-width: 768px) {
-		.a2ui-voice-shell {
-			left: 0;
-		}
 	}
 
 	.a2ui-voice-shell.glowing {
