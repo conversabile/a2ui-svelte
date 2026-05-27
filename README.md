@@ -23,29 +23,55 @@ The library ships:
 pnpm add a2ui-svelte
 ```
 
+One file — a surface the human can use and a voice agent that can drive
+the same surface, with all defaults enabled:
+
 ```svelte
 <!-- src/routes/+page.svelte -->
 <script lang="ts">
   import { StaticSurface } from 'a2ui-svelte/renderer';
   import { Card, Column, TextField, Button } from 'a2ui-svelte/components';
+  import { VoiceAgent, VoiceShell } from 'a2ui-svelte/voice';
+  import { GeminiTransport } from 'a2ui-svelte/voice/gemini';
   import 'a2ui-svelte/renderer/styles.css';
 
+  let surface: ReturnType<typeof StaticSurface>;
   let name = $state('');
+
+  const agent = new VoiceAgent({
+    transport:           new GeminiTransport(),
+    surfaces:            () => (surface ? [surface] : []),
+    contextInstructions: () => 'The user can set their name here.',
+    systemInstruction:   'You are a friendly assistant.',
+    mintToken: async () =>
+      (await (await fetch('/api/voice-token', { method: 'POST' })).json()).token
+  });
 </script>
 
-<StaticSurface surfaceId="hello">
-  <Card>
-    <Column>
-      <TextField id="name" fieldName="name" label="Name" bind:value={name} />
-      <Button id="save" primary label="Save"
-              action={{ name: 'save' }}
-              onclick={() => alert(`Hi ${name}!`)} />
-    </Column>
-  </Card>
+<StaticSurface bind:this={surface} surfaceId="hello">
+  <Card><Column>
+    <TextField id="name" fieldName="name" label="Name" bind:value={name} />
+    <Button id="save" primary label="Save"
+            action={{ name: 'save' }}
+            onclick={() => alert(`Hi ${name}!`)} />
+  </Column></Card>
 </StaticSurface>
+
+<VoiceShell {agent} />
 ```
 
-To wire a voice agent, see [docs/guides/voice-integration.md](docs/guides/voice-integration.md).
+You'll also need a `/api/voice-token` endpoint that mints a short-lived
+Gemini token (server-side, keeps your API key out of the browser).
+
+**Next steps:**
+
+- The [voice integration guide](docs/guides/voice-integration.md) for
+  the token endpoint, the production layout pattern (session store +
+  layout-level agent), and how to write your own transport.
+- The [`examples/minimal-app/`](examples/minimal-app/README.md) for a
+  runnable SvelteKit project exercising every public API.
+- The [guides](docs/guides/) for authoring components, composites,
+  theming.
 
 ## Concepts
 
@@ -67,6 +93,40 @@ To wire a voice agent, see [docs/guides/voice-integration.md](docs/guides/voice-
 
 Read the [guides](docs/guides/) for depth — authoring components,
 composites, theming, voice integration.
+
+## A2UI v0.8 compatibility
+
+`a2ui-svelte` is **100% compatible** with the
+[A2UI v0.8 specification](docs/specification/v0.8-a2ui.md) on its
+default surface wire. A spec-compliant external system can render to
+and receive events from an `a2ui-svelte` app without surprises:
+
+- **All 16 standard catalog components** with their spec-defined props
+  (Text, Image, Icon, Divider, Button, TextField, CheckBox, Slider,
+  DateTimeInput, MultipleChoice, Row, Column, List, Card, Modal, Tabs).
+- **All four server→client message kinds** — `surfaceUpdate`,
+  `beginRendering`, `dataModelUpdate`, `deleteSurface`.
+- **Both client→server events** — `userAction` (with the spec-mandated
+  `{ name, surfaceId, sourceComponentId, timestamp, context }` shape)
+  and `error`.
+- **Spec-canonical generic tools** — `click_button({element_id})` and
+  `update_text_field({element_id, value})`.
+- **Catalog selection handshake** — client capabilities under
+  `a2uiClientCapabilities`, standard-catalog URI default.
+- **A2A transport** — `application/json+a2ui` `DataPart` envelope and
+  the `X-A2A-Extensions` header (interface + `<A2ASurface>` adapter
+  ship now; reference SSE/WebSocket implementations follow later).
+
+A small number of pre-spec behaviours useful in practice — surface-change
+polling, batched click/update tools, richer tool-result envelope,
+XML-tagged-text `userAction` for voice live-APIs — ship behind a
+per-surface flag and emit their data under
+`extensions: { 'a2ui-svelte': … }`. Spec-strict consumers drop the
+namespace and still see exactly what v0.8 promises. Opt out per surface
+with `options={STRICT}` or host-wide via
+`setContext(A2UI_EXTENSIONS_CONTEXT_KEY, STRICT)`.
+
+Full details: [docs/guides/extensions.md](docs/guides/extensions.md).
 
 ## Authoring
 

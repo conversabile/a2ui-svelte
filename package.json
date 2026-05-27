@@ -47,6 +47,11 @@
 			"svelte": "./dist/voice/gemini/index.js",
 			"import": "./dist/voice/gemini/index.js"
 		},
+		"./transport": {
+			"types": "./dist/transport/index.d.ts",
+			"svelte": "./dist/transport/index.js",
+			"import": "./dist/transport/index.js"
+		},
 		"./skills": "./dist/skills/index.json",
 		"./skills/*": "./dist/skills/*.md",
 		"./version": "./dist/version.json"

@@ -2,6 +2,11 @@ import { processMessage } from '../core/processor';
 import { toolRegistry } from '../core/registries/tool-registry';
 import { actionRegistry } from '../core/registries/action-registry';
 import { userActionBus, type UserAction } from '../core/registries/event-bus';
+import {
+	A2UI_EXTENSION_NAMESPACE,
+	wrapExtension,
+	type ExtensionOptions
+} from '../core/extensions';
 import type { VoiceTransport } from './transport';
 import { AudioRecorder } from './audio-recorder';
 import { AudioPlayer } from './audio-player';
@@ -14,6 +19,33 @@ export interface VoiceAgentSurface {
 	id: string;
 	type: 'static' | 'dynamic';
 	getJson(): unknown;
+	/**
+	 * Per-surface extension flags (see `ExtensionOptions`). When omitted, the
+	 * agent treats the surface as `ALL_EXTRAS` (every extension enabled) so
+	 * pre-extension-era surface handles keep working unchanged.
+	 *
+	 * `<StaticSurface>` populates this automatically from its resolved
+	 * `options` prop; hosts that publish hand-rolled surface handles can pass
+	 * a record explicitly.
+	 */
+	extensions?: ExtensionOptions;
+}
+
+/**
+ * Non-extension tuning for the surface-watch polling loop. These are
+ * cadence knobs — not feature flags — so they live on the agent rather
+ * than under `ExtensionOptions`. Whether polling runs at all is decided
+ * per-surface via `surface.extensions.surfaceWatch`.
+ */
+export interface SurfaceWatchTuning {
+	/** Diff cadence in milliseconds. Default 3000. */
+	intervalMs?: number;
+	/**
+	 * Cooldown after an agent-driven mutation during which surface diffs are
+	 * suppressed (so the agent doesn't get notified of its own writes).
+	 * Surface-id changes (navigation) always bypass this. Default 5000.
+	 */
+	cooldownMs?: number;
 }
 
 export interface VoiceAgentOptions {
@@ -33,6 +65,12 @@ export interface VoiceAgentOptions {
 	voice?: string;
 	/** Auth token mint function — called once per `start()`. */
 	mintToken: () => Promise<string>;
+	/**
+	 * Cadence tuning for the surface-watch polling loop. Whether the loop
+	 * runs is decided per-surface via `surface.extensions.surfaceWatch`;
+	 * these knobs only control timing.
+	 */
+	surfaceWatchTuning?: SurfaceWatchTuning;
 }
 
 /**
@@ -52,6 +90,7 @@ export class VoiceAgent {
 
 	#opts: VoiceAgentOptions;
 	#mode: VoiceMode;
+	#surfaceWatchTuning: Required<SurfaceWatchTuning>;
 	#recorder: AudioRecorder | null = null;
 	#player: AudioPlayer | null = null;
 	#unsubs: Array<() => void> = [];
@@ -67,6 +106,10 @@ export class VoiceAgent {
 	constructor(opts: VoiceAgentOptions) {
 		this.#opts = opts;
 		this.#mode = opts.mode ?? 'static';
+		this.#surfaceWatchTuning = {
+			intervalMs: opts.surfaceWatchTuning?.intervalMs ?? 3000,
+			cooldownMs: opts.surfaceWatchTuning?.cooldownMs ?? 5000
+		};
 	}
 
 	async start(): Promise<void> {
@@ -421,36 +464,52 @@ export class VoiceAgent {
 			return;
 		}
 		if (this.status !== 'error') this.status = 'thinking';
-		const payload = {
-			userAction: {
-				name: action.name,
-				surfaceId: action.surfaceId,
-				sourceComponentId: action.sourceComponentId,
-				timestamp: action.timestamp,
-				context: action.context
-			}
+
+		// Always emit the spec-canonical shape — `context` is required by the
+		// spec, so default it to `{}` here even though the event-bus types
+		// already require it. Belt-and-braces against hand-rolled emitters.
+		const canonical: UserAction = {
+			name: action.name,
+			surfaceId: action.surfaceId,
+			sourceComponentId: action.sourceComponentId,
+			timestamp: action.timestamp,
+			context: action.context ?? {}
 		};
-		const message = `<event>USER_ACTION</event>\n<payload>\n${JSON.stringify(payload, null, 2)}\n</payload>`;
+
+		// Prefer the transport's typed `sendUserAction` when implemented
+		// (spec-aligned transports, see B7). Fall back to the legacy
+		// XML-tagged-text wrapping otherwise — that's the only way to push the
+		// event through voice live-APIs that lack a native event channel.
 		try {
+			if (typeof this.#opts.transport.sendUserAction === 'function') {
+				this.#opts.transport.sendUserAction(canonical);
+				return;
+			}
+			const payload = { userAction: canonical };
+			const message = `<event>USER_ACTION</event>\n<payload>\n${JSON.stringify(payload, null, 2)}\n</payload>`;
 			this.#opts.transport.sendText(message);
 		} catch (e) {
 			console.warn('[VoiceAgent] Failed to forward userAction:', e);
 		}
 	}
 
+	/**
+	 * Surfaces that have opted into the `surfaceWatch` extension. A surface
+	 * with no `extensions` field is treated as `ALL_EXTRAS` (opted in), so
+	 * pre-extension-era handles keep their old polling behaviour.
+	 */
+	#watchedSurfaces(): VoiceAgentSurface[] {
+		return this.#opts
+			.surfaces()
+			.filter((s) => s && s.type === 'static' && s.extensions?.surfaceWatch !== false);
+	}
+
 	#getSurfaceSnapshot(): string {
-		return JSON.stringify(
-			this.#opts
-				.surfaces()
-				.filter((s) => s && s.type === 'static')
-				.map((s) => s.getJson())
-		);
+		return JSON.stringify(this.#watchedSurfaces().map((s) => s.getJson()));
 	}
 
 	#getSurfaceIds(): string {
-		return this.#opts
-			.surfaces()
-			.filter((s) => s)
+		return this.#watchedSurfaces()
 			.map((s) => s.id)
 			.join(',');
 	}
@@ -462,24 +521,29 @@ export class VoiceAgent {
 
 		this.#surfaceInterval = setInterval(() => {
 			if (!this.connected) return;
-			const surfaces = this.#opts.surfaces();
-			if (surfaces.length === 0 || surfaces.every((s) => !s)) return;
+			const watched = this.#watchedSurfaces();
+			// No surface has opted into the watch extension — nothing to do.
+			// (Page transitions may flip this on/off as surfaces mount/unmount.)
+			if (watched.length === 0) return;
 
 			const cur = this.#getSurfaceSnapshot();
 			const ctx = this.#opts.contextInstructions();
 			const ids = this.#getSurfaceIds();
 
 			if (cur !== this.#lastSurfaceSnapshot || ctx !== this.#lastContextSnapshot) {
-				// Cooldown: ignore changes within 5s of an agent tool call —
+				// Cooldown: ignore changes within Nms of an agent tool call —
 				// EXCEPT when surface IDs change (page navigation), which is always notified.
-				if (Date.now() - this.#lastAgentMutationAt > 5000 || ids !== this.#lastSurfaceIds) {
+				if (
+					Date.now() - this.#lastAgentMutationAt > this.#surfaceWatchTuning.cooldownMs ||
+					ids !== this.#lastSurfaceIds
+				) {
 					this.#pushSurfaceUpdate(cur, ctx);
 				}
 				this.#lastSurfaceSnapshot = cur;
 				this.#lastContextSnapshot = ctx;
 				this.#lastSurfaceIds = ids;
 			}
-		}, 3000);
+		}, this.#surfaceWatchTuning.intervalMs);
 	}
 
 	#stopSurfaceWatch(): void {
@@ -490,8 +554,13 @@ export class VoiceAgent {
 	}
 
 	#pushSurfaceUpdate(surfacesJson: string, context: string): void {
-		const elementIds = actionRegistry.listActions().join(', ');
-		const message = `<event>SURFACE_UPDATED</event>\n<updated_surfaces>\n${surfacesJson}\n</updated_surfaces>\n<updated_context>\n${context}\n</updated_context>\n<available_element_ids>\n${elementIds}\n</available_element_ids>`;
+		const payload = wrapExtension(A2UI_EXTENSION_NAMESPACE, {
+			kind: 'surfaceUpdated',
+			updatedSurfaces: JSON.parse(surfacesJson),
+			updatedContext: context,
+			availableElementIds: actionRegistry.listActions()
+		});
+		const message = `<event>SURFACE_UPDATED</event>\n<payload>\n${JSON.stringify(payload, null, 2)}\n</payload>`;
 		try {
 			this.#opts.transport.sendText(message);
 		} catch (e) {

@@ -8,7 +8,8 @@ export {
 	type VoiceAgentOptions,
 	type VoiceAgentSurface,
 	type VoiceMode,
-	type VoiceStatus
+	type VoiceStatus,
+	type SurfaceWatchTuning
 } from './agent.svelte';
 export { default as VoiceShell } from './VoiceShell.svelte';
 export {

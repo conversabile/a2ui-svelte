@@ -3,7 +3,9 @@ import { describe, it, expect } from 'vitest';
 import DynamicSurface from './DynamicSurface.svelte';
 import { extendCatalog, DEFAULT_CATALOG } from '../authoring';
 import MyCustomTag from './__fixtures__/MyCustomTag.svelte';
+import MyOtherTag from './__fixtures__/MyOtherTag.svelte';
 import { a2uiState } from '../core/state.svelte';
+import { STANDARD_CATALOG_ID } from '../core/catalog-selection';
 
 describe('DynamicSurface catalog', () => {
 	it('renders custom components from an extended catalog', async () => {
@@ -47,6 +49,41 @@ describe('DynamicSurface catalog', () => {
 		// …and each panel's child component is rendered via `renderChild`.
 		expect(getByText('Panel A body')).toBeTruthy();
 		expect(getByText('Panel B body')).toBeTruthy();
+	});
+
+	it('B6: defaults to the catalog registered under STANDARD_CATALOG_ID when the agent omits catalogId', async () => {
+		const standard = extendCatalog(DEFAULT_CATALOG, { MyCustomTag });
+		a2uiState.getOrCreateSurface('uri-default');
+		a2uiState.updateComponent('uri-default', 'root', {
+			type: 'MyCustomTag',
+			properties: { label: 'via-uri' }
+		});
+		a2uiState.setRoot('uri-default', 'root');
+
+		const { getByText } = render(DynamicSurface, {
+			surfaceId: 'uri-default',
+			catalogs: { [STANDARD_CATALOG_ID]: standard }
+		});
+		expect(getByText('via-uri')).toBeTruthy();
+	});
+
+	it('B6: routes to a non-standard catalog when surface.catalogId matches a registered URI', async () => {
+		const standard = extendCatalog(DEFAULT_CATALOG, { MyCustomTag });
+		const custom = extendCatalog(DEFAULT_CATALOG, { MyCustomTag: MyOtherTag });
+		const customUri = 'https://souschef.example/a2ui/v0_8/catalog';
+		a2uiState.getOrCreateSurface('uri-custom');
+		a2uiState.setCatalogId('uri-custom', customUri);
+		a2uiState.updateComponent('uri-custom', 'root', {
+			type: 'MyCustomTag',
+			properties: { label: 'pick-me' }
+		});
+		a2uiState.setRoot('uri-custom', 'root');
+
+		const { getByText } = render(DynamicSurface, {
+			surfaceId: 'uri-custom',
+			catalogs: { [STANDARD_CATALOG_ID]: standard, [customUri]: custom }
+		});
+		expect(getByText('other:pick-me')).toBeTruthy();
 	});
 
 	it('renders the missing-component warning when the type is not in the catalog', async () => {

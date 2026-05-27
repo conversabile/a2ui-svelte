@@ -7,6 +7,8 @@ import type {
 	VoiceTransportEventMap
 } from './transport';
 import { toolRegistry } from '../core/registries/tool-registry';
+import { userActionBus, type UserAction } from '../core/registries/event-bus';
+import { ALL_EXTRAS, STRICT } from '../core/extensions';
 
 // Stub AudioRecorder/AudioPlayer so the test never touches Web Audio.
 vi.mock('./audio-recorder', () => ({
@@ -111,6 +113,216 @@ describe('VoiceAgent with a mock transport', () => {
 		await agent.stop();
 		expect(transport.closed).toBe(true);
 		expect(agent.connected).toBe(false);
+	});
+
+	it('skips surface-watch polling for surfaces opted out via extensions.surfaceWatch=false', async () => {
+		vi.useFakeTimers();
+		try {
+			let json: unknown = { root: 'v1' };
+			const transport = new MockTransport();
+			const agent = new VoiceAgent({
+				transport,
+				surfaces: () => [
+					{ id: 'main', type: 'static', getJson: () => json, extensions: STRICT }
+				],
+				contextInstructions: () => '',
+				systemInstruction: 'persona',
+				mintToken: async () => 'fake',
+				surfaceWatchTuning: { intervalMs: 1000, cooldownMs: 0 }
+			});
+
+			await agent.start();
+			flushSync();
+
+			// Mutate the surface and advance well past the polling interval.
+			json = { root: 'v2' };
+			vi.advanceTimersByTime(5000);
+			flushSync();
+
+			expect(
+				transport.textsSent.some((t) => t.includes('SURFACE_UPDATED'))
+			).toBe(false);
+
+			await agent.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('emits an extension-wrapped SURFACE_UPDATED payload for surfaces with ALL_EXTRAS (the default)', async () => {
+		vi.useFakeTimers();
+		try {
+			let json: unknown = { root: 'v1' };
+			const transport = new MockTransport();
+			const agent = new VoiceAgent({
+				transport,
+				surfaces: () => [
+					{ id: 'main', type: 'static', getJson: () => json, extensions: ALL_EXTRAS }
+				],
+				contextInstructions: () => 'ctx',
+				systemInstruction: 'persona',
+				mintToken: async () => 'fake',
+				surfaceWatchTuning: { intervalMs: 1000, cooldownMs: 0 }
+			});
+
+			await agent.start();
+			flushSync();
+
+			json = { root: 'v2' };
+			vi.advanceTimersByTime(1500);
+			flushSync();
+
+			const event = transport.textsSent.find((t) => t.includes('SURFACE_UPDATED'));
+			expect(event).toBeDefined();
+			const match = event!.match(/<payload>\n([\s\S]*?)\n<\/payload>/);
+			expect(match).toBeTruthy();
+			const parsed = JSON.parse(match![1]);
+			expect(parsed.extensions['a2ui-svelte']).toMatchObject({
+				kind: 'surfaceUpdated',
+				updatedSurfaces: [{ root: 'v2' }],
+				updatedContext: 'ctx'
+			});
+			expect(Array.isArray(parsed.extensions['a2ui-svelte'].availableElementIds)).toBe(true);
+
+			await agent.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('treats a surface with no extensions field as opted-in (back-compat default)', async () => {
+		vi.useFakeTimers();
+		try {
+			let json: unknown = { root: 'v1' };
+			const transport = new MockTransport();
+			const agent = new VoiceAgent({
+				transport,
+				// Note: no `extensions` field — represents a pre-extension-era
+				// hand-rolled surface handle. Must still get polled.
+				surfaces: () => [{ id: 'main', type: 'static', getJson: () => json }],
+				contextInstructions: () => '',
+				systemInstruction: 'persona',
+				mintToken: async () => 'fake',
+				surfaceWatchTuning: { intervalMs: 1000, cooldownMs: 0 }
+			});
+
+			await agent.start();
+			flushSync();
+
+			json = { root: 'v2' };
+			vi.advanceTimersByTime(1500);
+			flushSync();
+
+			expect(
+				transport.textsSent.some((t) => t.includes('SURFACE_UPDATED'))
+			).toBe(true);
+
+			await agent.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('B5: falls back to wrapped text turn for userAction when transport has no sendUserAction', async () => {
+		const transport = new MockTransport();
+		const agent = new VoiceAgent({
+			transport,
+			surfaces: () => [],
+			contextInstructions: () => '',
+			systemInstruction: 'persona',
+			mintToken: async () => 'fake'
+		});
+
+		await agent.start();
+		flushSync();
+
+		const action: UserAction = {
+			name: 'submit',
+			surfaceId: 'main',
+			sourceComponentId: 'save-btn',
+			timestamp: '2026-05-27T00:00:00.000Z',
+			context: {}
+		};
+		userActionBus.emit(action);
+
+		const ev = transport.textsSent.find((t) => t.includes('USER_ACTION'));
+		expect(ev).toBeDefined();
+		const match = ev!.match(/<payload>\n([\s\S]*?)\n<\/payload>/);
+		expect(match).toBeTruthy();
+		const parsed = JSON.parse(match![1]);
+		expect(parsed).toEqual({
+			userAction: {
+				name: 'submit',
+				surfaceId: 'main',
+				sourceComponentId: 'save-btn',
+				timestamp: '2026-05-27T00:00:00.000Z',
+				context: {}
+			}
+		});
+
+		await agent.stop();
+	});
+
+	it('B5: forwards userAction via sendUserAction when the transport implements it', async () => {
+		const received: UserAction[] = [];
+		const transport = new MockTransport();
+		(transport as VoiceTransport).sendUserAction = (a: UserAction) => received.push(a);
+
+		const agent = new VoiceAgent({
+			transport,
+			surfaces: () => [],
+			contextInstructions: () => '',
+			systemInstruction: 'persona',
+			mintToken: async () => 'fake'
+		});
+
+		await agent.start();
+		flushSync();
+
+		const action: UserAction = {
+			name: 'submit',
+			surfaceId: 'main',
+			sourceComponentId: 'save-btn',
+			timestamp: '2026-05-27T00:00:00.000Z',
+			context: { who: 'dario' }
+		};
+		userActionBus.emit(action);
+
+		expect(received).toEqual([action]);
+		// Crucially: it must NOT also send a wrapped text turn.
+		expect(transport.textsSent.some((t) => t.includes('USER_ACTION'))).toBe(false);
+
+		await agent.stop();
+	});
+
+	it('B5: defaults a missing context to {} so the emitted action is spec-conformant', async () => {
+		const received: UserAction[] = [];
+		const transport = new MockTransport();
+		(transport as VoiceTransport).sendUserAction = (a: UserAction) => received.push(a);
+
+		const agent = new VoiceAgent({
+			transport,
+			surfaces: () => [],
+			contextInstructions: () => '',
+			systemInstruction: 'persona',
+			mintToken: async () => 'fake'
+		});
+
+		await agent.start();
+		flushSync();
+
+		// Simulate a hand-rolled emitter that forgot the context field.
+		userActionBus.emit({
+			name: 'submit',
+			surfaceId: 'main',
+			sourceComponentId: 'save-btn',
+			timestamp: '2026-05-27T00:00:00.000Z',
+			context: undefined as unknown as Record<string, unknown>
+		});
+
+		expect(received[0].context).toEqual({});
+
+		await agent.stop();
 	});
 
 	it('captures transcript-in / transcript-out and clears thinking on turn-complete', async () => {

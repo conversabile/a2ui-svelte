@@ -44,17 +44,40 @@ new transport in an afternoon:
 
 ```ts
 import type { VoiceTransport, VoiceTransportEventMap } from 'a2ui-svelte/voice';
+import type { UserAction } from 'a2ui-svelte/core';
 
 interface VoiceTransport {
   connect(opts: VoiceTransportConnectOptions): Promise<void>;
   sendAudioChunk(base64Pcm16k: string): void;
   sendText(text: string): void;
   sendToolResult(id: string, name: string, result: unknown): void;
+  /**
+   * Optional. When implemented, the agent forwards `userAction` events
+   * structurally (as a typed event), rather than wrapping them in an
+   * XML-tagged text turn. Voice live-APIs without a native event channel
+   * — Gemini Live, OpenAI Realtime — should leave this unimplemented and
+   * inherit the text-wrapping fallback. Spec-aligned transports (A2A
+   * `DataPart` with `mimeType: "application/json+a2ui"`) implement it.
+   */
+  sendUserAction?(action: UserAction): void;
   close(): void;
   on<K extends keyof VoiceTransportEventMap>(
     event: K,
     cb: (payload: VoiceTransportEventMap[K]) => void
   ): () => void;
+}
+```
+
+The `UserAction` is always emitted in the spec-canonical shape:
+
+```ts
+{
+  name:              string,
+  surfaceId:         string,
+  sourceComponentId: string,
+  timestamp:         string,   // ISO-8601, spec-mandated
+  context:           Record<string, unknown>  // `{}` if the source component
+                                              //  declared no `action.context`
 }
 ```
 
@@ -120,8 +143,11 @@ const agent = new VoiceAgent({
 
 ### `mode`
 
-- `'static'` — the agent works with `<StaticSurface>` only. Tools:
-  `click_button`, `update_text_field`, `set_checkbox`, etc.
+- `'static'` — the agent works with `<StaticSurface>` only. Tools (always):
+  `click_button({element_id})`, `update_text_field({element_id, value})`.
+  With the `batchTools` extension on (default), the surface also registers
+  the batched variants `click_buttons({clicks: […]})` and
+  `update_text_fields({updates: […]})`. See *Extension flags* below.
 - `'dynamic'` — the agent can render UI on `<DynamicSurface>` via
   `surfaceUpdate`, `dataModelUpdate`, `beginRendering`.
 - `'both'` — both sets of tools, both prompt blocks.
@@ -210,6 +236,94 @@ setContext<SurfaceFeedback>(SURFACE_FEEDBACK_KEY, surfaceFeedback);
 The `JSON.parse(JSON.stringify(...))` clone is required: Svelte 5
 reactive proxies don't survive the live API serialiser.
 
+## Extension flags (`ExtensionOptions`)
+
+The library is 100% A2UI v0.8 compliant on its **default** surface
+wire, plus a handful of non-spec behaviours that are useful in
+practice (surface-change polling, batched click/update tools, a
+richer tool-result envelope). Every non-spec behaviour ships behind a
+single per-surface flag in `ExtensionOptions` and emits its data
+under the `extensions: { 'a2ui-svelte': ... }` envelope, so a
+spec-compliant 3P consumer just drops what it doesn't recognise.
+
+**Extensions are properties of surfaces, not of `VoiceAgent`.** Each
+`<StaticSurface>` resolves its own flag record. The `VoiceAgent` reads
+`surface.extensions` from each handle it sees and decides what to do
+on a per-surface basis — it never carries a top-level extension
+toggle of its own. (Cadence knobs like polling interval are exposed
+separately on `VoiceAgent`; they're not feature flags.)
+
+### The three flags
+
+| Flag                | Default | What it does                                                                                                                                                                                                                            |
+|---------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `surfaceWatch`      | `true`  | The `VoiceAgent` polls this surface's JSON / context on `surfaceWatchTuning.intervalMs` and emits a `<event>SURFACE_UPDATED</event>` text message when they change. The payload is wrapped under `extensions['a2ui-svelte']`.            |
+| `batchTools`        | `true`  | The surface registers batched variants `click_buttons({clicks: […]})` and `update_text_fields({updates: […]})` alongside the spec-canonical single-element `click_button` / `update_text_field`. The agent prompt is taught to prefer batching when many ops fall together. |
+| `toolResultExtras`  | `true`  | The result of every click / update call carries a post-action snapshot (`updatedSurface`, `updatedContext`, `availableElementIds`) under `extensions['a2ui-svelte']`. With this off, results are just `{ results: [...] }` and a spec-strict client gets exactly what the spec promises. |
+
+Each flag is independent — toggle any subset. `STRICT` is the
+all-off preset; `ALL_EXTRAS` is the all-on default. Both presets are
+exported from `a2ui-svelte/core`.
+
+### Resolution order
+
+A `<StaticSurface>` resolves its flags from, in order:
+
+1. its `options={...}` prop;
+2. the Svelte context set under `A2UI_EXTENSIONS_CONTEXT_KEY` at the
+   integration root (host-wide default);
+3. the `ALL_EXTRAS` preset (every flag `true`).
+
+### Presets
+
+```ts
+import { ALL_EXTRAS, STRICT, A2UI_EXTENSIONS_CONTEXT_KEY } from 'a2ui-svelte/core';
+```
+
+- `ALL_EXTRAS` — every extension on. The library's default.
+- `STRICT` — every extension off. The wire is pure v0.8.
+
+### Common setups
+
+**Default (Souschef-style).** Do nothing — `ALL_EXTRAS` is the
+default; the layout-level `VoiceAgent({...})` call carries no
+extension flags.
+
+**Spec-strict host-wide:**
+
+```svelte
+<script lang="ts">
+  import { setContext } from 'svelte';
+  import { STRICT, A2UI_EXTENSIONS_CONTEXT_KEY } from 'a2ui-svelte/core';
+  setContext(A2UI_EXTENSIONS_CONTEXT_KEY, STRICT);
+</script>
+```
+
+Every `<StaticSurface>` mounted in this subtree behaves spec-strictly
+unless it overrides via its own `options` prop.
+
+**Per-surface override:**
+
+```svelte
+<StaticSurface surfaceId="readonly-view" options={STRICT}>...</StaticSurface>
+<StaticSurface surfaceId="rich-editor"   options={{ batchTools: false }}>...</StaticSurface>
+```
+
+### Cadence tuning for the `surfaceWatch` extension
+
+The polling cadence isn't a feature flag, so it lives on
+`VoiceAgent`, not in `ExtensionOptions`:
+
+```ts
+const agent = new VoiceAgent({
+  // ...,
+  surfaceWatchTuning: { intervalMs: 5000, cooldownMs: 7000 }
+});
+```
+
+Whether the loop runs at all is decided per-surface; these knobs only
+control timing once at least one surface has opted in.
+
 ## Testing with `MockTransport`
 
 For unit tests, write a stub transport that emits synthetic events.
@@ -246,7 +360,7 @@ Then in a test:
 const transport = new MockTransport();
 const agent = new VoiceAgent({ transport, /* ... */ });
 await agent.start();
-transport.emit('tool-call', { calls: [{ id: '1', name: 'click_button', args: { id: 'save' } }] });
+transport.emit('tool-call', { calls: [{ id: '1', name: 'click_button', args: { element_id: 'save' } }] });
 // assert handler ran, transcript updated, etc.
 ```
 
@@ -265,7 +379,8 @@ inheritance is **not** supported yet — wrap, don't subclass.
 ## Pitfalls
 
 - **Stale surfaces in `surfaces()` callback.** The callback is invoked
-  on every 3-second tick. If your store is paused or memoised
+  on every surface-watch tick (3 s by default — see
+  `surfaceWatchTuning`). If your store is paused or memoised
   incorrectly, the agent acts on stale JSON. Always read live state.
 - **Forgetting `agent.stop()` on `onDestroy`.** Hot reload leaks
   recorder instances. Always tear down.
@@ -274,3 +389,85 @@ inheritance is **not** supported yet — wrap, don't subclass.
   `agent.connected` first.
 - **Pico-less projects forgetting `renderer/styles.css`.** The shell
   CSS lives there; without it, the bottom bar will look unstyled.
+
+## A2A (network) integration mode
+
+`VoiceTransport` covers live-audio APIs where the agent generates UI via
+LLM function tools. A2UI v0.8 also defines a spec-aligned, network-shaped
+integration: a unidirectional server-to-client stream of A2A `DataPart`s
+(typically over SSE) carrying surface mutations, paired with a
+client-to-server channel for `userAction` / `error` events. The library
+ships this as a sibling family rooted at `a2ui-svelte/transport`:
+
+```ts
+import type {
+  A2ATransport, A2UIServerMessage, A2UIClientEvent
+} from 'a2ui-svelte/transport';
+import { A2ASurface } from 'a2ui-svelte/renderer';
+import { getClientCapabilities, STANDARD_CATALOG_ID } from 'a2ui-svelte/core';
+
+const transport: A2ATransport = createMyA2ATransport({
+  getClientCapabilities: () => getClientCapabilities({
+    [STANDARD_CATALOG_ID]: DEFAULT_CATALOG
+  })
+});
+```
+
+```svelte
+<A2ASurface surfaceId="main" {transport}
+  catalogs={{ [STANDARD_CATALOG_ID]: DEFAULT_CATALOG }} />
+```
+
+The adapter routes all **four** server→client messages
+(`surfaceUpdate`, `beginRendering`, `dataModelUpdate`, `deleteSurface`)
+through `processMessage()` and forwards `userAction` events raised on
+its own `surfaceId` through `transport.sendEvent()`.
+
+### Envelope contract
+
+Every implementation must honour the A2A envelope on the wire:
+
+- Each A2UI message rides inside an A2A `Message` whose `DataPart` has
+  `mimeType: "application/json+a2ui"` and `data: <A2UI JSON>`.
+  Use `wrapA2A` / `unwrapA2A` from `a2ui-svelte/transport`.
+- The HTTP request carries `X-A2A-Extensions:
+  https://a2ui.org/a2a-extension/a2ui/v0.8` (or the equivalent gRPC
+  metadata). The constants `A2A_EXTENSIONS_HEADER` and
+  `A2UI_V0_8_EXTENSION_URI` are exported from `a2ui-svelte/transport`.
+- **Every** outbound client→server `Message` carries
+  `a2uiClientCapabilities` in `metadata` — not just the first.
+  `getClientCapabilities()` is injected via `A2ATransportOptions` so
+  the transport calls it on every send (capabilities can evolve as
+  dynamically-loaded catalogs come online).
+
+Reference SSE / WebSocket implementations are deferred to a follow-up;
+the interface and envelope contract are defined now so adapters and
+downstream consumers can be built and tested independently.
+
+### Catalog selection (handshake)
+
+Catalog selection is a one-shot handshake, not a negotiation:
+
+1. The **server** advertises supported catalogs in its AgentCard
+   (`AgentCapabilities.extensions[].params`) — use
+   `getAgentCardExtensionParams({ catalogs, acceptsInlineCatalogs })`
+   from `a2ui-svelte/core` to serialise this when exposing an
+   A2UI-driving agent.
+2. The **client** declares its supported catalogs in every outbound A2A
+   message's metadata — use `getClientCapabilities(catalogs)`.
+3. The server picks a `catalogId` per surface via `beginRendering`. If
+   omitted, the client MUST default to the v0.8 standard catalog
+   (`STANDARD_CATALOG_ID = "https://a2ui.org/specification/v0_8/standard_catalog_definition.json"`).
+
+`<DynamicSurface>` and `<A2ASurface>` both honour this — register your
+catalog under the URI and the resolver picks it automatically:
+
+```ts
+<DynamicSurface
+  surfaceId="m1"
+  catalogs={{
+    [STANDARD_CATALOG_ID]: DEFAULT_CATALOG,
+    'https://souschef.example/a2ui/v0_8/catalog': MY_CUSTOM_CATALOG
+  }}
+/>
+```

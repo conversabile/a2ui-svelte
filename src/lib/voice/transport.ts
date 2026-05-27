@@ -1,3 +1,5 @@
+import type { UserAction } from '../core/registries/event-bus';
+
 /**
  * Provider-agnostic bidirectional voice + tool channel.
  *
@@ -22,6 +24,24 @@ export interface VoiceTransport {
 
 	/** Reply to a tool call. Result must be JSON-serialisable. */
 	sendToolResult(callId: string, name: string, result: unknown): void;
+
+	/**
+	 * Forward a spec-canonical `userAction` event to the agent. When omitted,
+	 * `VoiceAgent` falls back to wrapping the event in an XML-tagged text turn
+	 * via `sendText` — necessary for voice live-APIs that have no native event
+	 * channel into the model context (e.g. Gemini Live), and the historical
+	 * behaviour of this library.
+	 *
+	 * Transports that ride a spec-aligned channel (e.g. A2A `DataPart` with
+	 * `mimeType: "application/json+a2ui"`) implement this natively so the
+	 * payload reaches the agent as a structured `userAction` event rather than
+	 * as an opaque text turn.
+	 *
+	 * The `action` object always conforms to the v0.8 spec:
+	 * `{ name, surfaceId, sourceComponentId, timestamp, context }` — including
+	 * `context: {}` when the source component declared no `action.context`.
+	 */
+	sendUserAction?(action: UserAction): void;
 
 	/** Subscribe to a transport event. Returns an unsubscribe function. */
 	on<E extends keyof VoiceTransportEventMap>(
