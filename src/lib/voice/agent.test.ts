@@ -190,6 +190,82 @@ describe('VoiceAgent with a mock transport', () => {
 		}
 	});
 
+	it('polls dynamic surfaces too, so user input into a path-bound field reaches the agent', async () => {
+		vi.useFakeTimers();
+		try {
+			// Mirrors a dynamic surface the agent rendered (a TextField bound to
+			// /draft) that the user then typed into: serializeSurface includes
+			// the data model, so the JSON changes when the user writes.
+			let json: unknown = { surfaceId: 'canvas', data: { draft: '' } };
+			const transport = new MockTransport();
+			const agent = new VoiceAgent({
+				transport,
+				mode: 'dynamic',
+				surfaces: () => [
+					{ id: 'canvas', type: 'dynamic', getJson: () => json, extensions: ALL_EXTRAS }
+				],
+				contextInstructions: () => '',
+				systemInstruction: 'persona',
+				mintToken: async () => 'fake',
+				surfaceWatchTuning: { intervalMs: 1000, cooldownMs: 0 }
+			});
+
+			await agent.start();
+			flushSync();
+
+			// User types into the field — the data model now reflects it.
+			json = { surfaceId: 'canvas', data: { draft: 'hello' } };
+			vi.advanceTimersByTime(1500);
+			flushSync();
+
+			const event = transport.textsSent.find((t) => t.includes('SURFACE_UPDATED'));
+			expect(event).toBeDefined();
+			const match = event!.match(/<payload>\n([\s\S]*?)\n<\/payload>/);
+			const parsed = JSON.parse(match![1]);
+			expect(parsed.extensions['a2ui-svelte'].updatedSurfaces).toEqual([
+				{ surfaceId: 'canvas', data: { draft: 'hello' } }
+			]);
+
+			await agent.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('does not poll a STRICT dynamic surface', async () => {
+		vi.useFakeTimers();
+		try {
+			let json: unknown = { surfaceId: 'canvas', data: { draft: '' } };
+			const transport = new MockTransport();
+			const agent = new VoiceAgent({
+				transport,
+				mode: 'dynamic',
+				surfaces: () => [
+					{ id: 'canvas', type: 'dynamic', getJson: () => json, extensions: STRICT }
+				],
+				contextInstructions: () => '',
+				systemInstruction: 'persona',
+				mintToken: async () => 'fake',
+				surfaceWatchTuning: { intervalMs: 1000, cooldownMs: 0 }
+			});
+
+			await agent.start();
+			flushSync();
+
+			json = { surfaceId: 'canvas', data: { draft: 'hello' } };
+			vi.advanceTimersByTime(5000);
+			flushSync();
+
+			expect(
+				transport.textsSent.some((t) => t.includes('SURFACE_UPDATED'))
+			).toBe(false);
+
+			await agent.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('treats a surface with no extensions field as opted-in (back-compat default)', async () => {
 		vi.useFakeTimers();
 		try {

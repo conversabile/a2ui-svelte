@@ -497,11 +497,17 @@ export class VoiceAgent {
 	 * Surfaces that have opted into the `surfaceWatch` extension. A surface
 	 * with no `extensions` field is treated as `ALL_EXTRAS` (opted in), so
 	 * pre-extension-era handles keep their old polling behaviour.
+	 *
+	 * Both static and dynamic surfaces are watched: a dynamic surface's
+	 * serialized JSON includes its data model, so polling lets the agent
+	 * notice user input written into a path-bound field (e.g. a TextField
+	 * the agent rendered, then the user typed into). STRICT surfaces opt out
+	 * via `surfaceWatch === false`.
 	 */
 	#watchedSurfaces(): VoiceAgentSurface[] {
 		return this.#opts
 			.surfaces()
-			.filter((s) => s && s.type === 'static' && s.extensions?.surfaceWatch !== false);
+			.filter((s) => s && s.extensions?.surfaceWatch !== false);
 	}
 
 	#getSurfaceSnapshot(): string {

@@ -1,9 +1,15 @@
 <script lang="ts">
+	import { getContext } from 'svelte';
 	import { a2uiState } from '../core/state.svelte';
 	import { serializeSurface } from '../core/serializer';
 	import { setCatalog, type Catalog } from '../authoring/catalog';
 	import { DEFAULT_CATALOG } from '../components/default-catalog';
 	import { STANDARD_CATALOG_ID, STANDARD_CATALOG_ALIAS } from '../core/catalog-selection';
+	import {
+		A2UI_EXTENSIONS_CONTEXT_KEY,
+		resolveExtensionOptions,
+		type ExtensionOptions
+	} from '../core/extensions';
 	import Component from './Component.svelte';
 	import './styles.css';
 
@@ -25,9 +31,26 @@
 		 * accepted for ergonomic registration of the built-in catalog.
 		 */
 		catalogs?: Record<string, Catalog>;
+		/**
+		 * Per-surface extension flags. Missing keys fall back to the host-wide
+		 * default set under `A2UI_EXTENSIONS_CONTEXT_KEY` on Svelte context, or
+		 * to `ALL_EXTRAS` if no context default is set. Pass `STRICT` (from
+		 * `a2ui-svelte/core`) to opt this surface into v0.8 spec-strict
+		 * behaviour — which, among other things, disables the agent's
+		 * surface-watch polling for this surface.
+		 */
+		options?: Partial<ExtensionOptions>;
 	}
 
-	let { surfaceId, catalog = DEFAULT_CATALOG, catalogs }: Props = $props();
+	let { surfaceId, catalog = DEFAULT_CATALOG, catalogs, options }: Props = $props();
+
+	// Resolve extension options once at mount. Props beat context; context
+	// beats ALL_EXTRAS. Mirrors <StaticSurface> so a dynamic surface can opt
+	// out of polling under STRICT mode.
+	const ctxExtensions = getContext<Partial<ExtensionOptions> | undefined>(
+		A2UI_EXTENSIONS_CONTEXT_KEY
+	);
+	const resolvedExtensions: ExtensionOptions = resolveExtensionOptions(options ?? ctxExtensions);
 
 	// Dynamic mode: read from a2uiState
 	let surface = $derived(a2uiState.getSurface(surfaceId));
@@ -61,6 +84,13 @@
 	export const id = surfaceId;
 	export const type = 'dynamic';
 	export const getJson = () => serializeSurface(surfaceId);
+	/**
+	 * Resolved per-surface extension flags. Hosts publish this surface handle
+	 * to a `VoiceAgent`, which reads it to decide which non-spec behaviours
+	 * apply — notably `surfaceWatch` polling, which keeps the agent's view of
+	 * a path-bound field in sync with what the user typed.
+	 */
+	export const extensions: ExtensionOptions = resolvedExtensions;
 
 	$effect(() => {
 		console.log(`[DynamicSurface:${surfaceId}] surface updated:`, surface);
