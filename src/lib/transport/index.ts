@@ -13,3 +13,4 @@ export {
 	wrapA2A,
 	unwrapA2A
 } from './a2a';
+export { getClientDataModel, type A2UIClientDataModel } from '../core/client-data-model';

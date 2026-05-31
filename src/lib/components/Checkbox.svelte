@@ -37,13 +37,19 @@
 	const handle = defineA2uiComponent({
 		type: 'CheckBox',
 		id: id ?? fieldName,
-		a2ui: () => ({
-			label: { literalString: label },
-			value: fieldName ? { path: `/${fieldName}` } : { literalBoolean: checked },
-			...(accessibility ? { accessibility } : {}),
-			...(weight != null ? { weight } : {})
-		}),
-		data: fieldName ? { key: fieldName, value: () => checked } : undefined,
+		// See TextField: path-bind the value under `fieldName ?? componentId` and
+		// always register it as a data source so its state lives in the data
+		// model, not inline in the tree.
+		a2ui: (componentId) => {
+			const bindingKey = fieldName ?? componentId;
+			return {
+				label: { literalString: label },
+				value: bindingKey ? { path: `/${bindingKey}` } : { literalBoolean: checked },
+				...(accessibility ? { accessibility } : {}),
+				...(weight != null ? { weight } : {})
+			};
+		},
+		data: { key: fieldName, value: () => checked },
 		action: {
 			type: 'update',
 			handler: async (next: string): Promise<unknown> => {

@@ -50,6 +50,15 @@ interface VoiceTransport {
   connect(opts: VoiceTransportConnectOptions): Promise<void>;
   sendAudioChunk(base64Pcm16k: string): void;
   sendText(text: string): void;
+  /**
+   * Optional. Append text to the model's context WITHOUT triggering a
+   * response — the channel the agent uses to *sync* the surface data model
+   * into context during idle windows (see "Surface-change delivery" below).
+   * Gemini Live implements this via `sendClientContent({ turnComplete: false })`.
+   * Transports without a silent channel omit it; the agent falls back to
+   * `sendText` (which may provoke a turn — acceptable degradation).
+   */
+  sendContextUpdate?(text: string): void;
   sendToolResult(id: string, name: string, result: unknown): void;
   /**
    * Optional. When implemented, the agent forwards `userAction` events
@@ -257,7 +266,7 @@ separately on `VoiceAgent`; they're not feature flags.)
 
 | Flag                | Default | What it does                                                                                                                                                                                                                            |
 |---------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `surfaceWatch`      | `true`  | The `VoiceAgent` polls this surface's JSON / context on `surfaceWatchTuning.intervalMs` and emits a `<event>SURFACE_UPDATED</event>` text message when they change. The payload is wrapped under `extensions['a2ui-svelte']`.            |
+| `surfaceWatch`      | `true`  | The `VoiceAgent` keeps the agent aware of user-driven changes to this surface. *How* the change is delivered is governed by `surfaceWatchTuning.mode` — a silent, idle-timed data-model sync (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`). See "Surface-change delivery" below. The payload is wrapped under `extensions['a2ui-svelte']`. |
 | `batchTools`        | `true`  | The surface registers batched variants `click_buttons({clicks: […]})` and `update_text_fields({updates: […]})` alongside the spec-canonical single-element `click_button` / `update_text_field`. The agent prompt is taught to prefer batching when many ops fall together. |
 | `toolResultExtras`  | `true`  | The result of every click / update call carries a post-action snapshot (`updatedSurface`, `updatedContext`, `availableElementIds`) under `extensions['a2ui-svelte']`. With this off, results are just `{ results: [...] }` and a spec-strict client gets exactly what the spec promises. |
 
@@ -309,20 +318,78 @@ unless it overrides via its own `options` prop.
 <StaticSurface surfaceId="rich-editor"   options={{ batchTools: false }}>...</StaticSurface>
 ```
 
-### Cadence tuning for the `surfaceWatch` extension
+### Surface-change delivery (`surfaceWatchTuning`)
 
-The polling cadence isn't a feature flag, so it lives on
-`VoiceAgent`, not in `ExtensionOptions`:
+When the user changes a watched surface (types into a field, navigates,
+edits through the HTML UI), the agent needs to learn about it. *Whether* a
+surface is watched is the per-surface `surfaceWatch` flag; *how* the change
+reaches the agent is a behaviour/cadence knob, so it lives on `VoiceAgent`,
+not in `ExtensionOptions`:
 
 ```ts
 const agent = new VoiceAgent({
   // ...,
-  surfaceWatchTuning: { intervalMs: 5000, cooldownMs: 7000 }
+  surfaceWatchTuning: {
+    mode: 'sync',        // 'sync' (default) | 'proactive'
+    intervalMs: 500,     // poll cadence — checks for an undelivered change
+    settleMs: 400,       // debounce window — coalesce mid-typing values
+    cooldownMs: 5000     // proactive only — suppress echo of agent's own writes
+  }
 });
 ```
 
-Whether the loop runs at all is decided per-surface; these knobs only
-control timing once at least one surface has opted in.
+**`mode: 'sync'` (default) — A2UI v0.9 data-model synchronization.**
+The agent stays *silently aware* of what the user has typed, without ever
+interrupting its own answer. The unit of state is the surface's **data
+model** — a `{ fieldId → value }` map — not the component tree. The static
+structure is already in the system prompt and doesn't change when the user
+types, so only the **changed values** are pushed (a tiny delta, tens of
+bytes, not the whole tree). Delivery happens **only in idle windows** — a
+debounced settle tick, `turn-complete`, or right before a typed
+message / button action — through the transport's `sendContextUpdate`
+channel (`turnComplete: false`, so it adds to context without provoking a
+response). It is **never** sent while the model is generating, so it can't
+barge-in-interrupt the answer. Edits made while the agent is speaking are
+buffered and coalesced (latest value per field wins), then flushed the
+instant the model goes idle. The effect: if the user types "John" into a
+field and then asks "what's in the box?", the model already sees "John" when
+it answers — but it never comments on the typing on its own.
+
+Structural changes (navigation, a component appearing/disappearing) fall
+back to a full `<event>SURFACE_UPDATED</event>` re-sync (`kind:
+'surfaceUpdated'`, the whole tree) because a value delta can't convey new
+structure. Value changes ride a compact `kind: 'clientDataModel'` payload
+carrying only the changed entries.
+
+`intervalMs` is the poll cadence (polling only *detects* a change; it doesn't
+deliver on its own). `settleMs` is how long a value must hold steady before
+it's delivered, so mid-typing values ("Joh" → "John") coalesce into one
+delivery. Keep `intervalMs` below `settleMs` for fine settle resolution.
+
+> **Prerequisite for cheap deltas:** value-bearing inputs must expose their
+> value through the data model (a `fieldName` / path binding), so a keystroke
+> changes only the data model, not the structure. Souschef does this
+> everywhere. An input that inlines its value in the component tree still
+> works, but trips a full re-sync on every keystroke (correct, just not
+> economical). `<StaticSurface>` / `<DynamicSurface>` expose the data model to
+> the agent via `getDataModel()`; hand-rolled surface handles can implement it
+> too, or let the agent derive it from `getJson()`.
+
+**`mode: 'proactive'` — the agent reacts to changes unprompted.**
+A timer (`intervalMs`) diffs the surface and pushes a turn-triggering
+`<event>SURFACE_UPDATED</event>` text turn (the full tree) as soon as a
+change *settles*. `settleMs` debounces in-flight edits. `cooldownMs`
+suppresses re-reporting the agent's own tool-call writes. Surface-id changes
+(navigation) bypass both windows. Useful for a chattier assistant that
+narrates UI activity — but note it *can* interrupt, since it triggers a turn.
+
+**`mode: 'piggyback'`** is a deprecated alias for `'sync'` (the old
+implementation flushed the full tree on the user's first transcript chunk,
+which on Gemini Live arrives at turn-close and interrupted the answer). The
+name still works; it resolves to `'sync'`.
+
+Whether any mode does anything is still decided per-surface: a surface with
+`surfaceWatch: false` is never watched.
 
 ## Testing with `MockTransport`
 
@@ -379,8 +446,9 @@ inheritance is **not** supported yet — wrap, don't subclass.
 ## Pitfalls
 
 - **Stale surfaces in `surfaces()` callback.** The callback is invoked
-  on every surface-watch tick (3 s by default — see
-  `surfaceWatchTuning`). If your store is paused or memoised
+  whenever the agent needs the live surface state — on every poll tick and at
+  each idle flush in `'sync'` mode, and on every timer tick in `'proactive'`
+  mode (see `surfaceWatchTuning`). If your store is paused or memoised
   incorrectly, the agent acts on stale JSON. Always read live state.
 - **Forgetting `agent.stop()` on `onDestroy`.** Hot reload leaks
   recorder instances. Always tear down.
@@ -439,6 +507,36 @@ Every implementation must honour the A2A envelope on the wire:
   `getClientCapabilities()` is injected via `A2ATransportOptions` so
   the transport calls it on every send (capabilities can evolve as
   dynamically-loaded catalogs come online).
+- For surfaces that enabled v0.9 **`sendDataModel`**, that same `metadata`
+  also carries `a2uiClientDataModel` — the surface's **full current data
+  model** (no deltas; the metadata channel replaces the prior copy each
+  send). Inject the optional `getClientDataModel()` accessor via
+  `A2ATransportOptions`; build the payload with
+  `getClientDataModel(surfaceIds)` from `a2ui-svelte/core` and attach it via
+  `wrapA2A(event, { clientCapabilities, clientDataModel })`:
+
+  ```ts
+  import { getClientCapabilities, getClientDataModel, STANDARD_CATALOG_ID } from 'a2ui-svelte/core';
+  import { wrapA2A } from 'a2ui-svelte/transport';
+
+  const transport = createMyA2ATransport({
+    getClientCapabilities: () => getClientCapabilities({ [STANDARD_CATALOG_ID]: DEFAULT_CATALOG }),
+    // the surface ids you opted into sendDataModel for:
+    getClientDataModel: () => getClientDataModel(['main'])
+  });
+
+  // inside the transport's sendEvent(event):
+  const message = wrapA2A(event, {
+    clientCapabilities: opts.getClientCapabilities(),
+    clientDataModel: opts.getClientDataModel?.()
+  });
+  ```
+
+  This is the spec-faithful, byte-for-byte v0.9 path. The voice transport
+  can't use it (a live audio API has no metadata side-channel and attaching
+  state at speech time interrupts the answer), so it synchronises the same
+  `{ fieldId → value }` unit via in-band **deltas** instead — see
+  "Surface-change delivery" above and the surface-data-model-sync plan.
 
 Reference SSE / WebSocket implementations are deferred to a follow-up;
 the interface and envelope contract are defined now so adapters and

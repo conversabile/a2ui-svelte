@@ -69,11 +69,36 @@ reactive reads inside it cause re-registration. BoundValue envelopes
 `{ path }`) are intentional — they're how the agent distinguishes
 literals from data-model bindings.
 
+The thunk receives the resolved **`componentId`** (the explicit `id` or the
+auto-generated one; `undefined` only when rendered outside a surface). Use it
+to path-bind a value-bearing input to its own data-model key even when no
+explicit `fieldName`/`id` was given — keeping the value out of the structural
+snapshot so voice `'sync'`-mode delivery stays on the cheap delta path:
+
+```ts
+a2ui: (componentId) => {
+  const bindingKey = fieldName ?? componentId;
+  return {
+    // path-bind the value; literal only as a no-surface fallback
+    text: bindingKey ? { path: `/${bindingKey}` } : { literalString: value }
+  };
+}
+```
+
 ### `data`
 
 Optional. `{ key, value: () => current }` registers a key in the
-surface's data model with a reactive accessor. The agent uses it via
-JSON-Pointer paths (`/{key}`) on dynamic surfaces.
+surface's data model with a reactive accessor. The agent reads it via
+JSON-Pointer paths (`/{key}`) — on dynamic surfaces and (for voice
+`'sync'`-mode delivery) as the unit synced to the model.
+
+`key` is **optional**: when omitted it defaults to the component's resolved
+`id`. So a value-bearing input should register its value **unconditionally** —
+`data: { key: fieldName, value: () => value }` keys by `fieldName` when present
+and by the component id otherwise. Pair it with the `bindingKey` path above so
+the path and the data-model key always match. (This is exactly what the
+built-in `TextField` / `Checkbox` / `Slider` / `DateTimeInput` /
+`MultipleChoice` do.)
 
 ### `action`
 

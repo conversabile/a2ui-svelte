@@ -1,10 +1,12 @@
 import { render } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { describe, it, expect, beforeEach } from 'vitest';
 import StaticSurface from '../renderer/StaticSurface.svelte';
 import { actionRegistry } from '../core/registries/action-registry';
 import TextFieldHarness from './__fixtures__/TextFieldHarness.svelte';
 import HiddenTextFieldHarness from './__fixtures__/HiddenTextFieldHarness.svelte';
 import SaveTextFieldHarness from './__fixtures__/SaveTextFieldHarness.svelte';
+import UnboundInputsHarness from './__fixtures__/UnboundInputsHarness.svelte';
 
 describe('defineA2uiComponent contract', () => {
 	beforeEach(() => {
@@ -32,6 +34,55 @@ describe('defineA2uiComponent contract', () => {
 		expect(actionRegistry.has('username', 'update')).toBe(true);
 		const result = await actionRegistry.execute('username', 'update', 'alice');
 		expect(result).toMatchObject({ field: 'username' });
+	});
+});
+
+describe('value-source registration without fieldName (data-model sync §6)', () => {
+	beforeEach(() => {
+		for (const id of actionRegistry.listActions()) {
+			actionRegistry.unregister(id);
+		}
+	});
+
+	/** Find a component definition by id in a serialised surface. */
+	function findComponent(json: any, id: string) {
+		return json.components.find((c: any) => c.id === id)?.component;
+	}
+
+	it('path-binds the value and registers a data source keyed by id (explicit id, no fieldName)', async () => {
+		let json: any;
+		let dataModel: Record<string, unknown> = {};
+		render(UnboundInputsHarness, {
+			onReady: (j, dm) => {
+				json = j;
+				dataModel = dm;
+			}
+		});
+		await tick();
+
+		// Value lives in the data model, keyed by the component id — not inlined.
+		expect(dataModel.bio).toBe('hello');
+		const bio = findComponent(json, 'bio');
+		expect(bio.TextField.text).toEqual({ path: '/bio' });
+		expect(JSON.stringify(bio)).not.toContain('literalString":"hello"');
+	});
+
+	it('keys the data source by the auto-generated id when neither id nor fieldName is given', async () => {
+		let json: any;
+		let dataModel: Record<string, unknown> = {};
+		render(UnboundInputsHarness, {
+			onReady: (j, dm) => {
+				json = j;
+				dataModel = dm;
+			}
+		});
+		await tick();
+
+		// The second field has no id/fieldName — find its auto-generated key by value.
+		const autoKey = Object.keys(dataModel).find((k) => dataModel[k] === 'scratch');
+		expect(autoKey).toBeTruthy();
+		const auto = findComponent(json, autoKey!);
+		expect(auto.TextField.text).toEqual({ path: `/${autoKey}` });
 	});
 });
 

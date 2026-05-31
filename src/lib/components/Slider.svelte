@@ -43,15 +43,20 @@
 	const handle = defineA2uiComponent<{ value: number; minValue: number; maxValue: number }>({
 		type: 'Slider',
 		id: id ?? fieldName,
-		a2ui: () => ({
-			...(label ? { label: { literalString: label } } : {}),
-			value: fieldName ? { path: `/${fieldName}` } : { literalNumber: value },
-			minValue,
-			maxValue,
-			...(accessibility ? { accessibility } : {}),
-			...(weight != null ? { weight } : {})
-		}),
-		data: fieldName ? { key: fieldName, value: () => value } : undefined,
+		// See TextField: path-bind the value under `fieldName ?? componentId` and
+		// always register it as a data source.
+		a2ui: (componentId) => {
+			const bindingKey = fieldName ?? componentId;
+			return {
+				...(label ? { label: { literalString: label } } : {}),
+				value: bindingKey ? { path: `/${bindingKey}` } : { literalNumber: value },
+				minValue,
+				maxValue,
+				...(accessibility ? { accessibility } : {}),
+				...(weight != null ? { weight } : {})
+			};
+		},
+		data: { key: fieldName, value: () => value },
 		action: {
 			type: 'update',
 			handler: async (next: string): Promise<unknown> => {

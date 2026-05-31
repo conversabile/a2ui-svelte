@@ -96,6 +96,26 @@ export class GeminiTransport implements VoiceTransport {
 		this.#session.sendRealtimeInput({ text });
 	}
 
+	sendContextUpdate(text: string): void {
+		if (!this.#session || this.#closed) return;
+		// `turnComplete: false` appends the content to the model's context but
+		// tells the server to wait for further input before generating — so the
+		// surface state rides along with the user's next turn instead of
+		// provoking a standalone response. `sendClientContent` (vs realtime
+		// input) also guarantees ordering into the context.
+		try {
+			this.#session.sendClientContent({
+				turns: [{ role: 'user', parts: [{ text }] }],
+				turnComplete: false
+			});
+		} catch (e) {
+			this.#emit('error', {
+				message: (e as Error).message ?? 'Failed to send context update',
+				cause: e
+			});
+		}
+	}
+
 	sendToolResult(callId: string, name: string, result: unknown): void {
 		if (!this.#session || this.#closed) return;
 		const functionResponses = [{ id: callId, name, response: result as Record<string, unknown> }];
@@ -185,10 +205,14 @@ export class GeminiTransport implements VoiceTransport {
 		}
 
 		const outputText = message.serverContent?.outputTranscription?.text;
-		if (outputText) this.#emit('transcript-out', { text: outputText });
+		if (outputText) {
+			this.#emit('transcript-out', { text: outputText });
+		}
 
 		const inputText = message.serverContent?.inputTranscription?.text;
-		if (inputText) this.#emit('transcript-in', { text: inputText });
+		if (inputText) {
+			this.#emit('transcript-in', { text: inputText });
+		}
 
 		if (message.serverContent?.turnComplete) {
 			this.#emit('turn-complete', {} as never);

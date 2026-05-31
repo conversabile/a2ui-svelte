@@ -74,15 +74,20 @@
 	const handle = defineA2uiComponent<{ options: Option[]; maxAllowedSelections: number }>({
 		type: 'MultipleChoice',
 		id: id ?? fieldName,
-		a2ui: () => ({
-			...(label ? { label: { literalString: label } } : {}),
-			options: options.map((o) => ({ label: { literalString: o.label }, value: o.value })),
-			...(fieldName ? { selections: { path: `/${fieldName}` } } : {}),
-			maxAllowedSelections,
-			...(accessibility ? { accessibility } : {}),
-			...(weight != null ? { weight } : {})
-		}),
-		data: fieldName ? { key: fieldName, value: () => selections } : undefined,
+		// See TextField: path-bind the selections under `fieldName ?? componentId`
+		// and always register them as a data source.
+		a2ui: (componentId) => {
+			const bindingKey = fieldName ?? componentId;
+			return {
+				...(label ? { label: { literalString: label } } : {}),
+				options: options.map((o) => ({ label: { literalString: o.label }, value: o.value })),
+				...(bindingKey ? { selections: { path: `/${bindingKey}` } } : {}),
+				maxAllowedSelections,
+				...(accessibility ? { accessibility } : {}),
+				...(weight != null ? { weight } : {})
+			};
+		},
+		data: { key: fieldName, value: () => selections },
 		action: {
 			type: 'update',
 			handler: async (next: string): Promise<unknown> => {

@@ -22,6 +22,29 @@ export interface VoiceTransport {
 	/** Send a text turn (used for tagged events like USER_ACTION and SURFACE_UPDATED). */
 	sendText(text: string): void;
 
+	/**
+	 * Append text to the model's conversation context **without triggering a
+	 * response**. The text becomes part of the running context and is consumed
+	 * by whatever turn the user produces next.
+	 *
+	 * This is the channel the agent uses to *sync* surface state into context
+	 * (A2UI v0.9 data-model sync): when a watched surface changes, the changed
+	 * values are pushed here (silently) in an idle window, so by the time the
+	 * user asks a question the model already sees the current UI — without the
+	 * agent reacting on its own, and without interrupting an answer in flight.
+	 *
+	 * Gemini Live implements this via `sendClientContent({ turnComplete: false })`,
+	 * which the SDK documents as "the server will await additional messages
+	 * before starting generation". Unlike `sendText` (a `sendRealtimeInput`
+	 * text turn that the API treats as user input and may answer), this is
+	 * guaranteed not to start generation and is ordered into the context.
+	 *
+	 * Optional: transports without a silent context channel omit it; the agent
+	 * falls back to `sendText` (which may trigger a turn — acceptable
+	 * degradation for those providers).
+	 */
+	sendContextUpdate?(text: string): void;
+
 	/** Reply to a tool call. Result must be JSON-serialisable. */
 	sendToolResult(callId: string, name: string, result: unknown): void;
 

@@ -93,6 +93,26 @@ export class SurfaceRegistry {
         return toolRegistry.getDeclarations().filter((d) => this.registeredToolNames.includes(d.name));
     }
 
+    /**
+     * The surface's data model as a flat `{ fieldId → value }` map — the
+     * same `{ key, valueString }` entries `toJSON()` emits in its `dataModel`
+     * array, returned as an object. This is the unit the voice agent syncs to
+     * the model in `'sync'` mode (A2UI v0.9 `sendDataModel`): only changed
+     * entries are pushed, so a keystroke costs a few bytes instead of the
+     * whole component tree. Keyed by the data source key (a component's
+     * `fieldName` / id).
+     */
+    getDataModel(): Record<string, unknown> {
+        const model: Record<string, unknown> = {};
+        for (const [key, accessor] of this.dataSources.entries()) {
+            const val = accessor();
+            if (val !== undefined && val !== null) {
+                model[key] = String(val);
+            }
+        }
+        return model;
+    }
+
     toJSON(): object {
         const result: Array<{ id: string; component: Record<string, any> }> = [];
 
@@ -137,13 +157,9 @@ export class SurfaceRegistry {
             result.push(clone);
         }
 
-        const dataModel: Array<{ key: string; valueString: string }> = [];
-        for (const [key, accessor] of this.dataSources.entries()) {
-            const val = accessor();
-            if (val !== undefined && val !== null) {
-                dataModel.push({ key, valueString: String(val) });
-            }
-        }
+        const dataModel: Array<{ key: string; valueString: string }> = Object.entries(
+            this.getDataModel()
+        ).map(([key, value]) => ({ key, valueString: String(value) }));
 
         return {
             surfaceId: this.surfaceId,

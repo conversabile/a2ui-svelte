@@ -1,429 +1,1107 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { flushSync } from 'svelte';
-import { VoiceAgent, type VoiceAgentSurface } from './agent.svelte';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { flushSync } from "svelte";
+import { VoiceAgent, type VoiceAgentSurface } from "./agent.svelte";
 import type {
-	VoiceTransport,
-	VoiceTransportConnectOptions,
-	VoiceTransportEventMap
-} from './transport';
-import { toolRegistry } from '../core/registries/tool-registry';
-import { userActionBus, type UserAction } from '../core/registries/event-bus';
-import { ALL_EXTRAS, STRICT } from '../core/extensions';
+  VoiceTransport,
+  VoiceTransportConnectOptions,
+  VoiceTransportEventMap,
+} from "./transport";
+import { toolRegistry } from "../core/registries/tool-registry";
+import { userActionBus, type UserAction } from "../core/registries/event-bus";
+import { ALL_EXTRAS, STRICT } from "../core/extensions";
+import { serializeSurface } from "../core/serializer";
+import { a2uiState } from "../core/state.svelte";
 
 // Stub AudioRecorder/AudioPlayer so the test never touches Web Audio.
-vi.mock('./audio-recorder', () => ({
-	AudioRecorder: class extends EventTarget {
-		async start() {}
-		stop() {}
-	}
+vi.mock("./audio-recorder", () => ({
+  AudioRecorder: class extends EventTarget {
+    async start() {}
+    stop() {}
+  },
 }));
-vi.mock('./audio-player', () => ({
-	AudioPlayer: class {
-		constructor(_: number) {}
-		addToQueue(_: string) {}
-		stop() {}
-	}
+vi.mock("./audio-player", () => ({
+  AudioPlayer: class {
+    constructor(_: number) {}
+    addToQueue(_: string) {}
+    stop() {}
+  },
 }));
 
 class MockTransport implements VoiceTransport {
-	connectOpts: VoiceTransportConnectOptions | null = null;
-	textsSent: string[] = [];
-	audioSent: string[] = [];
-	toolResults: Array<{ id: string; name: string; result: unknown }> = [];
-	closed = false;
+  connectOpts: VoiceTransportConnectOptions | null = null;
+  textsSent: string[] = [];
+  contextUpdates: string[] = [];
+  audioSent: string[] = [];
+  toolResults: Array<{ id: string; name: string; result: unknown }> = [];
+  closed = false;
 
-	#listeners: { [E in keyof VoiceTransportEventMap]?: Set<(p: unknown) => void> } = {};
+  #listeners: {
+    [E in keyof VoiceTransportEventMap]?: Set<(p: unknown) => void>;
+  } = {};
 
-	async connect(opts: VoiceTransportConnectOptions) {
-		this.connectOpts = opts;
-	}
-	sendAudioChunk(b64: string) {
-		this.audioSent.push(b64);
-	}
-	sendText(text: string) {
-		this.textsSent.push(text);
-	}
-	sendToolResult(id: string, name: string, result: unknown) {
-		this.toolResults.push({ id, name, result });
-	}
-	on<E extends keyof VoiceTransportEventMap>(
-		event: E,
-		handler: (p: VoiceTransportEventMap[E]) => void
-	): () => void {
-		let set = this.#listeners[event];
-		if (!set) {
-			set = new Set();
-			this.#listeners[event] = set;
-		}
-		set.add(handler as (p: unknown) => void);
-		return () => set!.delete(handler as (p: unknown) => void);
-	}
-	close() {
-		this.closed = true;
-	}
+  async connect(opts: VoiceTransportConnectOptions) {
+    this.connectOpts = opts;
+  }
+  sendAudioChunk(b64: string) {
+    this.audioSent.push(b64);
+  }
+  sendText(text: string) {
+    this.textsSent.push(text);
+  }
+  sendContextUpdate(text: string) {
+    this.contextUpdates.push(text);
+  }
+  sendToolResult(id: string, name: string, result: unknown) {
+    this.toolResults.push({ id, name, result });
+  }
+  on<E extends keyof VoiceTransportEventMap>(
+    event: E,
+    handler: (p: VoiceTransportEventMap[E]) => void,
+  ): () => void {
+    let set = this.#listeners[event];
+    if (!set) {
+      set = new Set();
+      this.#listeners[event] = set;
+    }
+    set.add(handler as (p: unknown) => void);
+    return () => set!.delete(handler as (p: unknown) => void);
+  }
+  close() {
+    this.closed = true;
+  }
 
-	emit<E extends keyof VoiceTransportEventMap>(event: E, payload: VoiceTransportEventMap[E]) {
-		const set = this.#listeners[event];
-		if (!set) return;
-		for (const h of set) (h as (p: unknown) => void)(payload);
-	}
+  emit<E extends keyof VoiceTransportEventMap>(
+    event: E,
+    payload: VoiceTransportEventMap[E],
+  ) {
+    const set = this.#listeners[event];
+    if (!set) return;
+    for (const h of set) (h as (p: unknown) => void)(payload);
+  }
 }
 
-describe('VoiceAgent with a mock transport', () => {
-	beforeEach(() => {
-		// Tests share toolRegistry; clear between cases.
-		for (const t of toolRegistry.getDeclarations()) toolRegistry.unregister(t.name);
-	});
+describe("VoiceAgent with a mock transport", () => {
+  beforeEach(() => {
+    // Tests share toolRegistry; clear between cases.
+    for (const t of toolRegistry.getDeclarations())
+      toolRegistry.unregister(t.name);
+  });
 
-	it('connects, dispatches a tool call, and replies with the result', async () => {
-		toolRegistry.register({
-			name: 'add_one',
-			description: 'add 1',
-			parameters: { type: 'object', properties: {} },
-			execute: async (args: Record<string, unknown>) => ({ result: (args.x as number) + 1 })
-		});
+  it("connects, dispatches a tool call, and replies with the result", async () => {
+    toolRegistry.register({
+      name: "add_one",
+      description: "add 1",
+      parameters: { type: "object", properties: {} },
+      execute: async (args: Record<string, unknown>) => ({
+        result: (args.x as number) + 1,
+      }),
+    });
 
-		const surfaces: VoiceAgentSurface[] = [];
-		const transport = new MockTransport();
-		const agent = new VoiceAgent({
-			transport,
-			surfaces: () => surfaces,
-			contextInstructions: () => '',
-			systemInstruction: 'You are a test agent.',
-			mintToken: async () => 'fake-token'
-		});
+    const surfaces: VoiceAgentSurface[] = [];
+    const transport = new MockTransport();
+    const agent = new VoiceAgent({
+      transport,
+      surfaces: () => surfaces,
+      contextInstructions: () => "",
+      systemInstruction: "You are a test agent.",
+      mintToken: async () => "fake-token",
+    });
 
-		await agent.start();
-		flushSync();
-		expect(agent.connected).toBe(true);
-		expect(transport.connectOpts?.token).toBe('fake-token');
-		expect(transport.connectOpts?.systemInstruction).toContain('You are a test agent.');
-		expect(transport.connectOpts?.tools.map((t) => t.name)).toContain('add_one');
+    await agent.start();
+    flushSync();
+    expect(agent.connected).toBe(true);
+    expect(transport.connectOpts?.token).toBe("fake-token");
+    expect(transport.connectOpts?.systemInstruction).toContain(
+      "You are a test agent.",
+    );
+    expect(transport.connectOpts?.tools.map((t) => t.name)).toContain(
+      "add_one",
+    );
 
-		transport.emit('tool-call', { calls: [{ id: 'c1', name: 'add_one', args: { x: 2 } }] });
-		// Tool dispatch is async (await toolRegistry.execute) — drain the microtask queue.
-		await new Promise((r) => setTimeout(r, 0));
-		flushSync();
+    transport.emit("tool-call", {
+      calls: [{ id: "c1", name: "add_one", args: { x: 2 } }],
+    });
+    // Tool dispatch is async (await toolRegistry.execute) — drain the microtask queue.
+    await new Promise((r) => setTimeout(r, 0));
+    flushSync();
 
-		expect(transport.toolResults).toEqual([
-			{ id: 'c1', name: 'add_one', result: { result: 3 } }
-		]);
-		expect(agent.status).toBe('thinking');
+    expect(transport.toolResults).toEqual([
+      { id: "c1", name: "add_one", result: { result: 3 } },
+    ]);
+    expect(agent.status).toBe("thinking");
 
-		await agent.stop();
-		expect(transport.closed).toBe(true);
-		expect(agent.connected).toBe(false);
-	});
+    await agent.stop();
+    expect(transport.closed).toBe(true);
+    expect(agent.connected).toBe(false);
+  });
 
-	it('skips surface-watch polling for surfaces opted out via extensions.surfaceWatch=false', async () => {
-		vi.useFakeTimers();
-		try {
-			let json: unknown = { root: 'v1' };
-			const transport = new MockTransport();
-			const agent = new VoiceAgent({
-				transport,
-				surfaces: () => [
-					{ id: 'main', type: 'static', getJson: () => json, extensions: STRICT }
-				],
-				contextInstructions: () => '',
-				systemInstruction: 'persona',
-				mintToken: async () => 'fake',
-				surfaceWatchTuning: { intervalMs: 1000, cooldownMs: 0 }
-			});
+  it("skips surface-watch polling for surfaces opted out via extensions.surfaceWatch=false", async () => {
+    vi.useFakeTimers();
+    try {
+      let json: unknown = { root: "v1" };
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        surfaces: () => [
+          {
+            id: "main",
+            type: "static",
+            getJson: () => json,
+            extensions: STRICT,
+          },
+        ],
+        contextInstructions: () => "",
+        systemInstruction: "persona",
+        mintToken: async () => "fake",
+        surfaceWatchTuning: {
+          mode: "proactive",
+          intervalMs: 1000,
+          settleMs: 0,
+          cooldownMs: 0,
+        },
+      });
 
-			await agent.start();
-			flushSync();
+      await agent.start();
+      flushSync();
 
-			// Mutate the surface and advance well past the polling interval.
-			json = { root: 'v2' };
-			vi.advanceTimersByTime(5000);
-			flushSync();
+      // Mutate the surface and advance well past the polling interval.
+      json = { root: "v2" };
+      vi.advanceTimersByTime(5000);
+      flushSync();
 
-			expect(
-				transport.textsSent.some((t) => t.includes('SURFACE_UPDATED'))
-			).toBe(false);
+      expect(
+        transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
+      ).toBe(false);
 
-			await agent.stop();
-		} finally {
-			vi.useRealTimers();
-		}
-	});
+      await agent.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
-	it('emits an extension-wrapped SURFACE_UPDATED payload for surfaces with ALL_EXTRAS (the default)', async () => {
-		vi.useFakeTimers();
-		try {
-			let json: unknown = { root: 'v1' };
-			const transport = new MockTransport();
-			const agent = new VoiceAgent({
-				transport,
-				surfaces: () => [
-					{ id: 'main', type: 'static', getJson: () => json, extensions: ALL_EXTRAS }
-				],
-				contextInstructions: () => 'ctx',
-				systemInstruction: 'persona',
-				mintToken: async () => 'fake',
-				surfaceWatchTuning: { intervalMs: 1000, cooldownMs: 0 }
-			});
+  it("proactive mode emits an extension-wrapped SURFACE_UPDATED text turn for an ALL_EXTRAS surface", async () => {
+    vi.useFakeTimers();
+    try {
+      let json: unknown = { root: "v1" };
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        surfaces: () => [
+          {
+            id: "main",
+            type: "static",
+            getJson: () => json,
+            extensions: ALL_EXTRAS,
+          },
+        ],
+        contextInstructions: () => "ctx",
+        systemInstruction: "persona",
+        mintToken: async () => "fake",
+        surfaceWatchTuning: {
+          mode: "proactive",
+          intervalMs: 1000,
+          settleMs: 0,
+          cooldownMs: 0,
+        },
+      });
 
-			await agent.start();
-			flushSync();
+      await agent.start();
+      flushSync();
 
-			json = { root: 'v2' };
-			vi.advanceTimersByTime(1500);
-			flushSync();
+      json = { root: "v2" };
+      vi.advanceTimersByTime(1500);
+      flushSync();
 
-			const event = transport.textsSent.find((t) => t.includes('SURFACE_UPDATED'));
-			expect(event).toBeDefined();
-			const match = event!.match(/<payload>\n([\s\S]*?)\n<\/payload>/);
-			expect(match).toBeTruthy();
-			const parsed = JSON.parse(match![1]);
-			expect(parsed.extensions['a2ui-svelte']).toMatchObject({
-				kind: 'surfaceUpdated',
-				updatedSurfaces: [{ root: 'v2' }],
-				updatedContext: 'ctx'
-			});
-			expect(Array.isArray(parsed.extensions['a2ui-svelte'].availableElementIds)).toBe(true);
+      const event = transport.textsSent.find((t) =>
+        t.includes("SURFACE_UPDATED"),
+      );
+      expect(event).toBeDefined();
+      const match = event!.match(/<payload>\n([\s\S]*?)\n<\/payload>/);
+      expect(match).toBeTruthy();
+      const parsed = JSON.parse(match![1]);
+      expect(parsed.extensions["a2ui-svelte"]).toMatchObject({
+        kind: "surfaceUpdated",
+        updatedSurfaces: [{ root: "v2" }],
+        updatedContext: "ctx",
+      });
+      expect(
+        Array.isArray(parsed.extensions["a2ui-svelte"].availableElementIds),
+      ).toBe(true);
 
-			await agent.stop();
-		} finally {
-			vi.useRealTimers();
-		}
-	});
+      await agent.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
-	it('polls dynamic surfaces too, so user input into a path-bound field reaches the agent', async () => {
-		vi.useFakeTimers();
-		try {
-			// Mirrors a dynamic surface the agent rendered (a TextField bound to
-			// /draft) that the user then typed into: serializeSurface includes
-			// the data model, so the JSON changes when the user writes.
-			let json: unknown = { surfaceId: 'canvas', data: { draft: '' } };
-			const transport = new MockTransport();
-			const agent = new VoiceAgent({
-				transport,
-				mode: 'dynamic',
-				surfaces: () => [
-					{ id: 'canvas', type: 'dynamic', getJson: () => json, extensions: ALL_EXTRAS }
-				],
-				contextInstructions: () => '',
-				systemInstruction: 'persona',
-				mintToken: async () => 'fake',
-				surfaceWatchTuning: { intervalMs: 1000, cooldownMs: 0 }
-			});
+  it("proactive mode polls dynamic surfaces too, so user input into a path-bound field reaches the agent", async () => {
+    vi.useFakeTimers();
+    try {
+      // Mirrors a dynamic surface the agent rendered (a TextField bound to
+      // /draft) that the user then typed into: serializeSurface includes
+      // the data model, so the JSON changes when the user writes.
+      let json: unknown = { surfaceId: "canvas", data: { draft: "" } };
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        mode: "dynamic",
+        surfaces: () => [
+          {
+            id: "canvas",
+            type: "dynamic",
+            getJson: () => json,
+            extensions: ALL_EXTRAS,
+          },
+        ],
+        contextInstructions: () => "",
+        systemInstruction: "persona",
+        mintToken: async () => "fake",
+        surfaceWatchTuning: {
+          mode: "proactive",
+          intervalMs: 1000,
+          settleMs: 0,
+          cooldownMs: 0,
+        },
+      });
 
-			await agent.start();
-			flushSync();
+      await agent.start();
+      flushSync();
 
-			// User types into the field — the data model now reflects it.
-			json = { surfaceId: 'canvas', data: { draft: 'hello' } };
-			vi.advanceTimersByTime(1500);
-			flushSync();
+      // User types into the field — the data model now reflects it.
+      json = { surfaceId: "canvas", data: { draft: "hello" } };
+      vi.advanceTimersByTime(1500);
+      flushSync();
 
-			const event = transport.textsSent.find((t) => t.includes('SURFACE_UPDATED'));
-			expect(event).toBeDefined();
-			const match = event!.match(/<payload>\n([\s\S]*?)\n<\/payload>/);
-			const parsed = JSON.parse(match![1]);
-			expect(parsed.extensions['a2ui-svelte'].updatedSurfaces).toEqual([
-				{ surfaceId: 'canvas', data: { draft: 'hello' } }
-			]);
+      const event = transport.textsSent.find((t) =>
+        t.includes("SURFACE_UPDATED"),
+      );
+      expect(event).toBeDefined();
+      const match = event!.match(/<payload>\n([\s\S]*?)\n<\/payload>/);
+      const parsed = JSON.parse(match![1]);
+      expect(parsed.extensions["a2ui-svelte"].updatedSurfaces).toEqual([
+        { surfaceId: "canvas", data: { draft: "hello" } },
+      ]);
 
-			await agent.stop();
-		} finally {
-			vi.useRealTimers();
-		}
-	});
+      await agent.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
-	it('does not poll a STRICT dynamic surface', async () => {
-		vi.useFakeTimers();
-		try {
-			let json: unknown = { surfaceId: 'canvas', data: { draft: '' } };
-			const transport = new MockTransport();
-			const agent = new VoiceAgent({
-				transport,
-				mode: 'dynamic',
-				surfaces: () => [
-					{ id: 'canvas', type: 'dynamic', getJson: () => json, extensions: STRICT }
-				],
-				contextInstructions: () => '',
-				systemInstruction: 'persona',
-				mintToken: async () => 'fake',
-				surfaceWatchTuning: { intervalMs: 1000, cooldownMs: 0 }
-			});
+  it("does not poll a STRICT dynamic surface", async () => {
+    vi.useFakeTimers();
+    try {
+      let json: unknown = { surfaceId: "canvas", data: { draft: "" } };
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        mode: "dynamic",
+        surfaces: () => [
+          {
+            id: "canvas",
+            type: "dynamic",
+            getJson: () => json,
+            extensions: STRICT,
+          },
+        ],
+        contextInstructions: () => "",
+        systemInstruction: "persona",
+        mintToken: async () => "fake",
+        surfaceWatchTuning: {
+          mode: "proactive",
+          intervalMs: 1000,
+          settleMs: 0,
+          cooldownMs: 0,
+        },
+      });
 
-			await agent.start();
-			flushSync();
+      await agent.start();
+      flushSync();
 
-			json = { surfaceId: 'canvas', data: { draft: 'hello' } };
-			vi.advanceTimersByTime(5000);
-			flushSync();
+      json = { surfaceId: "canvas", data: { draft: "hello" } };
+      vi.advanceTimersByTime(5000);
+      flushSync();
 
-			expect(
-				transport.textsSent.some((t) => t.includes('SURFACE_UPDATED'))
-			).toBe(false);
+      expect(
+        transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
+      ).toBe(false);
 
-			await agent.stop();
-		} finally {
-			vi.useRealTimers();
-		}
-	});
+      await agent.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
-	it('treats a surface with no extensions field as opted-in (back-compat default)', async () => {
-		vi.useFakeTimers();
-		try {
-			let json: unknown = { root: 'v1' };
-			const transport = new MockTransport();
-			const agent = new VoiceAgent({
-				transport,
-				// Note: no `extensions` field — represents a pre-extension-era
-				// hand-rolled surface handle. Must still get polled.
-				surfaces: () => [{ id: 'main', type: 'static', getJson: () => json }],
-				contextInstructions: () => '',
-				systemInstruction: 'persona',
-				mintToken: async () => 'fake',
-				surfaceWatchTuning: { intervalMs: 1000, cooldownMs: 0 }
-			});
+  it("treats a surface with no extensions field as opted-in (back-compat default)", async () => {
+    vi.useFakeTimers();
+    try {
+      let json: unknown = { root: "v1" };
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        // Note: no `extensions` field — represents a pre-extension-era
+        // hand-rolled surface handle. Must still get polled.
+        surfaces: () => [{ id: "main", type: "static", getJson: () => json }],
+        contextInstructions: () => "",
+        systemInstruction: "persona",
+        mintToken: async () => "fake",
+        surfaceWatchTuning: {
+          mode: "proactive",
+          intervalMs: 1000,
+          settleMs: 0,
+          cooldownMs: 0,
+        },
+      });
 
-			await agent.start();
-			flushSync();
+      await agent.start();
+      flushSync();
 
-			json = { root: 'v2' };
-			vi.advanceTimersByTime(1500);
-			flushSync();
+      json = { root: "v2" };
+      vi.advanceTimersByTime(1500);
+      flushSync();
 
-			expect(
-				transport.textsSent.some((t) => t.includes('SURFACE_UPDATED'))
-			).toBe(true);
+      expect(
+        transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
+      ).toBe(true);
 
-			await agent.stop();
-		} finally {
-			vi.useRealTimers();
-		}
-	});
+      await agent.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
-	it('B5: falls back to wrapped text turn for userAction when transport has no sendUserAction', async () => {
-		const transport = new MockTransport();
-		const agent = new VoiceAgent({
-			transport,
-			surfaces: () => [],
-			contextInstructions: () => '',
-			systemInstruction: 'persona',
-			mintToken: async () => 'fake'
-		});
+  it("proactive mode debounces an in-flight value and only delivers it once settled", async () => {
+    vi.useFakeTimers();
+    try {
+      let json: unknown = { name: "" };
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        surfaces: () => [
+          {
+            id: "main",
+            type: "static",
+            getJson: () => json,
+            extensions: ALL_EXTRAS,
+          },
+        ],
+        contextInstructions: () => "",
+        systemInstruction: "persona",
+        mintToken: async () => "fake",
+        surfaceWatchTuning: {
+          mode: "proactive",
+          intervalMs: 1000,
+          settleMs: 3000,
+          cooldownMs: 0,
+        },
+      });
 
-		await agent.start();
-		flushSync();
+      await agent.start();
+      flushSync();
 
-		const action: UserAction = {
-			name: 'submit',
-			surfaceId: 'main',
-			sourceComponentId: 'save-btn',
-			timestamp: '2026-05-27T00:00:00.000Z',
-			context: {}
-		};
-		userActionBus.emit(action);
+      // User is mid-typing: the value keeps changing tick over tick.
+      json = { name: "Joh" };
+      vi.advanceTimersByTime(1000);
+      json = { name: "John" };
+      vi.advanceTimersByTime(1000);
+      flushSync();
+      // Not stable for settleMs yet → nothing delivered (no half-typed value).
+      expect(
+        transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
+      ).toBe(false);
 
-		const ev = transport.textsSent.find((t) => t.includes('USER_ACTION'));
-		expect(ev).toBeDefined();
-		const match = ev!.match(/<payload>\n([\s\S]*?)\n<\/payload>/);
-		expect(match).toBeTruthy();
-		const parsed = JSON.parse(match![1]);
-		expect(parsed).toEqual({
-			userAction: {
-				name: 'submit',
-				surfaceId: 'main',
-				sourceComponentId: 'save-btn',
-				timestamp: '2026-05-27T00:00:00.000Z',
-				context: {}
-			}
-		});
+      // User stops typing; let the value settle.
+      vi.advanceTimersByTime(3000);
+      flushSync();
+      const events = transport.textsSent.filter((t) =>
+        t.includes("SURFACE_UPDATED"),
+      );
+      expect(events.length).toBe(1);
+      expect(events[0]).toContain('"John"');
+      expect(events[0]).not.toContain('"Joh"'); // the in-flight value never shipped
 
-		await agent.stop();
-	});
+      await agent.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
-	it('B5: forwards userAction via sendUserAction when the transport implements it', async () => {
-		const received: UserAction[] = [];
-		const transport = new MockTransport();
-		(transport as VoiceTransport).sendUserAction = (a: UserAction) => received.push(a);
+  describe("sync mode (A2UI v0.9 data-model sync, the default)", () => {
+    // A surface whose component STRUCTURE is value-independent (values live in
+    // the data model, as with `fieldName`-bound inputs). Mutate `state.dm` to
+    // simulate the user typing; mutate `state.struct` to simulate navigation /
+    // a component appearing.
+    function syncSetup(tuning?: Record<string, unknown>) {
+      const state = {
+        dm: {} as Record<string, string>,
+        struct: {
+          surfaceId: "main",
+          rootId: "root",
+          components: [] as unknown[],
+        },
+      };
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        surfaces: () => [
+          {
+            id: "main",
+            type: "static",
+            getJson: () => state.struct,
+            getDataModel: () => ({ ...state.dm }),
+            extensions: ALL_EXTRAS,
+          },
+        ],
+        contextInstructions: () => "ctx",
+        systemInstruction: "persona",
+        mintToken: async () => "fake",
+        surfaceWatchTuning: tuning as never,
+      });
+      return { state, transport, agent };
+    }
 
-		const agent = new VoiceAgent({
-			transport,
-			surfaces: () => [],
-			contextInstructions: () => '',
-			systemInstruction: 'persona',
-			mintToken: async () => 'fake'
-		});
+    // Parse the extension payload of the most recent silent context update.
+    function lastSilentExt(transport: MockTransport): Record<string, any> {
+      const msg = transport.contextUpdates[transport.contextUpdates.length - 1];
+      const match = msg.match(/<payload>\n([\s\S]*?)\n<\/payload>/);
+      return JSON.parse(match![1]).extensions["a2ui-svelte"];
+    }
 
-		await agent.start();
-		flushSync();
+    // Poll cadence that effectively disables timer-driven delivery so a test can
+    // isolate the explicit-flush paths (turn-complete / typed message / action).
+    const NO_POLL = {
+      mode: "sync",
+      intervalMs: 1_000_000,
+      settleMs: 1_000_000,
+    };
 
-		const action: UserAction = {
-			name: 'submit',
-			surfaceId: 'main',
-			sourceComponentId: 'save-btn',
-			timestamp: '2026-05-27T00:00:00.000Z',
-			context: { who: 'dario' }
-		};
-		userActionBus.emit(action);
+    it("does NOT deliver at the spoken transcript (the old barge-in root cause)", async () => {
+      const { state, transport, agent } = syncSetup(NO_POLL);
+      await agent.start();
+      flushSync();
 
-		expect(received).toEqual([action]);
-		// Crucially: it must NOT also send a wrapped text turn.
-		expect(transport.textsSent.some((t) => t.includes('USER_ACTION'))).toBe(false);
+      // User typed while idle, then starts speaking.
+      state.dm = { name: "Mario" };
+      transport.emit("transcript-in", { text: "what did I type?" });
+      flushSync();
 
-		await agent.stop();
-	});
+      // Nothing is sent at speech time — that would interrupt the answer.
+      // Sync happens in idle windows (turn-complete / settle tick / pre-message).
+      expect(transport.contextUpdates.length).toBe(0);
+      expect(
+        transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
+      ).toBe(false);
 
-	it('B5: defaults a missing context to {} so the emitted action is spec-conformant', async () => {
-		const received: UserAction[] = [];
-		const transport = new MockTransport();
-		(transport as VoiceTransport).sendUserAction = (a: UserAction) => received.push(a);
+      await agent.stop();
+    });
 
-		const agent = new VoiceAgent({
-			transport,
-			surfaces: () => [],
-			contextInstructions: () => '',
-			systemInstruction: 'persona',
-			mintToken: async () => 'fake'
-		});
+    it("buffers an edit made while the model speaks and flushes it (delta) at turn-complete", async () => {
+      const { state, transport, agent } = syncSetup(NO_POLL);
+      // Both fields are empty at connect time, so that baseline is already known
+      // to the model (it's in the system prompt).
+      state.dm = { name: "", role: "" };
+      await agent.start();
+      flushSync();
 
-		await agent.start();
-		flushSync();
+      // Model is generating.
+      transport.emit("audio-out", { base64Pcm24k: "AAA" });
+      // User fills only the name field mid-answer; `role` stays empty.
+      state.dm = { name: "Mario", role: "" };
+      flushSync();
+      // Gated — must not interrupt the in-progress answer.
+      expect(transport.contextUpdates.length).toBe(0);
 
-		// Simulate a hand-rolled emitter that forgot the context field.
-		userActionBus.emit({
-			name: 'submit',
-			surfaceId: 'main',
-			sourceComponentId: 'save-btn',
-			timestamp: '2026-05-27T00:00:00.000Z',
-			context: undefined as unknown as Record<string, unknown>
-		});
+      // Model goes idle → the buffered change flushes immediately.
+      transport.emit("turn-complete", {} as never);
+      flushSync();
+      expect(transport.contextUpdates.length).toBe(1);
 
-		expect(received[0].context).toEqual({});
+      const ext = lastSilentExt(transport);
+      expect(ext.kind).toBe("clientDataModel");
+      expect(ext.delta).toBe(true);
+      // Only the CHANGED key — the unchanged empty `role` is not re-sent.
+      expect(ext.surfaces).toEqual({ main: { name: "Mario" } });
 
-		await agent.stop();
-	});
+      await agent.stop();
+    });
 
-	it('captures transcript-in / transcript-out and clears thinking on turn-complete', async () => {
-		const transport = new MockTransport();
-		const agent = new VoiceAgent({
-			transport,
-			surfaces: () => [],
-			contextInstructions: () => '',
-			systemInstruction: 'persona',
-			mintToken: async () => 'fake'
-		});
+    it("coalesces multiple edits during the model turn into a single final-value delivery", async () => {
+      const { state, transport, agent } = syncSetup(NO_POLL);
+      await agent.start();
+      flushSync();
 
-		await agent.start();
-		flushSync();
+      transport.emit("audio-out", { base64Pcm24k: "AAA" });
+      state.dm = { name: "Luigi" };
+      flushSync();
+      state.dm = { name: "Mario" };
+      flushSync();
+      expect(transport.contextUpdates.length).toBe(0);
 
-		transport.emit('transcript-in', { text: 'hello' });
-		flushSync();
-		transport.emit('transcript-out', { text: 'hi back' });
-		transport.emit('turn-complete', {} as never);
-		flushSync();
+      transport.emit("turn-complete", {} as never);
+      flushSync();
+      expect(transport.contextUpdates.length).toBe(1);
+      const ext = lastSilentExt(transport);
+      expect(ext.surfaces).toEqual({ main: { name: "Mario" } });
+      // The intermediate value never shipped.
+      expect(transport.contextUpdates[0]).not.toContain("Luigi");
 
-		expect(agent.transcript[0]).toEqual({ role: 'user', text: 'hello' });
-		expect(agent.transcript[1]).toEqual({ role: 'model', text: 'hi back' });
-		expect(agent.status).toBe('idle');
+      await agent.stop();
+    });
 
-		await agent.stop();
-	});
+    it("sends a full surfaceUpdated re-sync when the structure changes (navigation)", async () => {
+      const { state, transport, agent } = syncSetup(NO_POLL);
+      await agent.start();
+      flushSync();
+
+      // A new component appears (structure, not just a value).
+      state.struct = {
+        surfaceId: "main",
+        rootId: "root",
+        components: [{ id: "b", component: { Button: {} } }] as unknown[],
+      };
+      agent.sendTextMessage("what changed?");
+      flushSync();
+
+      expect(transport.contextUpdates.length).toBe(1);
+      const ext = lastSilentExt(transport);
+      expect(ext.kind).toBe("surfaceUpdated");
+      expect(ext.updatedSurfaces).toEqual([state.struct]);
+      expect(Array.isArray(ext.availableElementIds)).toBe(true);
+
+      await agent.stop();
+    });
+
+    it("syncs the data-model delta before a typed message", async () => {
+      const { state, transport, agent } = syncSetup(NO_POLL);
+      await agent.start();
+      flushSync();
+
+      state.dm = { name: "Mario" };
+      agent.sendTextMessage("who did I add?");
+      flushSync();
+
+      expect(transport.contextUpdates.length).toBe(1);
+      expect(lastSilentExt(transport).surfaces).toEqual({
+        main: { name: "Mario" },
+      });
+      expect(transport.textsSent).toContain("who did I add?");
+
+      await agent.stop();
+    });
+
+    it("syncs the data-model delta before a userAction (button click)", async () => {
+      const { state, transport, agent } = syncSetup(NO_POLL);
+      await agent.start();
+      flushSync();
+
+      state.dm = { name: "Mario" };
+      userActionBus.emit({
+        name: "save",
+        surfaceId: "main",
+        sourceComponentId: "save-btn",
+        timestamp: "2026-05-31T00:00:00.000Z",
+        context: {},
+      });
+      flushSync();
+
+      expect(transport.contextUpdates.length).toBe(1);
+      expect(lastSilentExt(transport).surfaces).toEqual({
+        main: { name: "Mario" },
+      });
+      expect(transport.textsSent.some((t) => t.includes("USER_ACTION"))).toBe(
+        true,
+      );
+
+      await agent.stop();
+    });
+
+    it("does not flush when nothing changed since the model last saw it", async () => {
+      const { transport, agent } = syncSetup(NO_POLL);
+      await agent.start();
+      flushSync();
+
+      agent.sendTextMessage("hello");
+      flushSync();
+      expect(transport.contextUpdates.length).toBe(0);
+
+      await agent.stop();
+    });
+
+    it("does not echo the agent's own tool-call write back to it", async () => {
+      const { state, transport, agent } = syncSetup(NO_POLL);
+      // A backend-style tool that mutates the surface's data model.
+      toolRegistry.register({
+        name: "set_name",
+        description: "set the name",
+        parameters: { type: "object", properties: {} },
+        execute: async (args: Record<string, unknown>) => {
+          state.dm = { name: args.value as string };
+          return { status: "success" };
+        },
+      });
+      await agent.start();
+      flushSync();
+
+      transport.emit("tool-call", {
+        calls: [{ id: "c1", name: "set_name", args: { value: "Mario" } }],
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      flushSync();
+
+      // The agent already knows it wrote `name: Mario`; a later flush must not
+      // re-report it.
+      agent.sendTextMessage("done?");
+      flushSync();
+      expect(transport.contextUpdates.length).toBe(0);
+
+      await agent.stop();
+    });
+
+    it("falls back to a text turn when the transport has no silent context channel", async () => {
+      const { state, transport, agent } = syncSetup(NO_POLL);
+      (
+        transport as unknown as { sendContextUpdate?: unknown }
+      ).sendContextUpdate = undefined;
+      await agent.start();
+      flushSync();
+
+      state.dm = { name: "Mario" };
+      agent.sendTextMessage("x");
+      flushSync();
+
+      expect(
+        transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
+      ).toBe(true);
+
+      await agent.stop();
+    });
+
+    it("delivers a settled change on the idle poll tick — no spoken turn needed", async () => {
+      vi.useFakeTimers();
+      try {
+        const { state, transport, agent } = syncSetup({
+          mode: "sync",
+          intervalMs: 100,
+          settleMs: 300,
+        });
+        await agent.start();
+        flushSync();
+
+        state.dm = { name: "Mario" };
+        vi.advanceTimersByTime(150);
+        flushSync();
+        // Not stable for settleMs yet.
+        expect(transport.contextUpdates.length).toBe(0);
+
+        vi.advanceTimersByTime(400);
+        flushSync();
+        expect(transport.contextUpdates.length).toBe(1);
+        const ext = lastSilentExt(transport);
+        expect(ext.kind).toBe("clientDataModel");
+        expect(ext.surfaces).toEqual({ main: { name: "Mario" } });
+
+        await agent.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("never delivers on a poll tick while the model is generating", async () => {
+      vi.useFakeTimers();
+      try {
+        const { state, transport, agent } = syncSetup({
+          mode: "sync",
+          intervalMs: 100,
+          settleMs: 0,
+        });
+        await agent.start();
+        flushSync();
+
+        transport.emit("audio-out", { base64Pcm24k: "AAA" });
+        state.dm = { name: "Mario" };
+        vi.advanceTimersByTime(1000);
+        flushSync();
+        expect(transport.contextUpdates.length).toBe(0);
+
+        // Once the model goes idle the buffered change flushes.
+        transport.emit("turn-complete", {} as never);
+        flushSync();
+        expect(transport.contextUpdates.length).toBe(1);
+
+        await agent.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("never delivers on a poll tick while the model is thinking (post-speech, pre-audio window)", async () => {
+      vi.useFakeTimers();
+      try {
+        const { state, transport, agent } = syncSetup({
+          mode: "sync",
+          intervalMs: 100,
+          settleMs: 0,
+        });
+        await agent.start();
+        flushSync();
+
+        // The user finished speaking: status is 'thinking', but the model
+        // hasn't started its audio yet so `#modelTurnActive` is still false.
+        // This is the window the old `#modelTurnActive`-only gate missed —
+        // a poll-driven sendContextUpdate here barges into the forming answer.
+        transport.emit("transcript-in", { text: "what did I type?" });
+        state.dm = { name: "Mario" };
+        vi.advanceTimersByTime(1000);
+        flushSync();
+        expect(transport.contextUpdates.length).toBe(0);
+
+        // The model answers and the turn ends → the buffered change flushes.
+        transport.emit("turn-complete", {} as never);
+        flushSync();
+        expect(transport.contextUpdates.length).toBe(1);
+        expect(lastSilentExt(transport).surfaces).toEqual({
+          main: { name: "Mario" },
+        });
+
+        await agent.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not echo the agent's own dynamic render (surfaceUpdate + beginRendering) back to it", async () => {
+      const surfaceId = "echo-canvas";
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        mode: "dynamic",
+        surfaces: () => [
+          {
+            id: surfaceId,
+            type: "dynamic",
+            getJson: () => serializeSurface(surfaceId) ?? { surfaceId },
+            getDataModel: () => ({
+              ...(a2uiState.getSurface(surfaceId)?.data ?? {}),
+            }),
+            extensions: ALL_EXTRAS,
+          },
+        ],
+        contextInstructions: () => "",
+        systemInstruction: "persona",
+        mintToken: async () => "fake",
+        surfaceWatchTuning: NO_POLL as never,
+      });
+
+      await agent.start();
+      flushSync();
+
+      // The agent renders a button on the canvas — its own write.
+      transport.emit("tool-call", {
+        calls: [
+          {
+            id: "c1",
+            name: "surfaceUpdate",
+            args: {
+              surfaceId,
+              components: [{ id: "b", component: { Button: { label: "Yes" } } }],
+            },
+          },
+          { id: "c2", name: "beginRendering", args: { surfaceId, root: "b" } },
+        ],
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      flushSync();
+
+      // A later idle flush must NOT re-send the structure the agent just
+      // authored back to it as a SURFACE_UPDATED re-sync.
+      agent.sendTextMessage("done?");
+      flushSync();
+      expect(
+        transport.contextUpdates.some((t) => t.includes("SURFACE_UPDATED")),
+      ).toBe(false);
+
+      a2uiState.deleteSurface(surfaceId);
+      await agent.stop();
+    });
+
+    it("defaults to sync mode when no surfaceWatchTuning is given", async () => {
+      vi.useFakeTimers();
+      try {
+        const { state, transport, agent } = syncSetup(undefined);
+        await agent.start();
+        flushSync();
+
+        state.dm = { name: "Mario" };
+        vi.advanceTimersByTime(1500);
+        flushSync();
+
+        expect(transport.contextUpdates.length).toBe(1);
+        expect(lastSilentExt(transport).kind).toBe("clientDataModel");
+
+        await agent.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('treats the deprecated "piggyback" mode as an alias for "sync"', async () => {
+      vi.useFakeTimers();
+      try {
+        const { state, transport, agent } = syncSetup({
+          mode: "piggyback",
+          intervalMs: 100,
+          settleMs: 0,
+        });
+        await agent.start();
+        flushSync();
+
+        state.dm = { name: "Mario" };
+        vi.advanceTimersByTime(300);
+        flushSync();
+
+        expect(transport.contextUpdates.length).toBe(1);
+        expect(lastSilentExt(transport).kind).toBe("clientDataModel");
+
+        await agent.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it("B5: falls back to wrapped text turn for userAction when transport has no sendUserAction", async () => {
+    const transport = new MockTransport();
+    const agent = new VoiceAgent({
+      transport,
+      surfaces: () => [],
+      contextInstructions: () => "",
+      systemInstruction: "persona",
+      mintToken: async () => "fake",
+    });
+
+    await agent.start();
+    flushSync();
+
+    const action: UserAction = {
+      name: "submit",
+      surfaceId: "main",
+      sourceComponentId: "save-btn",
+      timestamp: "2026-05-27T00:00:00.000Z",
+      context: {},
+    };
+    userActionBus.emit(action);
+
+    const ev = transport.textsSent.find((t) => t.includes("USER_ACTION"));
+    expect(ev).toBeDefined();
+    const match = ev!.match(/<payload>\n([\s\S]*?)\n<\/payload>/);
+    expect(match).toBeTruthy();
+    const parsed = JSON.parse(match![1]);
+    expect(parsed).toEqual({
+      userAction: {
+        name: "submit",
+        surfaceId: "main",
+        sourceComponentId: "save-btn",
+        timestamp: "2026-05-27T00:00:00.000Z",
+        context: {},
+      },
+    });
+
+    await agent.stop();
+  });
+
+  it("B5: forwards userAction via sendUserAction when the transport implements it", async () => {
+    const received: UserAction[] = [];
+    const transport = new MockTransport();
+    (transport as VoiceTransport).sendUserAction = (a: UserAction) =>
+      received.push(a);
+
+    const agent = new VoiceAgent({
+      transport,
+      surfaces: () => [],
+      contextInstructions: () => "",
+      systemInstruction: "persona",
+      mintToken: async () => "fake",
+    });
+
+    await agent.start();
+    flushSync();
+
+    const action: UserAction = {
+      name: "submit",
+      surfaceId: "main",
+      sourceComponentId: "save-btn",
+      timestamp: "2026-05-27T00:00:00.000Z",
+      context: { who: "dario" },
+    };
+    userActionBus.emit(action);
+
+    expect(received).toEqual([action]);
+    // Crucially: it must NOT also send a wrapped text turn.
+    expect(transport.textsSent.some((t) => t.includes("USER_ACTION"))).toBe(
+      false,
+    );
+
+    await agent.stop();
+  });
+
+  it("B5: defaults a missing context to {} so the emitted action is spec-conformant", async () => {
+    const received: UserAction[] = [];
+    const transport = new MockTransport();
+    (transport as VoiceTransport).sendUserAction = (a: UserAction) =>
+      received.push(a);
+
+    const agent = new VoiceAgent({
+      transport,
+      surfaces: () => [],
+      contextInstructions: () => "",
+      systemInstruction: "persona",
+      mintToken: async () => "fake",
+    });
+
+    await agent.start();
+    flushSync();
+
+    // Simulate a hand-rolled emitter that forgot the context field.
+    userActionBus.emit({
+      name: "submit",
+      surfaceId: "main",
+      sourceComponentId: "save-btn",
+      timestamp: "2026-05-27T00:00:00.000Z",
+      context: undefined as unknown as Record<string, unknown>,
+    });
+
+    expect(received[0].context).toEqual({});
+
+    await agent.stop();
+  });
+
+  it("captures transcript-in / transcript-out and clears thinking on turn-complete", async () => {
+    const transport = new MockTransport();
+    const agent = new VoiceAgent({
+      transport,
+      surfaces: () => [],
+      contextInstructions: () => "",
+      systemInstruction: "persona",
+      mintToken: async () => "fake",
+    });
+
+    await agent.start();
+    flushSync();
+
+    transport.emit("transcript-in", { text: "hello" });
+    flushSync();
+    transport.emit("transcript-out", { text: "hi back" });
+    transport.emit("turn-complete", {} as never);
+    flushSync();
+
+    expect(agent.transcript[0]).toEqual({ role: "user", text: "hello" });
+    expect(agent.transcript[1]).toEqual({ role: "model", text: "hi back" });
+    expect(agent.status).toBe("idle");
+
+    await agent.stop();
+  });
+
+  it("starts a new user turn after turn-complete even when the model produced no text (tool-only turn)", async () => {
+    const transport = new MockTransport();
+    const agent = new VoiceAgent({
+      transport,
+      surfaces: () => [],
+      contextInstructions: () => "",
+      systemInstruction: "persona",
+      mintToken: async () => "fake",
+    });
+
+    await agent.start();
+    flushSync();
+
+    // First utterance, then a tool-only turn (no transcript-out at all, as in
+    // dynamic-surface renders) that simply completes.
+    transport.emit("transcript-in", { text: "first" });
+    transport.emit("turn-complete", {} as never);
+    flushSync();
+
+    // The next utterance must be its own turn — not appended to the first.
+    transport.emit("transcript-in", { text: "second" });
+    flushSync();
+
+    const userTurns = agent.transcript.filter((m) => m.role === "user");
+    expect(userTurns.map((m) => m.text)).toEqual(["first", "second"]);
+
+    await agent.stop();
+  });
+
+  it("self-heals a stuck 'thinking' badge after the watchdog window when no response arrives", async () => {
+    vi.useFakeTimers();
+    try {
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        surfaces: () => [],
+        contextInstructions: () => "",
+        systemInstruction: "persona",
+        mintToken: async () => "fake",
+      });
+
+      await agent.start();
+      flushSync();
+
+      // The user speaks; a response is now expected.
+      transport.emit("transcript-in", { text: "hello?" });
+      flushSync();
+      expect(agent.status).toBe("thinking");
+
+      // ...but the turn is dropped: no audio / transcript / turn-complete ever
+      // arrives. The badge must not spin forever.
+      vi.advanceTimersByTime(12_000);
+      flushSync();
+      expect(agent.status).toBe("idle");
+
+      await agent.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps 'thinking' while the model is actively producing tool calls (watchdog re-arms)", async () => {
+    vi.useFakeTimers();
+    try {
+      toolRegistry.register({
+        name: "noop",
+        description: "no-op",
+        parameters: { type: "object", properties: {} },
+        execute: async () => ({ status: "success" }),
+      });
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        surfaces: () => [],
+        contextInstructions: () => "",
+        systemInstruction: "persona",
+        mintToken: async () => "fake",
+      });
+
+      await agent.start();
+      flushSync();
+
+      transport.emit("transcript-in", { text: "do some work" });
+      flushSync();
+
+      // A tool call lands every few seconds — each is model activity that
+      // re-arms the watchdog, so the badge stays accurate (not prematurely
+      // cleared) across a multi-step turn that never speaks.
+      for (let i = 0; i < 3; i++) {
+        vi.advanceTimersByTime(8_000);
+        transport.emit("tool-call", {
+          calls: [{ id: `c${i}`, name: "noop", args: {} }],
+        });
+        await Promise.resolve();
+        flushSync();
+        expect(agent.status).toBe("thinking");
+      }
+
+      await agent.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

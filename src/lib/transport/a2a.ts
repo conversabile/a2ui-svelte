@@ -21,6 +21,10 @@
  *  - Every outbound client→server `Message`'s `metadata` includes the
  *    `a2uiClientCapabilities` blob produced by
  *    `getClientCapabilities` from `a2ui-svelte/core`.
+ *  - For surfaces that enabled v0.9 `sendDataModel`, that same `metadata`
+ *    also carries the `a2uiClientDataModel` blob produced by
+ *    `getClientDataModel` from `a2ui-svelte/core` (the full current data
+ *    model, per spec — no deltas on this out-of-band channel).
  *
  * Reference SSE / WebSocket implementations are intentionally deferred to a
  * follow-up — the interface and envelope contract are defined here so the
@@ -34,6 +38,7 @@ import type {
 	DeleteSurface
 } from '../core/types';
 import type { A2UIClientCapabilities } from '../core/catalog-selection';
+import type { A2UIClientDataModel } from '../core/client-data-model';
 
 /**
  * The four server→client message kinds (per
@@ -106,17 +111,26 @@ export interface A2AMessage {
  * Pass `clientCapabilities` ONLY when wrapping an outbound client→server
  * message — every such message MUST carry it in metadata (per A2UI v0.8
  * §2.1.2). Server→client messages do not need the field.
+ *
+ * Pass `clientDataModel` (also client→server only) to attach the v0.9
+ * `a2uiClientDataModel` blob alongside the capabilities — required on every
+ * message for surfaces that enabled `sendDataModel` (per A2UI v0.9). Build it
+ * with `getClientDataModel` from `a2ui-svelte/core`.
  */
 export function wrapA2A(
 	payload: A2UIServerMessage | A2UIClientEvent,
-	opts?: { clientCapabilities?: A2UIClientCapabilities }
+	opts?: {
+		clientCapabilities?: A2UIClientCapabilities;
+		clientDataModel?: A2UIClientDataModel;
+	}
 ): A2AMessage {
 	const message: A2AMessage = {
 		parts: [{ kind: 'data', mimeType: A2UI_DATA_PART_MIME, data: payload }]
 	};
-	if (opts?.clientCapabilities) {
-		message.metadata = { a2uiClientCapabilities: opts.clientCapabilities };
-	}
+	const metadata: Record<string, unknown> = {};
+	if (opts?.clientCapabilities) metadata.a2uiClientCapabilities = opts.clientCapabilities;
+	if (opts?.clientDataModel) metadata.a2uiClientDataModel = opts.clientDataModel;
+	if (Object.keys(metadata).length > 0) message.metadata = metadata;
 	return message;
 }
 
@@ -162,7 +176,9 @@ export interface A2ATransport {
 	 * wrapping the payload in an A2A `Message` whose `DataPart` carries
 	 * `mimeType: "application/json+a2ui"` and whose `metadata` includes
 	 * `a2uiClientCapabilities` (per spec §2.1.2 — required on EVERY outbound
-	 * message, not just the first).
+	 * message, not just the first). When `getClientDataModel` is supplied,
+	 * the transport additionally attaches its `a2uiClientDataModel` result to
+	 * that metadata (v0.9 `sendDataModel`). Both are wired via `wrapA2A`.
 	 */
 	sendEvent(event: A2UIClientEvent): void;
 
@@ -181,4 +197,14 @@ export interface A2ATransportOptions {
 	 * dynamically-loaded catalogs come online).
 	 */
 	getClientCapabilities: () => A2UIClientCapabilities;
+
+	/**
+	 * Optional — returns the v0.9 `a2uiClientDataModel` to attach to outbound
+	 * client→server message metadata (the full data model of every surface
+	 * that enabled `sendDataModel`). Called on **every** outbound send so the
+	 * model is always current; return `undefined` (or omit) when no surface
+	 * opted in. Build it with `getClientDataModel(surfaceIds)` from
+	 * `a2ui-svelte/core`.
+	 */
+	getClientDataModel?: () => A2UIClientDataModel | undefined;
 }

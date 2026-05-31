@@ -10,7 +10,7 @@
  * editing these defaults.
  */
 
-import type { ExtensionOptions } from '../core/extensions';
+import type { ExtensionOptions } from "../core/extensions";
 
 /**
  * Shape of a surface as seen by the prompt-builder. `extensions` is
@@ -19,135 +19,154 @@ import type { ExtensionOptions } from '../core/extensions';
  * this automatically from its resolved options prop.
  */
 export interface PromptSurface {
-	id: string;
-	getJson(): unknown;
-	extensions?: ExtensionOptions;
+  id: string;
+  getJson(): unknown;
+  extensions?: ExtensionOptions;
 }
 
 export interface PromptInputs {
-	systemInstruction: string;
-	staticSurfaces: PromptSurface[];
-	dynamicSurfaces: PromptSurface[];
-	toolDeclarations: Array<{
-		name: string;
-		description: string;
-		parameters: Record<string, unknown>;
-	}>;
-	contextInstructions: string;
-	transcriptHistory: Array<{ role: 'user' | 'model'; text: string }>;
-	/** Whether to include the dynamic-surface mini-spec in the prompt. */
-	includeDynamicGuide: boolean;
+  systemInstruction: string;
+  staticSurfaces: PromptSurface[];
+  dynamicSurfaces: PromptSurface[];
+  toolDeclarations: Array<{
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  }>;
+  contextInstructions: string;
+  transcriptHistory: Array<{ role: "user" | "model"; text: string }>;
+  /** Whether to include the dynamic-surface mini-spec in the prompt. */
+  includeDynamicGuide: boolean;
 }
 
 export function buildSystemPrompt(inputs: PromptInputs): string {
-	return [
-		inputs.systemInstruction,
-		staticSurfacesBlock(inputs.staticSurfaces),
-		dynamicSurfacesBlock(inputs.dynamicSurfaces, inputs.includeDynamicGuide),
-		toolsBlock(inputs.toolDeclarations),
-		contextBlock(inputs.contextInstructions),
-		historyBlock(inputs.transcriptHistory)
-	]
-		.filter((s) => s.length > 0)
-		.join('\n\n');
+  return [
+    inputs.systemInstruction,
+    staticSurfacesBlock(inputs.staticSurfaces),
+    dynamicSurfacesBlock(inputs.dynamicSurfaces, inputs.includeDynamicGuide),
+    toolsBlock(inputs.toolDeclarations),
+    contextBlock(inputs.contextInstructions),
+    historyBlock(inputs.transcriptHistory),
+  ]
+    .filter((s) => s.length > 0)
+    .join("\n\n");
 }
 
-export function staticSurfacesBlock(surfaces: PromptInputs['staticSurfaces']): string {
-	if (surfaces.length === 0) return '';
+export function staticSurfacesBlock(
+  surfaces: PromptInputs["staticSurfaces"],
+): string {
+  if (surfaces.length === 0) return "";
 
-	// Per-extension toggles are decided per-surface. The prompt-builder needs
-	// a yes/no per capability across the whole surface set:
-	//   - `batchToolsEnabled`: at least one surface registers the
-	//     `click_buttons` / `update_text_fields` batched variants.
-	//   - `toolResultExtrasEnabled`: at least one surface returns the extras
-	//     envelope on tool results.
-	//   - `surfaceWatchEnabled`: at least one surface opts into the
-	//     `<event>SURFACE_UPDATED</event>` polling notifications.
-	//
-	// Missing `extensions` records default to `ALL_EXTRAS` (every flag on),
-	// so legacy host code that hand-rolls a surface handle keeps its prompt
-	// shape unchanged.
-	const isOn = (s: PromptSurface, k: keyof ExtensionOptions) =>
-		s.extensions === undefined || s.extensions[k] !== false;
-	const batchToolsEnabled = surfaces.some((s) => isOn(s, 'batchTools'));
-	const toolResultExtrasEnabled = surfaces.some((s) => isOn(s, 'toolResultExtras'));
-	const surfaceWatchEnabled = surfaces.some((s) => isOn(s, 'surfaceWatch'));
+  // Per-extension toggles are decided per-surface. The prompt-builder needs
+  // a yes/no per capability across the whole surface set:
+  //   - `batchToolsEnabled`: at least one surface registers the
+  //     `click_buttons` / `update_text_fields` batched variants.
+  //   - `toolResultExtrasEnabled`: at least one surface returns the extras
+  //     envelope on tool results.
+  //   - `surfaceWatchEnabled`: at least one surface opts into the
+  //     `<event>SURFACE_UPDATED</event>` polling notifications.
+  //
+  // Missing `extensions` records default to `ALL_EXTRAS` (every flag on),
+  // so legacy host code that hand-rolls a surface handle keeps its prompt
+  // shape unchanged.
+  const isOn = (s: PromptSurface, k: keyof ExtensionOptions) =>
+    s.extensions === undefined || s.extensions[k] !== false;
+  const batchToolsEnabled = surfaces.some((s) => isOn(s, "batchTools"));
+  const toolResultExtrasEnabled = surfaces.some((s) =>
+    isOn(s, "toolResultExtras"),
+  );
+  const surfaceWatchEnabled = surfaces.some((s) => isOn(s, "surfaceWatch"));
 
-	let out =
-		'## Static Surfaces\nThe application UI has the following static surfaces rendered natively by Svelte. You CANNOT change their component structure, but you can reference them. You CAN interact with them using the available function tools (e.g. clicking buttons).\n';
-	for (const s of surfaces) {
-		out += `\n### Static Surface ("${s.id}")\n\`\`\`json\n${JSON.stringify(s.getJson(), null, 2)}\n\`\`\``;
-	}
-	out += '\n\n**CRITICAL RULES FOR STATIC SURFACES:**\n';
+  let out =
+    "## Static Surfaces\nThe application UI has the following static surfaces rendered natively by Svelte. You CANNOT change their component structure, but you can reference them. You CAN interact with them using the available function tools (e.g. clicking buttons).\n";
+  for (const s of surfaces) {
+    out += `\n### Static Surface ("${s.id}")\n\`\`\`json\n${JSON.stringify(s.getJson(), null, 2)}\n\`\`\``;
+  }
+  out += "\n\n**CRITICAL RULES FOR STATIC SURFACES:**\n";
 
-	if (batchToolsEnabled) {
-		out +=
-			'1. **USE GENERIC TOOLS**: To interact with static surface components, use `click_button({element_id})` for a single button and `update_text_field({element_id, value})` for a single field. When you need to act on several elements at once, prefer the batched variants `click_buttons({clicks: [{element_id}, ...]})` and `update_text_fields({updates: [{element_id, value}, ...]})` — one tool call instead of many. The `element_id` matches the component ID shown in the surface JSON above. **If you confirm you are changing a text field, you MUST actually call the tool to do it.**\n';
-	} else {
-		out +=
-			'1. **USE GENERIC TOOLS**: To interact with static surface components, use `click_button({element_id})` for buttons and `update_text_field({element_id, value})` for text fields. The `element_id` matches the component ID shown in the surface JSON above. **If you confirm you are changing a text field, you MUST actually call the tool to do it.**\n';
-	}
+  if (batchToolsEnabled) {
+    out +=
+      "1. **USE GENERIC TOOLS**: To interact with static surface components, use `click_button({element_id})` for a single button and `update_text_field({element_id, value})` for a single field. When you need to act on several elements at once, prefer the batched variants `click_buttons({clicks: [{element_id}, ...]})` and `update_text_fields({updates: [{element_id, value}, ...]})` — one tool call instead of many. The `element_id` matches the component ID shown in the surface JSON above. **If you confirm you are changing a text field, you MUST actually call the tool to do it.**\n";
+  } else {
+    out +=
+      "1. **USE GENERIC TOOLS**: To interact with static surface components, use `click_button({element_id})` for buttons and `update_text_field({element_id, value})` for text fields. The `element_id` matches the component ID shown in the surface JSON above. **If you confirm you are changing a text field, you MUST actually call the tool to do it.**\n";
+  }
 
-	out +=
-		'2. **SHORT ACKNOWLEDGEMENTS AFTER TOOL CALLS**: After a tool is successfully invoked and returns, keep your acknowledgement extremely short (e.g., "Done!" or "Updated."). Do not repeat the explanation of what you just did or what you were about to do.\n';
-	out +=
-		"3. **FORM FILLING**: When adding or editing data, fill form fields with `update_text_field` first, then immediately click the save button with `click_button` — do NOT ask for confirmation. If the user's request is incomplete, fill what you can and ask for the missing details. **EXCEPTION**: For deletion operations, always ask for confirmation before proceeding.\n";
+  out +=
+    '2. **SHORT ACKNOWLEDGEMENTS AFTER TOOL CALLS**: After a tool is successfully invoked and returns, keep your acknowledgement extremely short (e.g., "Done!" or "Updated."). Do not repeat the explanation of what you just did or what you were about to do.\n';
+  out +=
+    "3. **FORM FILLING**: When adding or editing data, fill form fields with `update_text_field` first, then immediately click the save button with `click_button` — do NOT ask for confirmation. If the user's request is incomplete, fill what you can and ask for the missing details. **EXCEPTION**: For deletion operations, always ask for confirmation before proceeding.\n";
 
-	let ruleNo = 4;
-	if (surfaceWatchEnabled) {
-		out +=
-			`${ruleNo}. **SURFACE UPDATES**: You may receive messages tagged with \`<event>SURFACE_UPDATED</event>\`. These are automatic notifications that the UI has changed (e.g., the user added an employee, navigated weeks, or modified shifts through the UI). The payload is a JSON object inside \`<payload>\` tags shaped like:\n` +
-			'   ```\n' +
-			'   {\n' +
-			'     "extensions": {\n' +
-			'       "a2ui-svelte": {\n' +
-			'         "kind": "surfaceUpdated",\n' +
-			'         "updatedSurfaces": [ ... ],\n' +
-			'         "updatedContext": "...",\n' +
-			'         "availableElementIds": [ ... ]\n' +
-			'       }\n' +
-			'     }\n' +
-			'   }\n' +
-			'   ```\n' +
-			'   When you receive one:\n' +
-			'   - Silently update your understanding of the current state from `updatedSurfaces`, `updatedContext`, and `availableElementIds`. **The static-surface JSON shown at session start is now stale; trust `updatedSurfaces` as the authoritative new structure and values.**\n' +
-			'   - Do NOT speak or generate audio in response, unless the user is clearly waiting for your commentary on the change\n' +
-			'   - Never read the XML tags or raw payload aloud\n' +
-			'   - `updatedSurfaces` is the full JSON of the static surfaces after the change, in the same shape as the static-surface JSON at session start\n' +
-			'   - `updatedContext` contains the current page-specific knowledge (staff list, assignments, current week, …)\n' +
-			'   - `availableElementIds` lists all component IDs you can target with `click_button` or `update_text_field`\n';
-		ruleNo++;
-	}
+  let ruleNo = 4;
+  if (surfaceWatchEnabled) {
+    out +=
+      `${ruleNo}. **SURFACE UPDATES**: You may receive messages tagged with \`<event>SURFACE_UPDATED</event>\` that tell you the UI changed (the user typed into a field, navigated, or edited data through the UI). They arrive silently, attached to the user's message — the current state of the UI at the moment the user is speaking to you. Treat them as the authoritative current state. There are TWO kinds, distinguished by \`kind\` inside \`extensions["a2ui-svelte"]\`:\n` +
+      "   \n" +
+      '   **(a) `kind: "clientDataModel"` — a data-model update (the common case).** The values the user has entered, as a map of field id to value. **Only CHANGED fields are included.** Merge them into your understanding (upsert each key); fields not listed are unchanged. The component STRUCTURE you were shown at session start does NOT change here — only these values do.\n' +
+      "   ```\n" +
+      "   {\n" +
+      '     "extensions": {\n' +
+      '       "a2ui-svelte": {\n' +
+      '         "kind": "clientDataModel",\n' +
+      '         "version": "v0.9",\n' +
+      '         "delta": true,\n' +
+      '         "surfaces": { "<surfaceId>": { "<fieldId>": "<value>" } },\n' +
+      '         "updatedContext": "..."\n' +
+      "       }\n" +
+      "     }\n" +
+      "   }\n" +
+      "   ```\n" +
+      '   A field cleared by the user arrives as `"<fieldId>": ""`. No need to re-read the whole surface — just apply the changed values to the structure you already know. `updatedContext` is present only when the page context also changed.\n' +
+      "   \n" +
+      '   **(b) `kind: "surfaceUpdated"` — a full re-sync (structure changed).** Sent when the STRUCTURE changed (navigation, a component appeared or disappeared), because a value delta cannot convey new structure. Replace your structural understanding from `updatedSurfaces`.\n' +
+      "   ```\n" +
+      "   {\n" +
+      '     "extensions": {\n' +
+      '       "a2ui-svelte": {\n' +
+      '         "kind": "surfaceUpdated",\n' +
+      '         "updatedSurfaces": [ ... ],\n' +
+      '         "updatedContext": "...",\n' +
+      '         "availableElementIds": [ ... ]\n' +
+      "       }\n" +
+      "     }\n" +
+      "   }\n" +
+      "   ```\n" +
+      "   For EITHER kind:\n" +
+      "   - Do NOT speak or generate audio in response, unless the user is clearly waiting for your commentary on the change\n" +
+      "   - Never read the XML tags or raw payload aloud\n" +
+      "   - `updatedContext`, when present, is the current page-specific knowledge (staff list, assignments, current week, …)\n" +
+      "   - `updatedSurfaces` (kind `surfaceUpdated`) is the full JSON of the static surfaces, in the same shape as the static-surface JSON at session start; `availableElementIds` lists the component IDs you can target with `click_button` / `update_text_field`\n";
+    ruleNo++;
+  }
 
-	if (toolResultExtrasEnabled) {
-		out +=
-			`${ruleNo}. **TOOL-RESULT ENVELOPE**: Every \`click_button\` / \`update_text_field\` (and their batched variants) returns an envelope shaped like:\n` +
-			'   ```\n' +
-			'   {\n' +
-			'     "results": [ { "element_id": "...", "status": "success" | "error", ... } ],\n' +
-			'     "extensions": {\n' +
-			'       "a2ui-svelte": {\n' +
-			'         "updatedSurface": [ ... ],\n' +
-			'         "updatedContext": "...",\n' +
-			'         "availableElementIds": [ ... ]\n' +
-			'       }\n' +
-			'     }\n' +
-			'   }\n' +
-			'   ```\n' +
-			'   The spec-canonical `results` field is the per-element outcome. The `extensions["a2ui-svelte"]` block is a post-action snapshot — **after every tool call, trust `updatedSurface` as the authoritative new structure and refresh your understanding from `updatedContext` and `availableElementIds`**. The original static-surface JSON shown at session start is stale the moment you act.\n';
-		ruleNo++;
-	}
+  if (toolResultExtrasEnabled) {
+    out +=
+      `${ruleNo}. **TOOL-RESULT ENVELOPE**: Every \`click_button\` / \`update_text_field\` (and their batched variants) returns an envelope shaped like:\n` +
+      "   ```\n" +
+      "   {\n" +
+      '     "results": [ { "element_id": "...", "status": "success" | "error", ... } ],\n' +
+      '     "extensions": {\n' +
+      '       "a2ui-svelte": {\n' +
+      '         "updatedSurface": [ ... ],\n' +
+      '         "updatedContext": "...",\n' +
+      '         "availableElementIds": [ ... ]\n' +
+      "       }\n" +
+      "     }\n" +
+      "   }\n" +
+      "   ```\n" +
+      '   The spec-canonical `results` field is the per-element outcome. The `extensions["a2ui-svelte"]` block is a post-action snapshot — **after every tool call, trust `updatedSurface` as the authoritative new structure and refresh your understanding from `updatedContext` and `availableElementIds`**. The original static-surface JSON shown at session start is stale the moment you act.\n';
+    ruleNo++;
+  }
 
-	if (batchToolsEnabled) {
-		out +=
-			`${ruleNo}. **BATCH OPERATIONS**: When you need to perform multiple operations of the same type (e.g., assigning shifts to many employees), always batch them into a single \`click_buttons\` / \`update_text_fields\` call. Do NOT call the tool once per item. This is critical for performance and reliability.\n`;
-		ruleNo++;
-	}
+  if (batchToolsEnabled) {
+    out += `${ruleNo}. **BATCH OPERATIONS**: When you need to perform multiple operations of the same type (e.g., assigning shifts to many employees), always batch them into a single \`click_buttons\` / \`update_text_fields\` call. Do NOT call the tool once per item. This is critical for performance and reliability.\n`;
+    ruleNo++;
+  }
 
-	out += '\n### Examples of Tool Usage for Static Surfaces\n';
+  out += "\n### Examples of Tool Usage for Static Surfaces\n";
 
-	if (batchToolsEnabled) {
-		out += `
+  if (batchToolsEnabled) {
+    out += `
 **Scenario 1: Navigation**
 User: "Vorrei rivedere il regolamento base del servizio"
 Surface JSON has a Button with id "go_my_restaurant".
@@ -182,8 +201,8 @@ Agent Action (First item):
 
 **KEY**: Always wait between submissions. After clicking save, wait for the form to reset (or for a SURFACE_UPDATED event) before filling the same form again. Do NOT fill multiple items into the same form at once — that will overwrite previous entries.
 `;
-	} else {
-		out += `
+  } else {
+    out += `
 **Scenario 1: Navigation**
 User: "Vorrei rivedere il regolamento base del servizio"
 Surface JSON has a Button with id "go_my_restaurant".
@@ -215,25 +234,25 @@ Agent Action (First item):
 
 **KEY**: Always wait between submissions. After clicking save, wait for the form to reset (or for a SURFACE_UPDATED event) before filling the same form again. Do NOT fill multiple items into the same form at once — that will overwrite previous entries.
 `;
-	}
-	return out;
+  }
+  return out;
 }
 
 export function dynamicSurfacesBlock(
-	surfaces: PromptInputs['dynamicSurfaces'],
-	includeGuide: boolean
+  surfaces: PromptInputs["dynamicSurfaces"],
+  includeGuide: boolean,
 ): string {
-	if (surfaces.length === 0 && !includeGuide) return '';
+  if (surfaces.length === 0 && !includeGuide) return "";
 
-	const fallbackId = surfaces[0]?.id || 'ai-canvas';
+  const fallbackId = surfaces[0]?.id || "ai-canvas";
 
-	let out =
-		'## Dynamic Surfaces\nYou have a dynamic UI canvas you can populate with components using the `render_a2ui` tool.\n';
-	for (const s of surfaces) {
-		out += `\n### Dynamic Surface: "${s.id}"\n\`\`\`json\n${JSON.stringify(s.getJson(), null, 2)}\n\`\`\``;
-	}
+  let out =
+    "## Dynamic Surfaces\nYou have a dynamic UI canvas you can populate with components using the `render_a2ui` tool.\n";
+  for (const s of surfaces) {
+    out += `\n### Dynamic Surface: "${s.id}"\n\`\`\`json\n${JSON.stringify(s.getJson(), null, 2)}\n\`\`\``;
+  }
 
-	out += `
+  out += `
 
 ## How to use A2UI Dynamic Tools
 You can modify the UI by calling the A2UI v0.8 spec tools: \`surfaceUpdate\`, \`beginRendering\`, and \`dataModelUpdate\`.
@@ -383,29 +402,33 @@ When you receive a \`USER_ACTION\` event:
 6. Any Button you want the user to be able to click MUST carry an \`action: { name, context? }\`. Without an action the button is inert — you will never hear about its clicks.
 7. Prefer binding \`action.context\` entries via \`{ path: "/..." }\` over literals, so you always get the **latest** value the user has typed (the data model is updated in real-time as the user edits bound TextFields).
 8. When you receive a \`<event>USER_ACTION</event>\` message, treat it as a trigger — react silently by calling tools or updating the UI, then speak a short confirmation.
-9. Only target dynamic surfaces: ${surfaces.map((s) => '"' + s.id + '"').join(', ') || 'N/A'}.
+9. Only target dynamic surfaces: ${surfaces.map((s) => '"' + s.id + '"').join(", ") || "N/A"}.
 `;
-	return out;
+  return out;
 }
 
-export function toolsBlock(tools: PromptInputs['toolDeclarations']): string {
-	if (tools.length === 0) return '';
-	return (
-		'## Available Function Tools\nYou have the following function tools available. Call them as needed:\n' +
-		tools.map((t) => `- **${t.name}**: ${t.description}`).join('\n')
-	);
+export function toolsBlock(tools: PromptInputs["toolDeclarations"]): string {
+  if (tools.length === 0) return "";
+  return (
+    "## Available Function Tools\nYou have the following function tools available. Call them as needed:\n" +
+    tools.map((t) => `- **${t.name}**: ${t.description}`).join("\n")
+  );
 }
 
 export function contextBlock(context: string): string {
-	if (!context) return '';
-	return `## Page-Specific Expert Knowledge\n${context}`;
+  if (!context) return "";
+  return `## Page-Specific Expert Knowledge\n${context}`;
 }
 
-export function historyBlock(history: PromptInputs['transcriptHistory']): string {
-	const filtered = history.filter((m) => m.text.trim()).slice(-30);
-	if (filtered.length === 0) return '';
-	return (
-		'## Recent Conversation History\nBelow is a transcript of our previous conversation in this session. Use this for context to provide a seamless experience, but do NOT read it aloud or repeat it back to the user. The user will speak first now.\n\n' +
-		filtered.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`).join('\n')
-	);
+export function historyBlock(
+  history: PromptInputs["transcriptHistory"],
+): string {
+  const filtered = history.filter((m) => m.text.trim()).slice(-30);
+  if (filtered.length === 0) return "";
+  return (
+    "## Recent Conversation History\nBelow is a transcript of our previous conversation in this session. Use this for context to provide a seamless experience, but do NOT read it aloud or repeat it back to the user. The user will speak first now.\n\n" +
+    filtered
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`)
+      .join("\n")
+  );
 }

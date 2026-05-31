@@ -78,10 +78,13 @@ export function readExtension<T>(
  */
 export interface ExtensionOptions {
 	/**
-	 * Surface-change polling — opts the surface into the agent's polling
-	 * loop. When `true`, the `VoiceAgent` diffs this surface's JSON /
-	 * context instructions on a fixed cadence and emits a namespaced
-	 * `<event>SURFACE_UPDATED</event>` text message when they change.
+	 * Surface-change watching — opts the surface into the agent's
+	 * change-delivery loop. When `true`, the `VoiceAgent` keeps the model's
+	 * view of this surface in sync with user-driven edits. How is governed by
+	 * `surfaceWatchTuning.mode`: `'sync'` (default) pushes a silent A2UI v0.9
+	 * data-model delta in idle windows; `'proactive'` pushes a turn-triggering
+	 * `<event>SURFACE_UPDATED</event>` text message. Either way the payload is
+	 * namespaced under `extensions['a2ui-svelte']`.
 	 */
 	surfaceWatch: boolean;
 	/**

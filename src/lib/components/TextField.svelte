@@ -87,14 +87,22 @@
 	const handle = defineA2uiComponent({
 		type: 'TextField',
 		id: id ?? fieldName,
-		a2ui: () => ({
-			label: label ? { literalString: label } : undefined,
-			text: fieldName ? { path: `/${fieldName}` } : { literalString: value },
-			textFieldType,
-			...(accessibility ? { accessibility } : {}),
-			...(weight != null ? { weight } : {})
-		}),
-		data: fieldName ? { key: fieldName, value: () => value } : undefined,
+		// Bind the value into the data model under `fieldName ?? componentId` so
+		// typing only mutates the data model, never the structural snapshot —
+		// keeping `'sync'`-mode delivery on the cheap delta path even without an
+		// explicit `fieldName`. The literal fallback is only hit when rendered
+		// outside any surface (no componentId, so nothing reads the binding).
+		a2ui: (componentId) => {
+			const bindingKey = fieldName ?? componentId;
+			return {
+				label: label ? { literalString: label } : undefined,
+				text: bindingKey ? { path: `/${bindingKey}` } : { literalString: value },
+				textFieldType,
+				...(accessibility ? { accessibility } : {}),
+				...(weight != null ? { weight } : {})
+			};
+		},
+		data: { key: fieldName, value: () => value },
 		action: fieldName
 			? {
 					type: 'update',

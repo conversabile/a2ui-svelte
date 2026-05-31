@@ -52,6 +52,12 @@ For a custom provider, implement the `VoiceTransport` interface
 `sendAudioChunk`, `sendText`, `sendToolResult`, `close`, plus an `on(event, cb)`
 event emitter for `tool-call`, `audio-out`, `transcript-in`,
 `transcript-out`, `interrupted`, `turn-complete`, `error`, `close`.
+Optionally implement `sendContextUpdate(text)` — a channel that appends to
+the model's context *without* triggering a response (Gemini Live:
+`sendClientContent({ turnComplete: false })`). The agent uses it to sync the
+surface data model into context during idle windows in the default
+`surfaceWatchTuning.mode: 'sync'` (A2UI v0.9 data-model sync); transports that
+omit it fall back to `sendText`.
 
 ### 3. Construct a `VoiceAgent`
 

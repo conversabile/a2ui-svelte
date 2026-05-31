@@ -8,6 +8,9 @@ import {
 	type A2UIClientEvent,
 	type A2UIServerMessage
 } from './a2a';
+import { getClientDataModel } from '../core/client-data-model';
+import { processMessage } from '../core/processor';
+import { a2uiState } from '../core/state.svelte';
 
 const exampleSurfaceUpdate: A2UIServerMessage = {
 	surfaceUpdate: {
@@ -67,6 +70,42 @@ describe('wrapA2A / unwrapA2A', () => {
 		expect(env.parts[0].data).toEqual(event);
 	});
 
+	it('attaches a2uiClientDataModel to metadata when supplied (v0.9 sendDataModel)', () => {
+		const event: A2UIClientEvent = {
+			userAction: {
+				name: 'submit',
+				surfaceId: 'staff-form',
+				sourceComponentId: 'save-btn',
+				timestamp: '2026-05-27T00:00:00.000Z',
+				context: {}
+			}
+		};
+		const env = wrapA2A(event, {
+			clientCapabilities: {
+				supportedCatalogIds: ['https://a2ui.org/specification/v0_8/standard_catalog_definition.json']
+			},
+			clientDataModel: {
+				version: 'v0.9',
+				surfaces: { 'staff-form': { 'add-staff-name': 'Mario' } }
+			}
+		});
+		expect(env.metadata).toEqual({
+			a2uiClientCapabilities: {
+				supportedCatalogIds: [
+					'https://a2ui.org/specification/v0_8/standard_catalog_definition.json'
+				]
+			},
+			a2uiClientDataModel: {
+				version: 'v0.9',
+				surfaces: { 'staff-form': { 'add-staff-name': 'Mario' } }
+			}
+		});
+	});
+
+	it('omits metadata entirely on a server→client message even with no opts', () => {
+		expect(wrapA2A(exampleSurfaceUpdate).metadata).toBeUndefined();
+	});
+
 	it('round-trips through unwrapA2A', () => {
 		const env = wrapA2A(exampleSurfaceUpdate);
 		const unwrapped = unwrapA2A<A2UIServerMessage>(env);
@@ -80,5 +119,38 @@ describe('wrapA2A / unwrapA2A', () => {
 			})
 		).toBeUndefined();
 		expect(unwrapA2A({ parts: [] })).toBeUndefined();
+	});
+});
+
+describe('getClientDataModel', () => {
+	it('builds the v0.9 a2uiClientDataModel payload from live surface state', () => {
+		processMessage({
+			dataModelUpdate: {
+				surfaceId: 'cdm-surface',
+				path: '/',
+				contents: [
+					{ key: 'name', valueString: 'Mario' },
+					{ key: 'role', valueString: 'Cuoco' }
+				]
+			}
+		} as never);
+
+		expect(getClientDataModel(['cdm-surface'])).toEqual({
+			version: 'v0.9',
+			surfaces: { 'cdm-surface': { name: 'Mario', role: 'Cuoco' } }
+		});
+	});
+
+	it('skips surfaces that do not exist (only the opted-in, live ones are sent)', () => {
+		const payload = getClientDataModel(['nope-not-a-surface']);
+		expect(payload).toEqual({ version: 'v0.9', surfaces: {} });
+	});
+
+	it('emits an empty data model for a known surface with no data yet', () => {
+		a2uiState.getOrCreateSurface('cdm-empty');
+		expect(getClientDataModel(['cdm-empty'])).toEqual({
+			version: 'v0.9',
+			surfaces: { 'cdm-empty': {} }
+		});
 	});
 });

@@ -35,15 +35,27 @@ export interface DefineA2uiComponentOptions {
 	 * The framework calls this once at setup and again inside a `$effect`
 	 * so reactive deps trigger re-registration. Return only the inner
 	 * object — the type wrapper (`{ Text: {...} }`) is added by the helper.
+	 *
+	 * Receives the resolved `componentId` (the provided `id` or the
+	 * auto-generated one; `undefined` when rendered outside a surface) so a
+	 * value-bearing input can path-bind to its own data-model key even when no
+	 * explicit `fieldName`/`id` was given — e.g.
+	 * `value: { path: '/' + (fieldName ?? componentId) }`. Pair it with a
+	 * matching `data` registration (see below) to keep the value out of the
+	 * structural snapshot so `'sync'`-mode delivery stays on the cheap delta
+	 * path (see the surface-data-model-sync plan §6).
 	 */
-	a2ui: () => A2uiProperties;
+	a2ui: (componentId: string | undefined) => A2uiProperties;
 
 	/**
 	 * Optional data-source registration. `{ key, value: () => current }`
 	 * binds a key in the surface data model to a reactive accessor — the
-	 * agent reads it via JSON-Pointer `/{key}` paths.
+	 * agent reads it via JSON-Pointer `/{key}` paths. When `key` is omitted
+	 * it defaults to the component's resolved `id`, so an input without an
+	 * explicit `fieldName` still registers its value as a data source (keyed
+	 * by id) rather than inlining it into the component tree.
 	 */
-	data?: { key: string; value: () => unknown };
+	data?: { key?: string; value: () => unknown };
 
 	/** Optional ActionRegistry registration; see `ActionRegistration`. */
 	action?: ActionRegistration;
@@ -128,10 +140,14 @@ export function defineA2uiComponent<P extends A2uiProperties = A2uiProperties>(
 
 	if (ctx && componentId) {
 		const parentId = getParentId();
+		// Data-source key defaults to the component id when not given an
+		// explicit one, so a `fieldName`-less input still binds its value into
+		// the data model (keyed by id) instead of inlining it in the tree.
+		const dataKey = opts.data ? (opts.data.key ?? componentId) : undefined;
 
 		// Initial synchronous register so parents see this child during
 		// their own setup (Card / Column / Row read childrenByParent).
-		ctx.register(componentId, parentId, { [opts.type]: opts.a2ui() });
+		ctx.register(componentId, parentId, { [opts.type]: opts.a2ui(componentId) });
 
 		if (opts.isContainer) setParentId(componentId);
 
@@ -139,11 +155,11 @@ export function defineA2uiComponent<P extends A2uiProperties = A2uiProperties>(
 		// diff in the consumer host (e.g. GeminiLive) prevents duplicate
 		// SURFACE_UPDATED notifications.
 		$effect(() => {
-			ctx.register(componentId, parentId, { [opts.type]: opts.a2ui() });
+			ctx.register(componentId, parentId, { [opts.type]: opts.a2ui(componentId) });
 		});
 
-		if (opts.data) {
-			ctx.registerData(opts.data.key, opts.data.value);
+		if (opts.data && dataKey) {
+			ctx.registerData(dataKey, opts.data.value);
 		}
 
 		if (opts.action) {
@@ -152,7 +168,7 @@ export function defineA2uiComponent<P extends A2uiProperties = A2uiProperties>(
 
 		onDestroy(() => {
 			if (opts.action) actionRegistry.unregister(componentId);
-			if (opts.data) ctx.unregisterData(opts.data.key);
+			if (opts.data && dataKey) ctx.unregisterData(dataKey);
 			ctx.unregister(componentId);
 		});
 	}
@@ -166,7 +182,7 @@ export function defineA2uiComponent<P extends A2uiProperties = A2uiProperties>(
 	// also serialized into the surface JSON. They are treated as static here
 	// (a reactive accessibility label is vanishingly rare); the probe call is
 	// a pure thunk so calling it once more is cheap.
-	const commonProbe = opts.a2ui();
+	const commonProbe = opts.a2ui(componentId);
 	const a11yAttr: Record<string, string> = {};
 	const accessibility = commonProbe?.accessibility as
 		| { label?: string; role?: string }
@@ -178,7 +194,7 @@ export function defineA2uiComponent<P extends A2uiProperties = A2uiProperties>(
 	const weight = commonProbe?.weight;
 	const weightStyle = typeof weight === 'number' ? `flex-grow: ${weight};` : '';
 
-	const resolved = $derived.by(() => unwrapProperties(opts.a2ui()) as P);
+	const resolved = $derived.by(() => unwrapProperties(opts.a2ui(componentId)) as P);
 
 	const fire = async (value?: string): Promise<unknown> => {
 		if (!opts.action) return undefined;

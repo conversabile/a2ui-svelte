@@ -36,3 +36,7 @@ export {
     type CatalogDescription,
     type AgentCardExtensionParams
 } from './catalog-selection';
+export {
+    getClientDataModel,
+    type A2UIClientDataModel
+} from './client-data-model';

@@ -42,11 +42,17 @@ describe('prompt-builder', () => {
 		expect(out).toContain('"main"');
 	});
 
-	it('teaches the agent the SURFACE_UPDATED extension envelope wire format', () => {
+	it('teaches the agent both SURFACE_UPDATED extension envelope wire formats', () => {
 		const out = staticSurfacesBlock([
 			{ id: 'main', getJson: () => ({}) }
 		]);
 		expect(out).toContain("a2ui-svelte");
+		// Data-model delta (the common case).
+		expect(out).toContain('"clientDataModel"');
+		expect(out).toContain('"surfaces"');
+		expect(out).toContain('Only CHANGED fields are included');
+		// Full re-sync on structural change.
+		expect(out).toContain('"surfaceUpdated"');
 		expect(out).toContain('"updatedSurfaces"');
 		expect(out).toContain('"availableElementIds"');
 		expect(out).toContain('kind');

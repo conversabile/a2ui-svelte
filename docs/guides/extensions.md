@@ -40,7 +40,7 @@ Per-surface `ExtensionOptions` — set on each `<StaticSurface>` /
 
 | Flag                | Default | What it changes vs. spec-strict                                                                                                                                                                                       |
 |---------------------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `surfaceWatch`      | `true`  | The `VoiceAgent` polls this surface and emits a `<event>SURFACE_UPDATED</event>` text turn (wrapped in `extensions['a2ui-svelte']`) when it changes. Off → no polling, no event.                                       |
+| `surfaceWatch`      | `true`  | The `VoiceAgent` keeps the agent aware of user-driven changes to this surface. Delivery is governed by `surfaceWatchTuning.mode`: a silent, idle-timed A2UI v0.9 data-model delta (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`) — payload wrapped in `extensions['a2ui-svelte']` either way. Off → the agent is never told this surface changed. See the [voice-integration guide](voice-integration.md#surface-change-delivery-surfacewatchtuning). |
 | `batchTools`        | `true`  | The surface registers batched siblings `click_buttons({clicks})` and `update_text_fields({updates})` alongside the spec-canonical singulars. Off → only the singulars.                                                  |
 | `toolResultExtras`  | `true`  | Tool results carry `updatedSurface`, `updatedContext`, `availableElementIds` under `extensions['a2ui-svelte']`. Off → results are exactly `{ results: [...] }`.                                                          |
 
@@ -85,14 +85,19 @@ The renderer's catalog registry is keyed by URI per A2UI v0.8 §2.1.3:
 Use `getClientCapabilities(catalogs)` from `a2ui-svelte/core` to build
 the `a2uiClientCapabilities` blob A2A transports must put on every
 outbound message. Use `getAgentCardExtensionParams({ catalogs,
-acceptsInlineCatalogs })` when serialising your AgentCard.
+acceptsInlineCatalogs })` when serialising your AgentCard. For v0.9
+`sendDataModel`, use `getClientDataModel(surfaceIds)` to build the
+`a2uiClientDataModel` blob attached to that same metadata (see the A2A
+section below).
 
 ## A2A transport (spec-aligned network mode)
 
 `a2ui-svelte/transport` exports `A2ATransport`, the wire-envelope
 helpers `wrapA2A` / `unwrapA2A`, the four-message server→client union
 type `A2UIServerMessage`, and the two-event client→server union
-`A2UIClientEvent`. Pair them with `<A2ASurface>` from
+`A2UIClientEvent`. `wrapA2A` also attaches the v0.9 `a2uiClientDataModel`
+metadata (built with `getClientDataModel`) when a surface enabled
+`sendDataModel`. Pair them with `<A2ASurface>` from
 `a2ui-svelte/renderer` to integrate over the network.
 
 See [voice-integration.md § A2A](voice-integration.md) for the full
