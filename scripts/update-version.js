@@ -20,4 +20,7 @@ try {
 const content = { version, releaseDate };
 fs.writeFileSync('./src/lib/version.json', JSON.stringify(content, null, 2) + '\n');
 
-console.log(`Updated version info: v${version} (${releaseDate})`);
+// Write to stderr, not stdout: standard-version's `precommit` hook captures a
+// script's stdout and uses it as the release commit message. Logging to stderr
+// keeps the message visible without hijacking the "chore(release): x.y.z" commit.
+console.error(`Updated version info: v${version} (${releaseDate})`);

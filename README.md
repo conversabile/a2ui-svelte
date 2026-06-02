@@ -1,8 +1,10 @@
 # a2ui-svelte
 
-> ⚠️ **Experimental.** This package is experimental, breaking changes will be 
-> introduced without notice. At this stage tt is advised to only use this 
-> library for testing and study porposes.
+
+> [!WARNING]
+> **This package is experimental, breaking changes will be 
+> introduced without notice. Use at your own risk for testing
+> and study porposes only.**
 
 A Svelte 5 runtime built on the [A2UI v0.8](docs/specification/v0.8-a2ui.md)
 component catalog: build apps where a human user and a live AI voice
