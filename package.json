@@ -2,7 +2,15 @@
 	"name": "a2ui-svelte",
 	"version": "0.0.2",
 	"type": "module",
-	"license": "MIT",
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/conversabile/a2ui-svelte.git"
+	},
+	"homepage": "https://github.com/conversabile/a2ui-svelte#readme",
+	"bugs": {
+		"url": "https://github.com/conversabile/a2ui-svelte/issues"
+	},
 	"scripts": {
 		"package": "svelte-kit sync && svelte-package && publint",
 		"prepublishOnly": "npm run package",
