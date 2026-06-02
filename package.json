@@ -1,6 +1,6 @@
 {
 	"name": "a2ui-svelte",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"type": "module",
 	"license": "Apache-2.0",
 	"repository": {
@@ -116,17 +116,51 @@
 			"precommit": "node scripts/update-version.js && git add src/lib/version.json"
 		},
 		"types": [
-			{ "type": "feat", "section": "Features" },
-			{ "type": "fix", "section": "Bug Fixes" },
-			{ "type": "refactor", "section": "Refactors" },
-			{ "type": "perf", "section": "Performance" },
-			{ "type": "revert", "section": "Reverts" },
-			{ "type": "docs", "section": "Documentation", "hidden": true },
-			{ "type": "style", "hidden": true },
-			{ "type": "chore", "hidden": true },
-			{ "type": "test", "hidden": true },
-			{ "type": "build", "hidden": true },
-			{ "type": "ci", "hidden": true }
+			{
+				"type": "feat",
+				"section": "Features"
+			},
+			{
+				"type": "fix",
+				"section": "Bug Fixes"
+			},
+			{
+				"type": "refactor",
+				"section": "Refactors"
+			},
+			{
+				"type": "perf",
+				"section": "Performance"
+			},
+			{
+				"type": "revert",
+				"section": "Reverts"
+			},
+			{
+				"type": "docs",
+				"section": "Documentation",
+				"hidden": true
+			},
+			{
+				"type": "style",
+				"hidden": true
+			},
+			{
+				"type": "chore",
+				"hidden": true
+			},
+			{
+				"type": "test",
+				"hidden": true
+			},
+			{
+				"type": "build",
+				"hidden": true
+			},
+			{
+				"type": "ci",
+				"hidden": true
+			}
 		]
 	}
 }

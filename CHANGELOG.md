@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.3](https://github.com/conversabile/a2ui-svelte/compare/v0.0.2...v0.0.3) (2026-06-02)
+
+
+### Features
+
+* add "sync" mode to silently keep the agent up to date when the user interacts with the UI ([2438aee](https://github.com/conversabile/a2ui-svelte/commit/2438aee55d9df42134127e07c69c64e86a48c0c9))
+* implement Strict mode for full A2UI v0.8 compatibility ([3353bd1](https://github.com/conversabile/a2ui-svelte/commit/3353bd12886ad06faf2b6e48ed7102c8d0f18fe6))
+
+
+### Bug Fixes
+
+* apply polling extension also to Dynamic Surfaces ([4d0bfc2](https://github.com/conversabile/a2ui-svelte/commit/4d0bfc28f425aa087e42f524da2acf702753c2f1))
+* fix VoiceShell width ([0c0863e](https://github.com/conversabile/a2ui-svelte/commit/0c0863e9fd6a92d38a737b31a7949a7f80be971c))
+* use standard versioning commit message ([887ec10](https://github.com/conversabile/a2ui-svelte/commit/887ec1093ca0356e1539b7b17c63122894d8c377))
+
 ### [0.0.2](https://github.com/conversabile/a2ui-svelte/compare/v0.0.1...v0.0.2) (2026-05-26)
 
 
