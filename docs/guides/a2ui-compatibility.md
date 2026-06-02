@@ -5,7 +5,7 @@ does for you — and where you'll have to do the work yourself.
 
 ## A2UI in one line
 
-[A2UI](../specification/v0.8-a2ui.md) is a protocol for an **AI agent to
+[A2UI](https://a2ui.org/) is a protocol for an **AI agent to
 generate user interfaces**: the agent sends UI as JSON (a tree of
 standard components), the client renders it, and user interactions flow
 back as events. `a2ui-svelte` implements the A2UI v0.8 component

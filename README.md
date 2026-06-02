@@ -6,7 +6,7 @@
 > introduced without notice. Use at your own risk for testing
 > and study porposes only.**
 
-A Svelte 5 runtime built on the [A2UI v0.8](docs/specification/v0.8-a2ui.md)
+A Svelte 5 runtime built on the [A2UI v0.8](https://a2ui.org/)
 component catalog: build apps where a human user and a live AI voice
 agent share the same UI. Both target the same Svelte components, the
 same component IDs, and the same state.
@@ -112,6 +112,18 @@ Gemini token (server-side, keeps your API key out of the browser).
 Read the [guides](docs/guides/) for depth — authoring components,
 composites, theming, voice integration.
 
+## Example app
+
+`examples/minimal-app/` is a SvelteKit smoke-test consumer that
+exercises every public API (static surface, dynamic surface, composite,
+voice integration, theming). See its
+[README](examples/minimal-app/README.md).
+
+```bash
+pnpm install
+GEMINI_API_KEY=... pnpm --filter minimal-app dev
+```
+
 ## A2UI v0.8 compatibility
 
 A2UI is easy to misread, so two honest caveats up front — the full story
@@ -131,7 +143,7 @@ is in [What `a2ui-svelte` is](docs/guides/a2ui-compatibility.md):
   external agent.
 
 Within those bounds, the JSON `a2ui-svelte` emits and accepts conforms
-to the [v0.8 spec](docs/specification/v0.8-a2ui.md):
+to the [v0.8 spec](https://a2ui.org/):
 
 - **All 16 standard catalog components** with their spec-defined props
   (Text, Image, Icon, Divider, Button, TextField, CheckBox, Slider,
@@ -233,22 +245,10 @@ cp node_modules/a2ui-svelte/dist/skills/*.md .claude/skills/
 # or for Cursor: cp ... .cursor/rules/
 ```
 
-## Example app
-
-`examples/minimal-app/` is a SvelteKit smoke-test consumer that
-exercises every public API (static surface, dynamic surface, composite,
-voice integration, theming). See its
-[README](examples/minimal-app/README.md).
-
-```bash
-pnpm install
-GEMINI_API_KEY=... pnpm --filter minimal-app dev
-```
-
 ## Documentation
 
 - [What `a2ui-svelte` is (A2UI compatibility)](docs/guides/a2ui-compatibility.md)
-- [Specification (v0.8)](docs/specification/v0.8-a2ui.md)
+- [A2UI specification](https://a2ui.org/)
 - [Component reference](docs/reference/components.md)
 - [Authoring guide](docs/guides/authoring-components.md)
 - [Composite components](docs/guides/composite-components.md)
