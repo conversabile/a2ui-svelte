@@ -35,7 +35,7 @@ The library ships:
 ## Quick start
 
 ```bash
-pnpm add a2ui-svelte
+npm add a2ui-svelte
 ```
 
 One file — a surface the human can use and a voice agent that can drive

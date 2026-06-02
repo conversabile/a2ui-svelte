@@ -65,7 +65,9 @@
 		"./version": "./dist/version.json"
 	},
 	"files": [
-		"dist"
+		"dist",
+		"!dist/**/*.test.*",
+		"!dist/**/__fixtures__"
 	],
 	"peerDependencies": {
 		"svelte": "^5.0.0"
