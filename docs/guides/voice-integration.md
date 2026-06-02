@@ -294,7 +294,7 @@ import { ALL_EXTRAS, STRICT, A2UI_EXTENSIONS_CONTEXT_KEY } from 'a2ui-svelte/cor
 
 ### Common setups
 
-**Default (Souschef-style).** Do nothing — `ALL_EXTRAS` is the
+**Default.** Do nothing — `ALL_EXTRAS` is the
 default; the layout-level `VoiceAgent({...})` call carries no
 extension flags.
 
@@ -366,14 +366,17 @@ deliver on its own). `settleMs` is how long a value must hold steady before
 it's delivered, so mid-typing values ("Joh" → "John") coalesce into one
 delivery. Keep `intervalMs` below `settleMs` for fine settle resolution.
 
-> **Prerequisite for cheap deltas:** value-bearing inputs must expose their
-> value through the data model (a `fieldName` / path binding), so a keystroke
-> changes only the data model, not the structure. Souschef does this
-> everywhere. An input that inlines its value in the component tree still
-> works, but trips a full re-sync on every keystroke (correct, just not
-> economical). `<StaticSurface>` / `<DynamicSurface>` expose the data model to
-> the agent via `getDataModel()`; hand-rolled surface handles can implement it
-> too, or let the agent derive it from `getJson()`.
+> **Cheap deltas are automatic.** Value-bearing inputs path-bind their value
+> into the data model out of the box, so a keystroke changes only the data
+> model, not the structure — keeping `'sync'`-mode delivery on the cheap delta
+> path. The binding key is the input's `fieldName` when given, otherwise its
+> auto-assigned component id, so this holds even for inputs with no explicit
+> `fieldName`. (The value is only inlined as a literal in the component tree
+> when an input is rendered outside any surface — i.e. nothing the agent
+> watches — so it never costs a per-keystroke re-sync in practice.)
+> `<StaticSurface>` / `<DynamicSurface>` expose the data model to the agent via
+> `getDataModel()`; hand-rolled surface handles can implement it too, or let
+> the agent derive it from `getJson()`.
 
 **`mode: 'proactive'` — the agent reacts to changes unprompted.**
 A timer (`intervalMs`) diffs the surface and pushes a turn-triggering
@@ -565,7 +568,7 @@ catalog under the URI and the resolver picks it automatically:
   surfaceId="m1"
   catalogs={{
     [STANDARD_CATALOG_ID]: DEFAULT_CATALOG,
-    'https://souschef.example/a2ui/v0_8/catalog': MY_CUSTOM_CATALOG
+    'https://myapp.example/a2ui/v0_8/catalog': MY_CUSTOM_CATALOG
   }}
 />
 ```

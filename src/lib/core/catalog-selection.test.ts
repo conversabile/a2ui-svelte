@@ -25,7 +25,7 @@ describe('getClientCapabilities', () => {
 	});
 
 	it('includes URI-keyed catalogs verbatim', () => {
-		const custom = 'https://souschef.example/a2ui/v0_8/catalog';
+		const custom = 'https://myapp.example/a2ui/v0_8/catalog';
 		const caps = getClientCapabilities({
 			[STANDARD_CATALOG_ID]: emptyCatalog,
 			[custom]: emptyCatalog

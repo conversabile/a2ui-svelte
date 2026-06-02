@@ -6,7 +6,7 @@ import type {
 } from '../transport';
 
 export interface GeminiTransportOptions {
-	/** Gemini Live model. Default matches the previous Souschef monolith. */
+	/** Gemini Live model. */
 	model?: string;
 	/** API version. Default 'v1alpha' (required for Gemini Live). */
 	apiVersion?: string;

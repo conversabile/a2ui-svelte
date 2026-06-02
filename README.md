@@ -1,15 +1,28 @@
 # a2ui-svelte
 
-A Svelte 5 runtime for the [A2UI v0.8 protocol](docs/specification/v0.8-a2ui.md):
-build apps where a human user and a live AI voice agent share the same
-UI. Both target the same Svelte components, the same component IDs,
-and the same state.
+> ⚠️ **Experimental.** This package is experimental, breaking changes will be 
+> introduced without notice. At this stage tt is advised to only use this 
+> library for testing and study porposes.
+
+A Svelte 5 runtime built on the [A2UI v0.8](docs/specification/v0.8-a2ui.md)
+component catalog: build apps where a human user and a live AI voice
+agent share the same UI. Both target the same Svelte components, the
+same component IDs, and the same state.
+
+Look at [A2UI v0.8 compatibility](#a2ui-v08-compatibility) for details about A2UI compatibility.
 
 The library ships:
 
 - A spec-aligned **component catalog** (Card, Column, Row, List, Tabs,
   Text, Button, TextField, Checkbox, …).
-- A **renderer** for static and dynamic A2UI surfaces.
+- **Dynamic surfaces** (`<DynamicSurface>`) — the standard A2UI model,
+  where the agent renders the UI at runtime. Experimental today.
+- **Static surfaces** (`<StaticSurface>`) — our inverted pattern (you
+  own the UI, the agent reads and drives it). Not classic A2UI, but the
+  primary, stable path.
+- **Extensions** we added on top of the spec — surface-change polling,
+  batched tools, richer tool results — namespaced so spec-strict
+  consumers can ignore them.
 - An **authoring helper** (`defineA2uiComponent` + `<A2UIRepresentation>`)
   for adding custom and composite components.
 - A pluggable **voice transport** layer (interface + Gemini Live
@@ -75,12 +88,15 @@ Gemini token (server-side, keeps your API key out of the browser).
 
 ## Concepts
 
-- **Static surface** (`<StaticSurface>`) — a region of UI declared in
-  Svelte. The agent sees it as a JSON tree and can interact through
-  generic tools (`click_button`, `update_text_field`).
-- **Dynamic surface** (`<DynamicSurface>`) — an empty canvas the agent
-  can populate at runtime via `surfaceUpdate` / `beginRendering` tool
-  calls. Renderer reads from a pluggable catalog.
+- **Static surface** (`<StaticSurface>`) — a region of UI you declare in
+  Svelte. The agent sees it as a JSON tree and interacts through generic
+  tools (`click_button`, `update_text_field`). This is our own inversion
+  of A2UI (you own the UI, not the agent) and the **primary, stable**
+  path.
+- **Dynamic surface** (`<DynamicSurface>`) — the classic A2UI model: an
+  empty canvas the agent populates at runtime via `surfaceUpdate` /
+  `beginRendering`. Renderer reads from a pluggable catalog.
+  **Experimental** — agent-generated UI is currently slow and error-prone.
 - **Catalog** — the map from A2UI type names to Svelte components.
   `DEFAULT_CATALOG` is the standard set; `extendCatalog` adds your own.
 - **Voice agent** (`VoiceAgent`) — provider-agnostic orchestrator: owns
@@ -96,10 +112,24 @@ composites, theming, voice integration.
 
 ## A2UI v0.8 compatibility
 
-`a2ui-svelte` is **100% compatible** with the
-[A2UI v0.8 specification](docs/specification/v0.8-a2ui.md) on its
-default surface wire. A spec-compliant external system can render to
-and receive events from an `a2ui-svelte` app without surprises:
+A2UI is easy to misread, so two honest caveats up front — the full story
+is in [What `a2ui-svelte` is](docs/guides/a2ui-compatibility.md):
+
+- **The best-supported pattern isn't classic A2UI.** A2UI has the
+  *agent generate the UI*; our `<StaticSurface>` flips that — you build
+  the UI in Svelte and we make it readable and drivable by an agent via
+  A2UI's components and tools. It's stable and what most apps want.
+  `<DynamicSurface>` is the real agent-renders-the-UI model: it works,
+  but is **experimental — expect slowness and rough edges.**
+- **Connecting a 3rd-party agent is DIY.** End-to-end compatibility is
+  proven on the built-in voice path (`a2ui-svelte` owns the agent). The
+  spec's network transport is A2A; we ship the message types, envelope
+  helpers, and an `<A2ASurface>` adapter — but **no working SSE/WebSocket
+  transport.** You implement the `A2ATransport` interface to connect an
+  external agent.
+
+Within those bounds, the JSON `a2ui-svelte` emits and accepts conforms
+to the [v0.8 spec](docs/specification/v0.8-a2ui.md):
 
 - **All 16 standard catalog components** with their spec-defined props
   (Text, Image, Icon, Divider, Button, TextField, CheckBox, Slider,
@@ -113,9 +143,9 @@ and receive events from an `a2ui-svelte` app without surprises:
   `update_text_field({element_id, value})`.
 - **Catalog selection handshake** — client capabilities under
   `a2uiClientCapabilities`, standard-catalog URI default.
-- **A2A transport** — `application/json+a2ui` `DataPart` envelope and
-  the `X-A2A-Extensions` header (interface + `<A2ASurface>` adapter
-  ship now; reference SSE/WebSocket implementations follow later).
+- **A2A envelope** — `application/json+a2ui` `DataPart` + the
+  `X-A2A-Extensions` header, with `wrapA2A`/`unwrapA2A` helpers and the
+  `<A2ASurface>` adapter. *Transport not included — bring your own.*
 
 A small number of pre-spec behaviours useful in practice — surface-change
 polling, batched click/update tools, richer tool-result envelope,
@@ -126,7 +156,8 @@ namespace and still see exactly what v0.8 promises. Opt out per surface
 with `options={STRICT}` or host-wide via
 `setContext(A2UI_EXTENSIONS_CONTEXT_KEY, STRICT)`.
 
-Full details: [docs/guides/extensions.md](docs/guides/extensions.md).
+Full details: [compatibility](docs/guides/a2ui-compatibility.md) ·
+[extensions](docs/guides/extensions.md).
 
 ## Authoring
 
@@ -214,6 +245,7 @@ GEMINI_API_KEY=... pnpm --filter minimal-app dev
 
 ## Documentation
 
+- [What `a2ui-svelte` is (A2UI compatibility)](docs/guides/a2ui-compatibility.md)
 - [Specification (v0.8)](docs/specification/v0.8-a2ui.md)
 - [Component reference](docs/reference/components.md)
 - [Authoring guide](docs/guides/authoring-components.md)
@@ -239,11 +271,9 @@ Dry run (no commits, no tags, no file writes): `pnpm run release:dry`.
 
 ## License
 
-MIT
+Apache 2.0
 
-## Status
+## Disclaimer
 
-`0.0.0` — pre-publication. The API is being validated against
-[Souschef](https://github.com/dario/souschef) (the project the
-runtime was extracted from). Once the API stabilises, the library
-will be published to npm and tagged `v0.1.0`.
+This is an independent project. It is not affiliated with, endorsed by, or
+sponsored by Google or the official A2UI team.

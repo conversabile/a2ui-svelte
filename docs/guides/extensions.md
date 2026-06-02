@@ -1,8 +1,10 @@
 # Extensions and v0.8 compliance
 
-`a2ui-svelte` is 100% compatible with the A2UI v0.8 specification on its
-default wire — any spec-compliant external system can render to and
-receive events from an `a2ui-svelte` app. A small number of extra
+The JSON `a2ui-svelte` emits and accepts conforms to the A2UI v0.8
+schemas on its default wire — so a spec-compliant external system can
+render to and receive events from an `a2ui-svelte` app (you supply the
+A2A transport; see
+[What `a2ui-svelte` is](a2ui-compatibility.md)). A small number of extra
 behaviours that **predate** the spec (and are useful in practice) ship
 behind a single per-surface flag and emit their data inside a
 namespaced envelope so spec-strict consumers can safely ignore them.
@@ -56,10 +58,6 @@ Both are exported from `a2ui-svelte/core`.
 - You're shipping a surface where the cooldown-suppressed polling would
   be wrong (e.g. an external system mutates the surface mid-turn).
   Flip `surfaceWatch: false` on that surface only.
-
-Souschef itself runs with the defaults — `ALL_EXTRAS` — because the
-extra behaviours are designed around how voice live-APIs work in
-practice.
 
 ## `userAction` transport
 

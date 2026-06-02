@@ -70,7 +70,7 @@ describe('DynamicSurface catalog', () => {
 	it('B6: routes to a non-standard catalog when surface.catalogId matches a registered URI', async () => {
 		const standard = extendCatalog(DEFAULT_CATALOG, { MyCustomTag });
 		const custom = extendCatalog(DEFAULT_CATALOG, { MyCustomTag: MyOtherTag });
-		const customUri = 'https://souschef.example/a2ui/v0_8/catalog';
+		const customUri = 'https://myapp.example/a2ui/v0_8/catalog';
 		a2uiState.getOrCreateSurface('uri-custom');
 		a2uiState.setCatalogId('uri-custom', customUri);
 		a2uiState.updateComponent('uri-custom', 'root', {
