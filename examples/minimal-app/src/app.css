@@ -5,11 +5,35 @@
 	font-family: system-ui, sans-serif;
 	color-scheme: light dark;
 
-	/* Prove theming works: indigo override of the primary token. */
-	--a2ui-button-primary-bg: #6d28d9;
+	/* A2UI tokens are the catalog's own knobs. They inherit the Pico accent
+	   below by default, but are set explicitly here to document the override
+	   points — and so the catalog buttons + VoiceShell accent (mic, bubbles,
+	   glow) can diverge from Pico if you want. */
+	/* --a2ui-button-primary-bg: #b928d9; <- add if you want to style a2ui buttons differently */
 	--a2ui-button-primary-fg: #ffffff;
 	--a2ui-glow-color: rgba(109, 40, 217, 0.5);
 	--a2ui-card-radius: 12px;
+
+	/* Colour the voice bar independently of the buttons — uncomment to try:
+	--a2ui-shell-accent-bg: #db2777;
+	--a2ui-shell-accent-fg: #ffffff;
+	*/
+}
+
+/* Pico's primary scale drives the *native* bits — links, the range slider,
+   form-focus rings — and is the default the A2UI tokens fall back to. Pico
+   declares it under `:root:not([data-theme=dark])`, so we must match that
+   selector here: a plain `:root` block (specificity 0,1,0) loses to Pico's
+   `:root:not(...)` (0,2,0) and the override silently does nothing. */
+:root:not([data-theme='dark']) {
+	--pico-primary: #6d28d9;
+	--pico-primary-background: #6d28d9;
+	--pico-primary-hover: #5b21b6;
+	--pico-primary-hover-background: #5b21b6;
+	--pico-primary-focus: rgba(109, 40, 217, 0.25);
+	--pico-primary-border: #6d28d9;
+	--pico-primary-inverse: #ffffff;
+	--pico-primary-underline: rgba(109, 40, 217, 0.5);
 }
 
 body {

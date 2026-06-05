@@ -334,7 +334,7 @@
 		padding: 0.25rem 0;
 		list-style: none;
 		background: var(--pico-card-background-color);
-		border: 1px solid var(--pico-form-element-border-color);
+		border: 1px solid var(--a2ui-input-border);
 		border-radius: var(--pico-border-radius);
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 	}
@@ -385,7 +385,7 @@
 		position: sticky;
 		bottom: 0;
 		background: var(--pico-card-background-color);
-		border-top: 1px solid var(--pico-form-element-border-color);
+		border-top: 1px solid var(--a2ui-input-border);
 		font-weight: 600;
 		color: var(--pico-primary);
 	}

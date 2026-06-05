@@ -355,8 +355,9 @@
 	}
 
 	.a2ui-voice-shell.glowing {
-		box-shadow: 0px -4px 20px var(--a2ui-shell-glow, var(--pico-primary-focus));
-		border-top-color: var(--a2ui-shell-border-active, var(--pico-primary-border));
+		box-shadow: 0px -4px 20px
+			var(--a2ui-shell-glow, color-mix(in srgb, var(--a2ui-shell-accent-bg) 45%, transparent));
+		border-top-color: var(--a2ui-shell-border-active, var(--a2ui-shell-accent-bg));
 	}
 
 	.chat-wrapper {
@@ -453,7 +454,7 @@
 		min-width: 8.5rem;
 	}
 	.a2ui-debug-evt.out .kind {
-		color: var(--pico-primary);
+		color: var(--a2ui-shell-accent-bg);
 	}
 	.a2ui-debug-evt.in .kind {
 		color: var(--pico-ins-color, seagreen);
@@ -526,8 +527,8 @@
 	}
 
 	.message.user {
-		background: var(--pico-primary-background);
-		color: var(--pico-primary-inverse);
+		background: var(--a2ui-shell-accent-bg);
+		color: var(--a2ui-shell-accent-fg);
 		align-self: flex-end;
 		border-bottom-right-radius: 2px;
 	}
@@ -565,7 +566,7 @@
 	}
 
 	.status-badge.thinking {
-		color: var(--pico-primary);
+		color: var(--a2ui-shell-accent-bg);
 		animation: pulse-opacity 1.5s ease-in-out infinite;
 		display: flex;
 		align-items: center;
@@ -577,7 +578,7 @@
 		display: inline-block;
 		width: 6px;
 		height: 6px;
-		background-color: var(--pico-primary);
+		background-color: var(--a2ui-shell-accent-bg);
 		border-radius: 50%;
 	}
 
@@ -610,8 +611,15 @@
 
 	.mic-button:not(.outline) {
 		animation: pulse-border 2s infinite;
-		background: var(--pico-primary-background);
-		color: var(--pico-primary-inverse);
+		background: var(--a2ui-shell-accent-bg);
+		color: var(--a2ui-shell-accent-fg);
+	}
+
+	/* Idle (not connected) mic is a Pico outline button — colour its ring/icon
+	   with the accent too so the whole shell tracks one accent token. */
+	.mic-button.outline {
+		color: var(--a2ui-shell-accent-bg);
+		border-color: var(--a2ui-shell-accent-bg);
 	}
 
 	.mic-button svg {
@@ -641,14 +649,14 @@
 
 	/* Active = stats box open. Drop the outline for a filled, "pressed" look. */
 	.debug-toggle-btn.active {
-		background: var(--pico-primary-background);
-		color: var(--pico-primary-inverse);
-		border-color: var(--pico-primary-border, var(--pico-primary-background));
+		background: var(--a2ui-shell-accent-bg);
+		color: var(--a2ui-shell-accent-fg);
+		border-color: var(--a2ui-shell-accent-bg);
 	}
 
 	@keyframes pulse-border {
 		0% {
-			box-shadow: 0 0 0 0 var(--pico-primary-focus);
+			box-shadow: 0 0 0 0 color-mix(in srgb, var(--a2ui-shell-accent-bg) 45%, transparent);
 		}
 		70% {
 			box-shadow: 0 0 0 15px transparent;

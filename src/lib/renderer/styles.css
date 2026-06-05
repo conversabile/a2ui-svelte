@@ -15,16 +15,45 @@
 	--a2ui-card-border: 1px solid color-mix(in srgb, var(--pico-secondary, #888) 25%, transparent);
 	--a2ui-card-radius: var(--a2ui-border-radius);
 
-	--a2ui-button-primary-bg: var(--pico-primary, #1095c1);
+	/* Primary button. Defaults to Pico's *filled* button colour
+	   (`--pico-primary-background`, not `--pico-primary`) so the look is
+	   identical to today until an app overrides the token. */
+	--a2ui-button-primary-bg: var(--pico-primary-background, var(--pico-primary, #1095c1));
 	--a2ui-button-primary-fg: var(--pico-primary-inverse, #fff);
-	--a2ui-button-secondary-bg: transparent;
-	--a2ui-button-secondary-fg: var(--pico-secondary, #525252);
+	/* Secondary button. Pico's `.secondary` is a filled muted button (not a
+	   transparent ghost), so default to that to avoid shifting existing UIs. */
+	--a2ui-button-secondary-bg: var(--pico-secondary-background, #5d6b89);
+	--a2ui-button-secondary-fg: var(--pico-secondary-inverse, #fff);
 
 	--a2ui-input-bg: var(--pico-form-element-background-color, #fff);
 	--a2ui-input-border: var(--pico-form-element-border-color, #ccc);
 	--a2ui-input-fg: var(--pico-form-element-color, #333);
 
 	--a2ui-glow-color: var(--pico-primary-focus, rgba(16, 149, 193, 0.4));
+
+	/* Voice shell accent — the "active" colour of <VoiceShell> (mic button, chat
+	   bubbles, status, glow). Defaults to the primary button colour so a single
+	   `--a2ui-button-primary-bg` override themes buttons *and* the shell together;
+	   set these to colour the shell independently. */
+	--a2ui-shell-accent-bg: var(--a2ui-button-primary-bg);
+	--a2ui-shell-accent-fg: var(--a2ui-button-primary-fg);
+}
+
+/* Honour the input tokens on native form controls inside a surface. Pico styles
+   inputs through its own --pico-form-element-* vars, so reading the --a2ui-input-*
+   tokens directly here is what lets app overrides (and dark mode) actually reach
+   text/number/date/textarea/select. Checkbox/radio/range are excluded — they
+   aren't a background/border/text box and styling them this way breaks them. */
+.a2ui-surface
+	:is(input, textarea, select):not([type='checkbox']):not([type='radio']):not([type='range']) {
+	background-color: var(--a2ui-input-bg);
+	border-color: var(--a2ui-input-border);
+	color: var(--a2ui-input-fg);
+}
+.a2ui-surface
+	:is(input, textarea, select):focus:not([type='checkbox']):not([type='radio']):not([type='range']) {
+	/* Preserve Pico's focused-border colour so the focus state still reads. */
+	border-color: var(--pico-form-element-active-border-color, var(--a2ui-input-border));
 }
 
 /**

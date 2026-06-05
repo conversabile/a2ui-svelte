@@ -339,11 +339,11 @@
 	}
 
 	.markdown-preview {
-		border: 1px solid var(--pico-form-element-border-color);
+		border: 1px solid var(--a2ui-input-border);
 		border-radius: var(--pico-border-radius);
 		padding: 1rem;
 		min-height: 200px;
-		background: var(--pico-form-element-background-color);
+		background: var(--a2ui-input-bg);
 		line-height: 1.6;
 		text-align: justify;
 	}
@@ -444,9 +444,9 @@
 	}
 
 	.inline-input {
-		background: var(--pico-form-element-background-color);
-		color: var(--pico-color);
-		border-color: var(--pico-form-element-border-color);
+		background: var(--a2ui-input-bg);
+		color: var(--a2ui-input-fg);
+		border-color: var(--a2ui-input-border);
 		field-sizing: content;
 		min-width: 3ch;
 		max-width: 16ch;

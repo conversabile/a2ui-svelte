@@ -34,18 +34,20 @@ literal when Pico isn't loaded.
 | `--a2ui-card-bg`               | `--pico-card-background-color` (#fff)    | Card surface                   |
 | `--a2ui-card-border`           | secondary 25% mix                        | Card border colour             |
 | `--a2ui-card-radius`           | `--a2ui-border-radius`                   | Card corner radius             |
-| `--a2ui-button-primary-bg`     | `--pico-primary` (#1095c1)               | Primary button background      |
+| `--a2ui-button-primary-bg`     | `--pico-primary-background` (#1095c1)     | Primary button background      |
 | `--a2ui-button-primary-fg`     | `--pico-primary-inverse` (#fff)          | Primary button text            |
-| `--a2ui-button-secondary-bg`   | `transparent`                            | Secondary button background    |
-| `--a2ui-button-secondary-fg`   | `--pico-secondary` (#525252)             | Secondary button text          |
+| `--a2ui-button-secondary-bg`   | `--pico-secondary-background`            | Secondary button background    |
+| `--a2ui-button-secondary-fg`   | `--pico-secondary-inverse`               | Secondary button text          |
 | `--a2ui-input-bg`              | `--pico-form-element-background-color`   | Input background               |
 | `--a2ui-input-border`          | `--pico-form-element-border-color`       | Input border                   |
 | `--a2ui-input-fg`              | `--pico-form-element-color`              | Input text                     |
 | `--a2ui-glow-color`            | `--pico-primary-focus`                   | Agent action glow              |
 | `--a2ui-shell-bg`              | `--pico-card-background-color`           | `<VoiceShell>` panel background |
 | `--a2ui-shell-border`          | `--pico-muted-border-color`              | `<VoiceShell>` border          |
-| `--a2ui-shell-glow`            | `--pico-primary-focus`                   | `<VoiceShell>` active glow     |
-| `--a2ui-shell-border-active`   | `--pico-primary-border`                  | `<VoiceShell>` active border   |
+| `--a2ui-shell-accent-bg`       | `--a2ui-button-primary-bg`               | `<VoiceShell>` accent (mic, bubbles, status) |
+| `--a2ui-shell-accent-fg`       | `--a2ui-button-primary-fg`               | `<VoiceShell>` accent text     |
+| `--a2ui-shell-glow`            | accent @ 45% alpha                       | `<VoiceShell>` active glow     |
+| `--a2ui-shell-border-active`   | `--a2ui-shell-accent-bg`                 | `<VoiceShell>` active border   |
 | `--a2ui-shell-left`            | `0`                                      | `<VoiceShell>` left inset (e.g. for a sidebar layout) |
 | `--a2ui-shell-right`           | `0`                                      | `<VoiceShell>` right inset      |
 

@@ -39,14 +39,16 @@ Token reference (from `renderer/styles.css`):
 | `--a2ui-card-bg`             | `--pico-card-background-color`    | Card surface               |
 | `--a2ui-card-border`         | (computed)                        | Card border colour         |
 | `--a2ui-card-radius`         | `--a2ui-border-radius`            | Card corner radius         |
-| `--a2ui-button-primary-bg`   | `--pico-primary`                  | Primary button background  |
+| `--a2ui-button-primary-bg`   | `--pico-primary-background`       | Primary button background  |
 | `--a2ui-button-primary-fg`   | `--pico-primary-inverse`          | Primary button text colour |
-| `--a2ui-button-secondary-bg` | `transparent`                     | Secondary button background|
-| `--a2ui-button-secondary-fg` | `--pico-secondary`                | Secondary button text      |
+| `--a2ui-button-secondary-bg` | `--pico-secondary-background`     | Secondary button background|
+| `--a2ui-button-secondary-fg` | `--pico-secondary-inverse`        | Secondary button text      |
 | `--a2ui-input-bg`            | `--pico-form-element-background-color` | Input background     |
 | `--a2ui-input-border`        | `--pico-form-element-border-color`     | Input border         |
 | `--a2ui-input-fg`            | `--pico-form-element-color`            | Input text colour    |
 | `--a2ui-glow-color`          | `--pico-primary-focus`            | Agent-action glow          |
+| `--a2ui-shell-accent-bg`     | `--a2ui-button-primary-bg`        | `<VoiceShell>` accent colour |
+| `--a2ui-shell-accent-fg`     | `--a2ui-button-primary-fg`        | `<VoiceShell>` accent text   |
 
 Example override (20 lines):
 

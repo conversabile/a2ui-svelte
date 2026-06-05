@@ -85,3 +85,29 @@
 		{#if children}{@render children()}{:else if label}{label}{/if}
 	</button>
 {/if}
+
+<style>
+	/* Make the catalog Button honour the A2UI button tokens. The token defaults
+	   (renderer/styles.css) resolve to Pico's filled-button colours, so the look
+	   is unchanged until an app overrides a token. Scoped class/element selectors
+	   out-specify Pico's bare `button` rules, so no !important is needed. Hover
+	   darkens the base colour so custom themes keep their press feedback. */
+	button {
+		background-color: var(--a2ui-button-primary-bg);
+		border-color: var(--a2ui-button-primary-bg);
+		color: var(--a2ui-button-primary-fg);
+	}
+	button:hover:not(:disabled) {
+		background-color: color-mix(in srgb, var(--a2ui-button-primary-bg) 88%, #000);
+		border-color: color-mix(in srgb, var(--a2ui-button-primary-bg) 88%, #000);
+	}
+	button.secondary {
+		background-color: var(--a2ui-button-secondary-bg);
+		border-color: var(--a2ui-button-secondary-bg);
+		color: var(--a2ui-button-secondary-fg);
+	}
+	button.secondary:hover:not(:disabled) {
+		background-color: color-mix(in srgb, var(--a2ui-button-secondary-bg) 88%, #000);
+		border-color: color-mix(in srgb, var(--a2ui-button-secondary-bg) 88%, #000);
+	}
+</style>
