@@ -72,7 +72,10 @@
 <p>
 	Every standard catalog component appears in the surface below, authored
 	natively as Svelte markup. Try saying
-	<em>"set name to Alice, rating to 9, and click Submit"</em>.
+	<em>"set name to Alice, rating to 9, and click Submit"</em>. The agent can
+	also <em>point things out</em> without changing them — try
+	<em>"where do I submit?"</em> or <em>"show me the rating"</em> and watch it
+	glow and scroll into view (switching tabs if needed).
 </p>
 
 <StaticSurface bind:this={surfaceRef} surfaceId="static-surface">

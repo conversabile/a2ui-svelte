@@ -101,13 +101,26 @@ export interface ExtensionOptions {
 	 * just `{ results: [...] }`. (Wired up in B4.)
 	 */
 	toolResultExtras: boolean;
+	/**
+	 * On-demand pointer tool — registers `point_to_elements({ element_ids })`,
+	 * a non-spec generic tool that makes components glow briefly and scrolls
+	 * them into view so the agent can *point at* on-screen data (the user asks
+	 * "where do I save this?" / "show me the total", or the agent references a
+	 * value and wants to indicate it). Purely a client-side visual gesture: it
+	 * mutates nothing and — unlike the click/update tools — always returns a
+	 * lean result (no surface echo), so a "look here" call can't re-bill the
+	 * whole surface. Off → the tool is not offered, and components only glow as
+	 * a side effect of the agent editing them.
+	 */
+	pointerTool: boolean;
 }
 
 /** All extensions disabled — speaks the A2UI v0.8 spec verbatim. */
 export const STRICT: ExtensionOptions = Object.freeze({
 	surfaceWatch: false,
 	batchTools: false,
-	toolResultExtras: false
+	toolResultExtras: false,
+	pointerTool: false
 });
 
 /**
@@ -117,7 +130,8 @@ export const STRICT: ExtensionOptions = Object.freeze({
 export const ALL_EXTRAS: ExtensionOptions = Object.freeze({
 	surfaceWatch: true,
 	batchTools: true,
-	toolResultExtras: true
+	toolResultExtras: true,
+	pointerTool: true
 });
 
 /**

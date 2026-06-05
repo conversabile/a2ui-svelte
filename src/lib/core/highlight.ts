@@ -56,10 +56,16 @@ function applyGlow(el: HTMLElement): void {
  * 1. Glow all currently-visible elements simultaneously
  * 2. For each off-screen element, scroll into view then glow
  *    (also glows any other pending elements that became visible after the scroll)
+ *
+ * Returns the subset of `elementIds` that resolve to a DOM node — so callers
+ * (e.g. the `point_to_elements` tool) can report which targets were actually
+ * found vs. missing. The glow itself only plays when highlighting is enabled;
+ * the found set is reported regardless.
  */
-export function highlightElements(elementIds: string[]): void {
-	if (!enabled) return;
-	_highlightAsync(elementIds);
+export function highlightElements(elementIds: string[]): string[] {
+	const present = elementIds.filter((id) => findElement(id) !== null);
+	if (enabled) _highlightAsync(elementIds);
+	return present;
 }
 
 async function _highlightAsync(elementIds: string[]): Promise<void> {

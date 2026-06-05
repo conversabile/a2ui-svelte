@@ -35,7 +35,8 @@ describe('extension presets', () => {
 		expect(STRICT).toEqual({
 			surfaceWatch: false,
 			batchTools: false,
-			toolResultExtras: false
+			toolResultExtras: false,
+			pointerTool: false
 		});
 	});
 
@@ -43,7 +44,8 @@ describe('extension presets', () => {
 		expect(ALL_EXTRAS).toEqual({
 			surfaceWatch: true,
 			batchTools: true,
-			toolResultExtras: true
+			toolResultExtras: true,
+			pointerTool: true
 		});
 	});
 

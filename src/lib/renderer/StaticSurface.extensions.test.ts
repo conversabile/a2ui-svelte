@@ -161,3 +161,59 @@ describe('StaticSurface — B4: tool-result envelope shape', () => {
 		});
 	});
 });
+
+describe('StaticSurface — on-demand pointer tool (point_to_elements)', () => {
+	beforeEach(clearRegistries);
+
+	it('registers point_to_elements by default (ALL_EXTRAS)', () => {
+		render(StaticSurface, {
+			surfaceId: 'ptr-default',
+			children: ButtonHarness as never
+		});
+		const names = toolRegistry.getDeclarations().map((d) => d.name);
+		expect(names).toContain('point_to_elements');
+
+		const ptr = toolRegistry.getDeclarations().find((d) => d.name === 'point_to_elements')!;
+		expect((ptr.parameters as any).properties).toHaveProperty('element_ids');
+		expect((ptr.parameters as any).required).toEqual(['element_ids']);
+	});
+
+	it('OMITS point_to_elements when the surface is STRICT', () => {
+		render(StaticSurface, {
+			surfaceId: 'ptr-strict',
+			children: ButtonHarness as never,
+			options: STRICT
+		});
+		expect(toolRegistry.getDeclarations().map((d) => d.name)).not.toContain('point_to_elements');
+	});
+
+	it('OMITS point_to_elements when pointerTool is explicitly flipped off', () => {
+		render(StaticSurface, {
+			surfaceId: 'ptr-off',
+			children: ButtonHarness as never,
+			options: { pointerTool: false }
+		});
+		expect(toolRegistry.getDeclarations().map((d) => d.name)).not.toContain('point_to_elements');
+	});
+
+	it('reports found vs missing IDs and returns a LEAN result (no surface echo even with extras on)', async () => {
+		render(StaticSurface, {
+			surfaceId: 'ptr-exec',
+			children: ButtonHarness as never
+		});
+		// ButtonHarness renders <button data-a2ui-id="save-btn">, so the pointer
+		// can resolve it in the DOM; the second id has no matching node.
+		const result: any = await toolRegistry.execute('point_to_elements', {
+			element_ids: ['save-btn', 'does-not-exist']
+		});
+		expect(result).toEqual({
+			results: [
+				{ element_id: 'save-btn', status: 'pointed' },
+				{ element_id: 'does-not-exist', status: 'not_found' }
+			]
+		});
+		// Purely visual gesture: never echoes the surface back, even though
+		// toolResultExtras defaults on.
+		expect(result).not.toHaveProperty('extensions');
+	});
+});

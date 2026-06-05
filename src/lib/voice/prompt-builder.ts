@@ -76,6 +76,7 @@ export function staticSurfacesBlock(
     isOn(s, "toolResultExtras"),
   );
   const surfaceWatchEnabled = surfaces.some((s) => isOn(s, "surfaceWatch"));
+  const pointerToolEnabled = surfaces.some((s) => isOn(s, "pointerTool"));
 
   let out =
     "## Static Surfaces\nThe application UI has the following static surfaces rendered natively by Svelte. You CANNOT change their component structure, but you can reference them. You CAN interact with them using the available function tools (e.g. clicking buttons).\n";
@@ -163,6 +164,11 @@ export function staticSurfacesBlock(
     ruleNo++;
   }
 
+  if (pointerToolEnabled) {
+    out += `${ruleNo}. **POINTING THINGS OUT**: To direct the user's eye to something already on screen, call \`point_to_elements({element_ids: ["id1", ...]})\` — each component scrolls into view and glows briefly. Use it when the user asks you to *show*, *point out*, or *find* something ("where do I save this?", "show me the total"), or when you mention specific on-screen data and want to indicate where it is. It is PURELY VISUAL — it changes nothing. Do NOT use it to edit a value (use \`update_text_field\`) or to activate a control (use \`click_button\`). Keep the spoken reply short ("It's right here.") and never read the element IDs aloud.\n`;
+    ruleNo++;
+  }
+
   out += "\n### Examples of Tool Usage for Static Surfaces\n";
 
   if (batchToolsEnabled) {
@@ -233,6 +239,20 @@ Agent Action (First item):
   9. Inform the user that the operation is complete: "Fatto! Ho aggiunto Mario e Paolo come cuochi."
 
 **KEY**: Always wait between submissions. After clicking save, wait for the form to reset (or for a SURFACE_UPDATED event) before filling the same form again. Do NOT fill multiple items into the same form at once — that will overwrite previous entries.
+`;
+  }
+
+  if (pointerToolEnabled) {
+    out += `
+**Scenario: Pointing something out (no change)**
+User: "Dove salvo le modifiche?"
+Surface JSON has a Button with id "save-btn".
+Agent Action: Call point_to_elements({element_ids: ["save-btn"]}) and say "Il pulsante Salva è qui in basso."
+
+**Scenario: Show me a value**
+User: "Mostrami il totale dell'ordine"
+Surface JSON has a Text with id "order-total".
+Agent Action: Call point_to_elements({element_ids: ["order-total"]}) and say "Eccolo, te lo evidenzio."
 `;
   }
   return out;

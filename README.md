@@ -23,8 +23,8 @@ The library ships:
   own the UI, the agent reads and drives it). Not classic A2UI, but the
   primary, stable path.
 - **Extensions** we added on top of the spec — surface-change polling,
-  batched tools, richer tool results — namespaced so spec-strict
-  consumers can ignore them.
+  batched tools, richer tool results, an on-demand "point at this"
+  highlight tool — namespaced so spec-strict consumers can ignore them.
 - An **authoring helper** (`defineA2uiComponent` + `<A2UIRepresentation>`)
   for adding custom and composite components.
 - A pluggable **voice transport** layer (interface + Gemini Live
@@ -161,11 +161,11 @@ to the [v0.8 spec](https://a2ui.org/):
   `X-A2A-Extensions` header, with `wrapA2A`/`unwrapA2A` helpers and the
   `<A2ASurface>` adapter. *Transport not included — bring your own.*
 
-A small number of pre-spec behaviours useful in practice — surface-change
-polling, batched click/update tools, richer tool-result envelope,
-XML-tagged-text `userAction` for voice live-APIs — ship behind a
-per-surface flag and emit their data under
-`extensions: { 'a2ui-svelte': … }`. Spec-strict consumers drop the
+A small number of non-spec behaviours useful in practice — surface-change
+polling, batched click/update tools, richer tool-result envelope, an
+on-demand `point_to_elements` highlight tool, XML-tagged-text `userAction`
+for voice live-APIs — ship behind a per-surface flag and emit their data
+under `extensions: { 'a2ui-svelte': … }`. Spec-strict consumers drop the
 namespace and still see exactly what v0.8 promises. Opt out per surface
 with `options={STRICT}` or host-wide via
 `setContext(A2UI_EXTENSIONS_CONTEXT_KEY, STRICT)`.

@@ -113,6 +113,27 @@
 		return buildToolResult(results);
 	}
 
+	/**
+	 * On-demand pointer gesture (`point_to_elements`). Reveals + glows the
+	 * targets so the agent can draw the user's eye to on-screen data, then
+	 * reports which IDs were found.
+	 *
+	 * Unlike `runClicks` / `runUpdates` this mutates NOTHING, so it deliberately
+	 * returns a lean `{ results }` even when `toolResultExtras` is on: echoing
+	 * the whole serialized surface back on a purely visual "look here" call is
+	 * the exact token amplifier we avoid elsewhere, and a highlight leaves the
+	 * agent's surface understanding unchanged.
+	 */
+	function runPointer(ids: string[]) {
+		revealElements(ids);
+		const found = new Set(highlightElements(ids));
+		const results = ids.map((element_id) => ({
+			element_id,
+			status: found.has(element_id) ? 'pointed' : 'not_found'
+		}));
+		return { results };
+	}
+
 	async function runUpdates(items: Array<{ element_id: string; value: string }>) {
 		const ids = items.map((u) => u.element_id);
 		revealElements(ids);
@@ -247,6 +268,32 @@
 				required: ['updates']
 			},
 			execute: async (args: Record<string, any>) => runUpdates(args.updates)
+		});
+	}
+
+	// On-demand pointer tool — registered only when this surface's `pointerTool`
+	// extension is on. Lets the agent draw the user's eye to components WITHOUT
+	// changing them; the click/update tools already glow their targets as a side
+	// effect, this is the standalone "point at it" gesture. Not a v0.8 tool, so
+	// it stays off under STRICT.
+	if (resolvedExtensions.pointerTool) {
+		registry.registerTool({
+			name: 'point_to_elements',
+			description:
+				"Draw the user's attention to one or more components on screen: each is scrolled into view and glows briefly. Use it when the user asks you to show, point out, or find something (\"where do I save this?\", \"show me the address field\"), or when you mention specific on-screen data and want to indicate it. `element_ids` are component IDs from the surface JSON, in the order to visit them. This is a PURELY VISUAL pointer — it does NOT change any values and does NOT activate anything. To edit a value use update_text_field; to activate a control use click_button.",
+			parameters: {
+				type: 'object',
+				properties: {
+					element_ids: {
+						type: 'array',
+						description: 'Component IDs to point at (glow + scroll into view), in visit order',
+						items: { type: 'string' }
+					}
+				},
+				required: ['element_ids']
+			},
+			execute: async (args: Record<string, any>) =>
+				runPointer(Array.isArray(args.element_ids) ? args.element_ids : [args.element_ids])
 		});
 	}
 

@@ -33,7 +33,7 @@ import { A2UI_EXTENSION_NAMESPACE, wrapExtension, readExtension }
 // 'a2ui-svelte'
 ```
 
-## The three extension flags
+## The four extension flags
 
 Per-surface `ExtensionOptions` — set on each `<StaticSurface>` /
 `<DynamicSurface>` via `options={...}`, on the host root via
@@ -45,6 +45,7 @@ Per-surface `ExtensionOptions` — set on each `<StaticSurface>` /
 | `surfaceWatch`      | `true`  | The `VoiceAgent` keeps the agent aware of user-driven changes to this surface. Delivery is governed by `surfaceWatchTuning.mode`: a silent, idle-timed A2UI v0.9 data-model delta (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`) — payload wrapped in `extensions['a2ui-svelte']` either way. Off → the agent is never told this surface changed. See the [voice-integration guide](voice-integration.md#surface-change-delivery-surfacewatchtuning). |
 | `batchTools`        | `true`  | The surface registers batched siblings `click_buttons({clicks})` and `update_text_fields({updates})` alongside the spec-canonical singulars. Off → only the singulars.                                                  |
 | `toolResultExtras`  | `true`  | Tool results carry `updatedSurface`, `updatedContext`, `availableElementIds` under `extensions['a2ui-svelte']`. Off → results are exactly `{ results: [...] }`.                                                          |
+| `pointerTool`       | `true`  | The surface registers `point_to_elements({element_ids})` — a non-spec generic tool that makes components glow and scrolls them into view so the agent can *point at* on-screen data without changing it. Off → the tool is not offered (components still glow as a side effect of the agent editing them). See [On-demand pointing](#on-demand-pointing-point_to_elements). |
 
 Presets: `ALL_EXTRAS` (all on, default) and `STRICT` (all off).
 Both are exported from `a2ui-svelte/core`.
@@ -58,6 +59,49 @@ Both are exported from `a2ui-svelte/core`.
 - You're shipping a surface where the cooldown-suppressed polling would
   be wrong (e.g. an external system mutates the surface mid-turn).
   Flip `surfaceWatch: false` on that surface only.
+
+## On-demand pointing (`point_to_elements`)
+
+When the agent edits a component (`click_button` / `update_text_field`) the
+client glows the affected element and scrolls it into view — a built-in
+acknowledgement of the change. The `pointerTool` extension exposes that same
+gesture as a **standalone, non-mutating tool** so the agent can draw the
+user's eye to data it *isn't* changing:
+
+```jsonc
+point_to_elements({ "element_ids": ["order-total", "save-btn"] })
+```
+
+Each ID is revealed (tab-switched if needed), scrolled into view, and glowed,
+in order. Use it for "where do I save this?", "show me the total", or to
+indicate a value the agent just mentioned out loud.
+
+**Where it fits the spec.** A2UI v0.8 models *structure*, *state*, and
+*intent* — it has no concept of an agent pointing at a component, because
+highlighting is a pure presentation gesture. So this is genuinely outside the
+spec and lives entirely under the `a2ui-svelte` namespace: a non-spec generic
+tool, gated by `pointerTool` (off under `STRICT`, so a spec-strict agent never
+sees it). The spec-network counterpart would be a server→client extension
+message `{ extensions: { 'a2ui-svelte': { kind: 'highlight', surfaceId,
+elementIds } } }` carried in an A2A `DataPart`; on the voice path the function
+tool is the working vehicle.
+
+**Deliberately lean results.** Unlike `click_button` / `update_text_field`,
+`point_to_elements` **never** attaches the `toolResultExtras` surface echo —
+even when that flag is on. It returns only:
+
+```jsonc
+{ "results": [
+  { "element_id": "order-total", "status": "pointed" },
+  { "element_id": "typo-id",     "status": "not_found" }
+] }
+```
+
+A purely visual "look here" call leaves the agent's surface understanding
+unchanged, so echoing the whole (potentially 100 KB+) surface back would be
+pure token waste. `status` tells the agent which IDs resolved to a real
+on-screen element, so it can avoid claiming it pointed at something that
+isn't there.
 
 ## `userAction` transport
 

@@ -117,6 +117,9 @@ describe('prompt-builder', () => {
 			// Batch + surface-watch rules present.
 			expect(out).toContain('BATCH OPERATIONS');
 			expect(out).toContain('SURFACE UPDATES');
+			// On-demand pointer rule present.
+			expect(out).toContain('POINTING THINGS OUT');
+			expect(out).toContain('point_to_elements');
 		});
 
 		it('ALL_EXTRAS explicit: identical content to the default', () => {
@@ -145,6 +148,9 @@ describe('prompt-builder', () => {
 			expect(out).not.toContain('<event>SURFACE_UPDATED</event>');
 			// Tool-result envelope rule is not advertised either.
 			expect(out).not.toContain('TOOL-RESULT ENVELOPE');
+			// On-demand pointer tool is a non-spec extension — dropped under STRICT.
+			expect(out).not.toContain('POINTING THINGS OUT');
+			expect(out).not.toContain('point_to_elements');
 		});
 
 		it('mixed surfaces: enables a rule as soon as ONE surface opts in', () => {
@@ -170,13 +176,15 @@ describe('prompt-builder', () => {
 					extensions: {
 						surfaceWatch: false,
 						batchTools: false,
-						toolResultExtras: true
+						toolResultExtras: true,
+						pointerTool: false
 					}
 				}
 			]);
 			expect(out).toContain('TOOL-RESULT ENVELOPE');
 			expect(out).not.toContain('BATCH OPERATIONS');
 			expect(out).not.toContain('SURFACE UPDATES');
+			expect(out).not.toContain('POINTING THINGS OUT');
 			expect(out).not.toContain('click_buttons');
 		});
 	});
