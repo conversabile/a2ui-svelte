@@ -1104,4 +1104,128 @@ describe("VoiceAgent with a mock transport", () => {
       vi.useRealTimers();
     }
   });
+
+  describe("debug telemetry", () => {
+    it("records the system-prompt and tools payload sizes at connect", async () => {
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        surfaces: () => [],
+        contextInstructions: () => "",
+        systemInstruction: "You are a test agent.",
+        mintToken: async () => "fake",
+      });
+
+      await agent.start();
+      flushSync();
+
+      const sp = agent.debug.outbound["system-prompt"];
+      const sent = transport.connectOpts!.systemInstruction;
+      expect(sp.count).toBe(1);
+      expect(sp.bytes).toBe(new TextEncoder().encode(sent).length);
+      expect(sp.estTokens).toBeGreaterThan(0);
+      expect(agent.debug.toolCount).toBe(transport.connectOpts!.tools.length);
+
+      await agent.stop();
+    });
+
+    it("sizes the tool-result echo — the full-surface payload that drives the quota cost", async () => {
+      // A tool whose result carries a large `updatedSurface` echo, exactly like
+      // the `toolResultExtras` extension does on a dense static surface.
+      const bigSurface = Array.from({ length: 200 }, (_, i) => ({
+        id: `field-${i}`,
+        component: { DateTimeInput: { value: { path: `/field-${i}` } } },
+      }));
+      toolRegistry.register({
+        name: "update_text_fields",
+        description: "batch update",
+        parameters: { type: "object", properties: {} },
+        execute: async () => ({
+          results: [{ element_id: "field-0", status: "success" }],
+          extensions: { "a2ui-svelte": { updatedSurface: [bigSurface] } },
+        }),
+      });
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        surfaces: () => [],
+        contextInstructions: () => "",
+        systemInstruction: "persona",
+        mintToken: async () => "fake",
+      });
+
+      await agent.start();
+      flushSync();
+
+      transport.emit("tool-call", {
+        calls: [{ id: "c1", name: "update_text_fields", args: {} }],
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      flushSync();
+
+      const tr = agent.debug.outbound["tool-result"];
+      const expectedBytes = JSON.stringify(transport.toolResults[0].result).length;
+      expect(tr.count).toBe(1);
+      expect(tr.bytes).toBe(expectedBytes);
+      expect(tr.estTokens).toBeGreaterThan(0);
+      // The echo is the dominant per-call cost — assert it's substantial here.
+      expect(tr.bytes).toBeGreaterThan(5000);
+      expect(agent.debug.events.at(-1)).toMatchObject({
+        kind: "tool-result",
+        note: "update_text_fields",
+      });
+
+      await agent.stop();
+    });
+
+    it("folds the provider's authoritative usage from the transport 'usage' event", async () => {
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        surfaces: () => [],
+        contextInstructions: () => "",
+        systemInstruction: "persona",
+        mintToken: async () => "fake",
+      });
+
+      await agent.start();
+      flushSync();
+
+      transport.emit("usage", {
+        promptTokenCount: 61432,
+        responseTokenCount: 280,
+        totalTokenCount: 61712,
+        details: [{ modality: "TEXT", tokenCount: 61432 }],
+      });
+      flushSync();
+
+      expect(agent.debug.usage.last?.totalTokenCount).toBe(61712);
+      expect(agent.debug.usage.peakTotal).toBe(61712);
+      expect(agent.debug.usage.reports).toBe(1);
+
+      await agent.stop();
+    });
+
+    it("records nothing when debug is disabled", async () => {
+      const transport = new MockTransport();
+      const agent = new VoiceAgent({
+        transport,
+        surfaces: () => [],
+        contextInstructions: () => "",
+        systemInstruction: "persona",
+        mintToken: async () => "fake",
+        debug: false,
+      });
+
+      await agent.start();
+      flushSync();
+      transport.emit("usage", { totalTokenCount: 1000 });
+      flushSync();
+
+      expect(agent.debug.outbound["system-prompt"].count).toBe(0);
+      expect(agent.debug.usage.reports).toBe(0);
+
+      await agent.stop();
+    });
+  });
 });

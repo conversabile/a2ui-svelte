@@ -67,7 +67,10 @@
 	</aside>
 {/if}
 
-<VoiceShell {agent} />
+<!-- `debug` surfaces a chart-icon button in the shell that toggles a live
+     token/byte stats box — handy for watching what the voice session pushes
+     into context. Drop the prop to hide it. -->
+<VoiceShell {agent} debug />
 
 <style>
 	header {

@@ -176,6 +176,7 @@ and confuses the agent with unused tools.
 | `transcript`     | `Array<{ role: 'user' | 'model', text: string }>`     |
 | `hasStarted`     | `boolean`                                             |
 | `configIssue`    | `string | null` — surfaces token-mint failures        |
+| `debug`          | `VoiceDebugStats` — live token/byte telemetry (below) |
 
 ### Methods
 
@@ -184,6 +185,98 @@ and confuses the agent with unused tools.
 - `toggle()` — flip start/stop.
 - `sendTextMessage(text)` — type into the transcript without speaking.
 - `reset()` — clear transcript, stop session, ready for a fresh start.
+
+## Debugging token usage
+
+A live session can quietly run up an enormous token bill, and providers
+answer with an opaque `RESOURCE_EXHAUSTED` quota error that gives no hint
+as to *why*. On a **dense static surface** the cause is usually structural,
+and it has two amplifiers:
+
+1. **The whole serialized surface is in the system prompt.** `staticSurfacesBlock`
+   embeds `JSON.stringify(surface.getJson(), null, 2)` — *pretty-printed*, which
+   inflates the byte size by ~60% over compact. A grid with a few hundred inputs
+   (a week × N staff × shift slots × start/end) can be **100–200 KB ≈ 50k+
+   tokens** on its own, re-counted on every turn of the session.
+2. **Every tool result echoes the full surface back.** With the
+   `toolResultExtras` extension on (the default), each `click_button` /
+   `update_text_field` result carries `updatedSurface` = the whole surface JSON
+   again (see [`SurfaceFeedback`](#surfacefeedback-context)). One batched edit
+   ⇒ one more full-surface copy injected into context.
+
+So even a *single* 20-field batch update on a large grid can push one turn well
+past a hundred thousand tokens. `agent.debug` makes that visible.
+
+### `agent.debug` (`VoiceDebugStats`)
+
+Always present, reactive, and cheap. It tracks two things:
+
+- **Exact outbound byte sizes**, per category — measured locally the moment the
+  agent sends them, so the bloat shows up *before* the provider responds:
+  `system-prompt`, `tools`, `tool-result`, `context-update`, `text`,
+  `user-action`, `audio-out`. Each is a `{ count, bytes, lastBytes, estTokens }`.
+- **Authoritative provider usage** — Gemini Live's `usageMetadata`, folded in via
+  the transport's `'usage'` event: `usage.last`, `usage.peakTotal` (the running
+  session total — the figure the quota is measured against), `usage.reports`.
+
+Handy reads:
+
+```ts
+agent.debug.outbound['system-prompt'].estTokens   // ~ size of the prompt
+agent.debug.outbound['tool-result'].bytes         // the full-surface echo cost
+agent.debug.estOutboundTokens                      // est. total context we pushed
+agent.debug.usage.last?.totalTokenCount            // real provider count
+agent.debug.events                                 // rolling log for a feed
+```
+
+> The byte→token figure is a rough estimate (`charsPerToken`, default 4). The
+> id-heavy surface JSON tokenizes *above* that, so treat it as a floor; where
+> `usage` is present it supersedes the estimate. Construct your own
+> `new VoiceDebugStats({ charsPerToken })` and pass it as the agent's `debug`
+> option to tune it.
+
+### The debug box
+
+Pass `debug` to `<VoiceShell>` to wire up the batteries-included panel bound to
+`agent.debug`. It adds a chart-icon button to the controls that toggles a stats
+box above the bar — collapsed by default so it never blocks the UI, dismissable
+from the button or the box's own `×`. "Hot" metrics (a system prompt or
+tool-result echo large enough to be the culprit) are highlighted:
+
+```svelte
+<VoiceShell {agent} debug />
+```
+
+That box is the recommended default — most sessions want to watch the same
+handful of numbers, so it ships ready to use. If you'd rather render your own
+from the same reactive stats, pass a snippet instead (the same toggle button
+drives it) with the `formatBytes` / `formatTokens` helpers:
+
+```svelte
+<script lang="ts">
+  import { formatBytes, formatTokens } from 'a2ui-svelte/voice';
+</script>
+
+<VoiceShell {agent}>
+  {#snippet debug({ debug })}
+    System prompt: {formatBytes(debug.outbound['system-prompt'].lastBytes)}
+    (~{formatTokens(debug.outbound['system-prompt'].estTokens)} tok) ·
+    Tool echoes: {formatBytes(debug.outbound['tool-result'].bytes)}
+  {/snippet}
+</VoiceShell>
+```
+
+A custom `controls` snippet receives `toggleDebug` / `isDebugOpen` too, so you
+can render the debug toggle wherever your own controls live.
+
+To turn measurement off entirely, pass `debug={false}` to `VoiceAgent` (the
+`agent.debug` instance still exists, it just stays empty).
+
+> **Mitigations** the numbers point to: serialize the surface compactly for the
+> prompt; split a huge grid into smaller per-day/department surfaces and only
+> publish the visible one; or set `toolResultExtras: false` (STRICT) so tool
+> results stop echoing the whole surface and rely on `surfaceWatch` deltas
+> instead.
 
 ## `<VoiceShell>` mounting
 
@@ -213,10 +306,13 @@ can opt out of any of them while keeping the rest:
 | `mic`        | `{ connected, status, toggle }`                                         |
 | `transcript` | `{ entries, sendText }`                                                 |
 | `status`     | `{ status }`                                                            |
-| `controls`   | `{ resetConversation, toggleChat, isChatOpen }`                         |
+| `controls`   | `{ resetConversation, toggleChat, isChatOpen, toggleDebug, isDebugOpen }` |
+| `debug`      | `{ debug }` — see [Debugging token usage](#debugging-token-usage)       |
 
 Or skip the UI entirely with `headless={true}` and render your own
-bound to the agent's `$state` fields.
+bound to the agent's `$state` fields. `debug` doubles as a boolean prop:
+`<VoiceShell {agent} debug />` adds a toggle button that reveals the built-in
+token panel.
 
 ## `SurfaceFeedback` context
 

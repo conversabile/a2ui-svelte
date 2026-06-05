@@ -11,6 +11,7 @@ import type { VoiceTransport } from './transport';
 import { AudioRecorder } from './audio-recorder';
 import { AudioPlayer } from './audio-player';
 import { buildSystemPrompt, type PromptInputs } from './prompt-builder';
+import { VoiceDebugStats, type DebugOutboundKind } from './debug.svelte';
 
 export type VoiceMode = 'static' | 'dynamic' | 'both';
 export type VoiceStatus = 'idle' | 'thinking' | 'error';
@@ -188,6 +189,17 @@ export interface VoiceAgentOptions {
 	 * these knobs only control timing.
 	 */
 	surfaceWatchTuning?: SurfaceWatchTuning;
+	/**
+	 * Token/byte debug telemetry. The agent always exposes a `debug`
+	 * (`VoiceDebugStats`) so a host can render a debug box (see
+	 * `<VoiceShell debug>`); this option only tunes it:
+	 *  - omit / `true`  → default instance, recording on;
+	 *  - a `VoiceDebugStats` → use this instance (e.g. to share/configure
+	 *    `charsPerToken`);
+	 *  - `false` → recording off (the instance still exists but stays empty),
+	 *    for hosts that don't want the (cheap) measurement overhead.
+	 */
+	debug?: boolean | VoiceDebugStats;
 }
 
 /**
@@ -204,8 +216,16 @@ export class VoiceAgent {
 	transcript = $state<Array<{ role: 'user' | 'model'; text: string }>>([]);
 	hasStarted = $state(false);
 	configIssue = $state<string | null>(null);
+	/**
+	 * Live token/byte telemetry for the session — outbound payload sizes the
+	 * agent sends (system prompt, tool results, context syncs, audio) plus the
+	 * provider's authoritative usage reports. Reactive; bind a debug box to it
+	 * (or pass `debug` to `<VoiceShell>`). See `VoiceDebugStats`.
+	 */
+	debug: VoiceDebugStats;
 
 	#opts: VoiceAgentOptions;
+	#debugEnabled: boolean;
 	#mode: VoiceMode;
 	#surfaceWatchTuning: Required<SurfaceWatchTuning>;
 	#recorder: AudioRecorder | null = null;
@@ -261,6 +281,8 @@ export class VoiceAgent {
 
 	constructor(opts: VoiceAgentOptions) {
 		this.#opts = opts;
+		this.debug = opts.debug instanceof VoiceDebugStats ? opts.debug : new VoiceDebugStats();
+		this.#debugEnabled = opts.debug !== false;
 		this.#mode = opts.mode ?? 'static';
 		// `'piggyback'` is a deprecated alias for `'sync'` — normalise it so the
 		// rest of the class only ever sees `'sync'` / `'proactive'`.
@@ -279,6 +301,8 @@ export class VoiceAgent {
 		this.#setStatus('idle');
 		this.configIssue = null;
 		this.#intentionalDisconnect = false;
+		// Fresh session ⇒ fresh telemetry.
+		if (this.#debugEnabled) this.debug.reset();
 
 		let token: string;
 		try {
@@ -291,6 +315,15 @@ export class VoiceAgent {
 
 		const tools = this.#assembleToolDeclarations();
 		const systemInstruction = this.#buildPrompt(tools);
+
+		// Snapshot the connect-time payload sizes. The system prompt embeds the
+		// full serialized surface (pretty-printed), so this is usually the
+		// single largest item in the session's token budget.
+		if (this.#debugEnabled) {
+			this.debug.toolCount = tools.length;
+			this.#rec('system-prompt', systemInstruction);
+			this.#rec('tools', tools);
+		}
 
 		try {
 			await this.#opts.transport.connect({
@@ -313,6 +346,7 @@ export class VoiceAgent {
 				// Model is producing a turn — gate sync delivery so we never
 				// interrupt the answer in flight.
 				this.#modelTurnActive = true;
+				if (this.#debugEnabled) this.debug.recordInboundAudio(p.base64Pcm24k);
 				this.#player?.addToQueue(p.base64Pcm24k);
 				this.#onModelActivity();
 				this.#canAppendToUser = false;
@@ -335,6 +369,11 @@ export class VoiceAgent {
 				console.log('[VoiceAgent] Transport closed:', p.reason);
 				if (!this.#intentionalDisconnect) this.#setStatus('error');
 				void this.stop();
+			}),
+			this.#opts.transport.on('usage', (u) => {
+				// Authoritative provider token counts — the real number the quota
+				// is measured against.
+				if (this.#debugEnabled) this.debug.recordUsage(u);
 			})
 		);
 
@@ -345,7 +384,10 @@ export class VoiceAgent {
 			this.#player = new AudioPlayer(24000);
 			this.#recorder.addEventListener('data', (e) => {
 				const detail = (e as CustomEvent<string>).detail;
-				if (this.connected) this.#opts.transport.sendAudioChunk(detail);
+				if (this.connected) {
+					this.#opts.transport.sendAudioChunk(detail);
+					this.#rec('audio-out', detail);
+				}
 			});
 			await this.#recorder.start();
 		} catch (e) {
@@ -424,6 +466,7 @@ export class VoiceAgent {
 			// immediately. Ordered before the text turn below.
 			if (this.#surfaceWatchTuning.mode === 'sync') this.#syncDataModel();
 			this.#opts.transport.sendText(trimmed);
+			this.#rec('text', trimmed);
 		} else {
 			console.warn('[VoiceAgent] Cannot send text message: not connected');
 		}
@@ -440,9 +483,15 @@ export class VoiceAgent {
 		this.#canAppendToUser = false;
 		this.hasStarted = false;
 		this.configIssue = null;
+		if (this.#debugEnabled) this.debug.reset();
 	}
 
 	// ===== Internals =====
+
+	/** Record an outbound payload to `debug` (no-op when debug is disabled). */
+	#rec(kind: DebugOutboundKind, payload: unknown, note?: string): void {
+		if (this.#debugEnabled) this.debug.recordOutbound(kind, payload, note);
+	}
 
 	/**
 	 * Single funnel for status writes so the thinking-watchdog timer stays in
@@ -680,6 +729,10 @@ export class VoiceAgent {
 				result = { status: 'error', error: (e as Error).message ?? 'Unknown tool error' };
 			}
 			try {
+				// Tool results are a top quota cost: with the `toolResultExtras`
+				// extension the result echoes the FULL serialized surface back to
+				// the model on every call. Size it so that's visible.
+				this.#rec('tool-result', result, call.name);
 				this.#opts.transport.sendToolResult(call.id, call.name, result);
 			} catch (e) {
 				console.error('[VoiceAgent] Failed to send tool result:', e);
@@ -718,11 +771,13 @@ export class VoiceAgent {
 		try {
 			if (typeof this.#opts.transport.sendUserAction === 'function') {
 				this.#opts.transport.sendUserAction(canonical);
+				this.#rec('user-action', canonical, canonical.name);
 				return;
 			}
 			const payload = { userAction: canonical };
 			const message = `<event>USER_ACTION</event>\n<payload>\n${JSON.stringify(payload, null, 2)}\n</payload>`;
 			this.#opts.transport.sendText(message);
+			this.#rec('user-action', message, canonical.name);
 		} catch (e) {
 			console.warn('[VoiceAgent] Failed to forward userAction:', e);
 		}
@@ -922,7 +977,11 @@ export class VoiceAgent {
 			availableElementIds: actionRegistry.listActions()
 		});
 		const message = `<event>SURFACE_UPDATED</event>\n<payload>\n${JSON.stringify(payload, null, 2)}\n</payload>`;
-		if (this.#sendSilently(message)) this.#markSyncDelivered(structure, dataModels, ctx);
+		if (this.#sendSilently(message)) {
+			// Structural re-sync ships the whole tree — the expensive sync path.
+			this.#rec('context-update', message, 'full-surface');
+			this.#markSyncDelivered(structure, dataModels, ctx);
+		}
 	}
 
 	/**
@@ -947,7 +1006,11 @@ export class VoiceAgent {
 		if (ctxChanged) ext.updatedContext = ctx;
 		const payload = wrapExtension(A2UI_EXTENSION_NAMESPACE, ext);
 		const message = `<event>SURFACE_UPDATED</event>\n<payload>\n${JSON.stringify(payload, null, 2)}\n</payload>`;
-		if (this.#sendSilently(message)) this.#markSyncDelivered(structure, dataModels, ctx);
+		if (this.#sendSilently(message)) {
+			// The cheap path: only the changed fields, not the tree.
+			this.#rec('context-update', message, 'data-model-delta');
+			this.#markSyncDelivered(structure, dataModels, ctx);
+		}
 	}
 
 	/**
@@ -1085,6 +1148,7 @@ export class VoiceAgent {
 			} else {
 				this.#opts.transport.sendText(message);
 			}
+			this.#rec('context-update', message, 'proactive-surface');
 			this.#markDelivered(surfacesJson, context, ids);
 		} catch (e) {
 			console.warn('[VoiceAgent] Failed to deliver surface update:', e);

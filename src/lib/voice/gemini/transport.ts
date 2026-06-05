@@ -175,8 +175,39 @@ export class GeminiTransport implements VoiceTransport {
 		}
 	}
 
+	/**
+	 * Normalise Gemini Live's `usageMetadata` into a `VoiceUsage` and emit it.
+	 * Merges the per-modality `promptTokensDetails` / `responseTokensDetails`
+	 * into a single modality→tokens breakdown so a debug box can show how much
+	 * of the budget is text/JSON versus audio.
+	 */
+	#emitUsage(meta: any): void {
+		const byModality = new Map<string, number>();
+		for (const d of [...(meta.promptTokensDetails ?? []), ...(meta.responseTokensDetails ?? [])]) {
+			if (!d || typeof d.modality !== 'string') continue;
+			byModality.set(d.modality, (byModality.get(d.modality) ?? 0) + (d.tokenCount ?? 0));
+		}
+		const details = Array.from(byModality, ([modality, tokenCount]) => ({ modality, tokenCount }));
+		this.#emit('usage', {
+			promptTokenCount: meta.promptTokenCount,
+			responseTokenCount: meta.responseTokenCount,
+			totalTokenCount: meta.totalTokenCount,
+			cachedContentTokenCount: meta.cachedContentTokenCount,
+			...(details.length > 0 ? { details } : {})
+		});
+	}
+
 	#onMessage(message: any): void {
 		if (!message) return;
+
+		// Token usage rides along on several message kinds (often the turn's
+		// final serverContent). Surface it before any early return so the debug
+		// layer sees the authoritative count regardless of which message carries
+		// it. Gemini Live's `totalTokenCount` is the cumulative session figure
+		// that a `RESOURCE_EXHAUSTED` quota error is measured against.
+		if (message.usageMetadata) {
+			this.#emitUsage(message.usageMetadata);
+		}
 
 		if (message.toolCall) {
 			const calls = (message.toolCall.functionCalls ?? []).map(

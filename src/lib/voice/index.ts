@@ -1,7 +1,8 @@
 export {
 	type VoiceTransport,
 	type VoiceTransportConnectOptions,
-	type VoiceTransportEventMap
+	type VoiceTransportEventMap,
+	type VoiceUsage
 } from './transport';
 export {
 	VoiceAgent,
@@ -11,6 +12,16 @@ export {
 	type VoiceStatus,
 	type SurfaceWatchTuning
 } from './agent.svelte';
+export {
+	VoiceDebugStats,
+	formatBytes,
+	formatTokens,
+	type VoiceDebugStatsOptions,
+	type DebugPayloadStat,
+	type DebugEvent,
+	type DebugOutboundKind,
+	type DebugInboundKind
+} from './debug.svelte';
 export { default as VoiceShell } from './VoiceShell.svelte';
 export {
 	buildSystemPrompt,

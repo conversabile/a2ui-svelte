@@ -123,4 +123,48 @@ export interface VoiceTransportEventMap {
 
 	/** Session ended (either by client or server). */
 	'close': { reason?: string };
+
+	/**
+	 * Provider-reported token usage for the session. Optional — only transports
+	 * whose live API returns usage metadata (e.g. Gemini Live's `usageMetadata`)
+	 * emit this. It is the **authoritative** token count (no estimation), so the
+	 * debug tooling prefers it over byte-based estimates when present. See
+	 * `VoiceUsage`.
+	 */
+	'usage': VoiceUsage;
+}
+
+/**
+ * Normalised, provider-agnostic token-usage report. Maps each live API's usage
+ * shape onto a common one so debug tooling and hosts read the same fields
+ * regardless of transport.
+ *
+ * Whether the counts are **cumulative for the session** or **per-turn** depends
+ * on the provider (Gemini Live reports cumulative session totals). Treat
+ * `totalTokenCount` as "the number Google is billing this session against" — it
+ * is exactly the figure that trips a `RESOURCE_EXHAUSTED` quota error. The
+ * debug layer additionally tracks the peak and the number of reports, so a host
+ * can show the trend either way.
+ */
+export interface VoiceUsage {
+	/** Tokens attributed to the input context (system prompt + history + tool I/O + input audio). */
+	promptTokenCount?: number;
+	/** Tokens attributed to the model's generated output (text + audio). */
+	responseTokenCount?: number;
+	/** Total tokens — the figure quota is measured against. */
+	totalTokenCount?: number;
+	/**
+	 * Of `promptTokenCount`, how many were served from context cache (a
+	 * provider discount on a repeated prefix). On a voice turn the giant system
+	 * prompt is re-ingested every generation pass; a non-zero value here means
+	 * the provider is caching that prefix rather than re-billing it in full. `0`
+	 * / absent ⇒ the whole prompt is fresh each pass.
+	 */
+	cachedContentTokenCount?: number;
+	/**
+	 * Optional per-modality breakdown (e.g. `[{ modality: 'TEXT', tokenCount: 61432 },
+	 * { modality: 'AUDIO', tokenCount: 1200 }]`). Lets a debug box show how much
+	 * of the budget is text/JSON vs. audio.
+	 */
+	details?: Array<{ modality: string; tokenCount: number }>;
 }
