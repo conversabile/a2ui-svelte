@@ -8,7 +8,15 @@
 		/** Render no UI — owner provides their own. The agent's lifecycle is still owned by the consumer. */
 		headless?: boolean;
 		mic?: Snippet<
-			[{ connected: boolean; status: VoiceStatus; toggle: () => void }]
+			[
+				{
+					connected: boolean;
+					status: VoiceStatus;
+					toggle: () => void;
+					muted: boolean;
+					toggleMute: () => void;
+				}
+			]
 		>;
 		transcript?: Snippet<
 			[
@@ -53,6 +61,10 @@
 
 	async function handleToggle() {
 		await agent.toggle();
+	}
+
+	function handleToggleMute() {
+		agent.toggleMute();
 	}
 
 	async function handleReset() {
@@ -261,29 +273,53 @@
 
 			<div class="mic-container">
 				{#if mic}
-					{@render mic({ connected: agent.connected, status: agent.status, toggle: handleToggle })}
+					{@render mic({
+						connected: agent.connected,
+						status: agent.status,
+						toggle: handleToggle,
+						muted: agent.muted,
+						toggleMute: handleToggleMute
+					})}
 				{:else}
 					<button
 						class="mic-button {agent.connected ? '' : 'outline primary'}"
 						onclick={handleToggle}
-						aria-label={agent.connected ? 'Stop Live' : 'Start Live'}
-						title={agent.connected ? 'Stop Live' : 'Start Live'}
+						aria-label={agent.connected ? 'Pause Live' : 'Start Live'}
+						title={agent.connected ? 'Pause Live' : 'Start Live'}
 					>
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							width="24"
-							height="24"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						>
-							<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-							<path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-							<line x1="12" x2="12" y1="19" y2="22" />
-						</svg>
+						{#if agent.connected}
+							<!-- Open session: the button pauses (and interrupts the agent). -->
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="24"
+								height="24"
+								viewBox="0 0 24 24"
+								fill="currentColor"
+								stroke="currentColor"
+								stroke-width="1"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<rect x="6" y="4" width="4" height="16" rx="1" />
+								<rect x="14" y="4" width="4" height="16" rx="1" />
+							</svg>
+						{:else}
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="24"
+								height="24"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+								<path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+								<line x1="12" x2="12" y1="19" y2="22" />
+							</svg>
+						{/if}
 					</button>
 				{/if}
 				{#if status}
@@ -292,6 +328,54 @@
 					<span class="status-badge {statusBadge}">
 						{statusBadge === 'thinking' ? 'thinking...' : 'error'}
 					</span>
+				{/if}
+				{#if !mic && agent.connected}
+					<button
+						class="mute-button outline secondary"
+						class:muted={agent.muted}
+						onclick={handleToggleMute}
+						aria-label={agent.muted ? 'Unmute microphone' : 'Mute microphone'}
+						aria-pressed={agent.muted}
+						title={agent.muted ? 'Unmute microphone' : 'Mute microphone'}
+					>
+						{#if agent.muted}
+							<!-- Muted: mic input is dropped; tap to resume sending audio. -->
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="20"
+								height="20"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<line x1="2" x2="22" y1="2" y2="22" />
+								<path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" />
+								<path d="M5 10v2a7 7 0 0 0 12 5" />
+								<path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" />
+								<path d="M9 9v3a3 3 0 0 0 5.12 2.12" />
+								<line x1="12" x2="12" y1="19" y2="22" />
+							</svg>
+						{:else}
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="20"
+								height="20"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+								<path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+								<line x1="12" x2="12" y1="19" y2="22" />
+							</svg>
+						{/if}
+					</button>
 				{/if}
 			</div>
 
@@ -555,7 +639,9 @@
 
 	.status-badge {
 		position: absolute;
-		left: calc(100% + 8px);
+		/* To the left of the central button — the right side is reserved for the
+		   mute button when a session is open, so the two never collide. */
+		right: calc(100% + 8px);
 		top: 50%;
 		transform: translateY(-50%);
 		font-size: 0.65rem;
@@ -625,6 +711,37 @@
 	.mic-button svg {
 		width: 24px;
 		height: 24px;
+	}
+
+	/* Mute toggle — sits just to the right of the central button while a session
+	   is open. Absolutely positioned so the central button stays centred. */
+	.mute-button {
+		position: absolute;
+		left: calc(100% + 12px);
+		top: 50%;
+		transform: translateY(-50%);
+		width: 44px;
+		height: 44px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 0;
+		padding: 0;
+		cursor: pointer;
+	}
+
+	.mute-button svg {
+		width: 20px;
+		height: 20px;
+	}
+
+	/* Muted = the agent can't hear you. Use the destructive colour as a filled
+	   "off" state so it's unmistakable the mic is cut. */
+	.mute-button.muted {
+		background: var(--pico-del-color, crimson);
+		border-color: var(--pico-del-color, crimson);
+		color: var(--pico-card-background-color, #fff);
 	}
 
 	.reset-convo-btn,

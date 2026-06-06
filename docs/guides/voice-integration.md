@@ -172,6 +172,7 @@ and confuses the agent with unused tools.
 |------------------|-------------------------------------------------------|
 | `connected`      | `boolean`                                             |
 | `recording`      | `boolean`                                             |
+| `muted`          | `boolean` — mic muted while the session stays open    |
 | `status`         | `'idle' | 'thinking' | 'error'`                       |
 | `transcript`     | `Array<{ role: 'user' | 'model', text: string }>`     |
 | `hasStarted`     | `boolean`                                             |
@@ -183,6 +184,10 @@ and confuses the agent with unused tools.
 - `start()` — connect transport, start mic.
 - `stop()` — tear everything down.
 - `toggle()` — flip start/stop.
+- `toggleMute()` — mute/unmute the mic **without** closing the session. While
+  muted, captured audio is dropped instead of sent, so the model hears silence
+  while playback and surface-sync keep running — for noisy environments where
+  trailing background noise would otherwise barge-in and cut the agent off.
 - `sendTextMessage(text)` — type into the transcript without speaking.
 - `reset()` — clear transcript, stop session, ready for a fresh start.
 
@@ -303,7 +308,7 @@ can opt out of any of them while keeping the rest:
 
 | Snippet      | Receives                                                                |
 |--------------|-------------------------------------------------------------------------|
-| `mic`        | `{ connected, status, toggle }`                                         |
+| `mic`        | `{ connected, status, toggle, muted, toggleMute }`                      |
 | `transcript` | `{ entries, sendText }`                                                 |
 | `status`     | `{ status }`                                                            |
 | `controls`   | `{ resetConversation, toggleChat, isChatOpen, toggleDebug, isDebugOpen }` |

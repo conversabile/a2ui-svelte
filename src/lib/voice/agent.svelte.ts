@@ -212,6 +212,14 @@ export interface VoiceAgentOptions {
 export class VoiceAgent {
 	connected = $state(false);
 	recording = $state(false);
+	/**
+	 * Mic muted while the session stays open. When `true`, captured audio chunks
+	 * are dropped instead of sent to the transport — the live connection,
+	 * playback, and surface-sync all keep running. Lets the user silence a noisy
+	 * environment so trailing background noise isn't heard as a barge-in that
+	 * cuts the agent off mid-answer. See `toggleMute()`.
+	 */
+	muted = $state(false);
 	status = $state<VoiceStatus>('idle');
 	transcript = $state<Array<{ role: 'user' | 'model'; text: string }>>([]);
 	hasStarted = $state(false);
@@ -301,6 +309,8 @@ export class VoiceAgent {
 		this.#setStatus('idle');
 		this.configIssue = null;
 		this.#intentionalDisconnect = false;
+		// A fresh session always starts listening — mute is a per-session state.
+		this.muted = false;
 		// Fresh session ⇒ fresh telemetry.
 		if (this.#debugEnabled) this.debug.reset();
 
@@ -384,7 +394,10 @@ export class VoiceAgent {
 			this.#player = new AudioPlayer(24000);
 			this.#recorder.addEventListener('data', (e) => {
 				const detail = (e as CustomEvent<string>).detail;
-				if (this.connected) {
+				// Drop captured audio while muted — the recorder keeps running (so
+				// unmute resumes instantly without re-prompting for mic access), the
+				// chunks just never reach the transport.
+				if (this.connected && !this.muted) {
 					this.#opts.transport.sendAudioChunk(detail);
 					this.#rec('audio-out', detail);
 				}
@@ -451,6 +464,19 @@ export class VoiceAgent {
 		} else {
 			await this.start();
 		}
+	}
+
+	/**
+	 * Mute / unmute the microphone **without** tearing down the session. While
+	 * muted, captured audio chunks are dropped instead of sent, so the model
+	 * hears silence; the live connection, playback, and surface-sync keep
+	 * running. The use case is noisy environments — once the user has spoken,
+	 * trailing background noise would otherwise be heard as a barge-in and cut
+	 * the agent off mid-answer; muting prevents that. Idempotent w.r.t. the
+	 * connection: muting/unmuting never connects or disconnects.
+	 */
+	toggleMute(): void {
+		this.muted = !this.muted;
 	}
 
 	sendTextMessage(text: string): void {

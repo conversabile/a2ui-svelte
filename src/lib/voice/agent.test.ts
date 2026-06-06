@@ -12,9 +12,16 @@ import { ALL_EXTRAS, STRICT } from "../core/extensions";
 import { serializeSurface } from "../core/serializer";
 import { a2uiState } from "../core/state.svelte";
 
-// Stub AudioRecorder/AudioPlayer so the test never touches Web Audio.
+// Stub AudioRecorder/AudioPlayer so the test never touches Web Audio. The
+// recorder captures its latest instance so a test can drive a 'data' event and
+// assert what reaches the transport (e.g. mute drops it).
+const recorderHolder = vi.hoisted(() => ({ last: null as EventTarget | null }));
 vi.mock("./audio-recorder", () => ({
   AudioRecorder: class extends EventTarget {
+    constructor() {
+      super();
+      recorderHolder.last = this;
+    }
     async start() {}
     stop() {}
   },
@@ -133,6 +140,47 @@ describe("VoiceAgent with a mock transport", () => {
     await agent.stop();
     expect(transport.closed).toBe(true);
     expect(agent.connected).toBe(false);
+  });
+
+  it("drops captured audio while muted, resumes on unmute, and keeps the session open", async () => {
+    const transport = new MockTransport();
+    const agent = new VoiceAgent({
+      transport,
+      surfaces: () => [],
+      contextInstructions: () => "",
+      systemInstruction: "persona",
+      mintToken: async () => "fake",
+    });
+
+    await agent.start();
+    flushSync();
+    expect(agent.muted).toBe(false);
+
+    const emitChunk = (b64: string) =>
+      recorderHolder.last!.dispatchEvent(
+        new CustomEvent("data", { detail: b64 }),
+      );
+
+    // Unmuted: audio reaches the transport.
+    emitChunk("live-1");
+    expect(transport.audioSent).toEqual(["live-1"]);
+
+    // Muted: the chunk is dropped, but the session stays connected.
+    agent.toggleMute();
+    flushSync();
+    expect(agent.muted).toBe(true);
+    emitChunk("muted-1");
+    expect(transport.audioSent).toEqual(["live-1"]);
+    expect(agent.connected).toBe(true);
+
+    // Unmuted again: audio flows once more.
+    agent.toggleMute();
+    flushSync();
+    expect(agent.muted).toBe(false);
+    emitChunk("live-2");
+    expect(transport.audioSent).toEqual(["live-1", "live-2"]);
+
+    await agent.stop();
   });
 
   it("skips surface-watch polling for surfaces opted out via extensions.surfaceWatch=false", async () => {
