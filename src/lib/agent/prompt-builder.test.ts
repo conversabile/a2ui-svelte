@@ -102,6 +102,30 @@ describe('prompt-builder', () => {
 		);
 	});
 
+	describe('optional history (client-history transports)', () => {
+		const withHistory: PromptInputs = {
+			...baseInputs,
+			transcriptHistory: [{ role: 'user', text: 'hello there' }]
+		};
+
+		it('includes the history block by default when transcriptHistory is non-empty', () => {
+			const out = buildSystemPrompt(withHistory);
+			expect(out).toContain('## Recent Conversation History');
+			expect(out).toContain('User: hello there');
+		});
+
+		it('omits the history block when includeHistory is false, even with history present', () => {
+			const out = buildSystemPrompt({ ...withHistory, includeHistory: false });
+			expect(out).not.toContain('## Recent Conversation History');
+			expect(out).not.toContain('hello there');
+		});
+
+		it('treats an absent transcriptHistory as no history block', () => {
+			const { transcriptHistory: _omit, ...noHistory } = baseInputs;
+			expect(buildSystemPrompt(noHistory)).toBe('You are a helpful assistant.');
+		});
+	});
+
 	describe('B3/B4 — extension-aware static-surface block', () => {
 		it('default (no extensions field on surface = ALL_EXTRAS): teaches batched + single tools and the envelope', () => {
 			const out = staticSurfacesBlock([{ id: 'main', getJson: () => ({}) }]);
