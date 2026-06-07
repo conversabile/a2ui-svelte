@@ -48,10 +48,13 @@ const transport = new GeminiTransport({ model: 'gemini-3.1-flash-live-preview' }
 ```
 
 For a custom provider, implement the `VoiceTransport` interface
-(`a2ui-svelte/voice`). The interface is small: `connect`,
-`sendAudioChunk`, `sendText`, `sendToolResult`, `close`, plus an `on(event, cb)`
-event emitter for `tool-call`, `audio-out`, `transcript-in`,
-`transcript-out`, `interrupted`, `turn-complete`, `error`, `close`.
+(`a2ui-svelte/voice`) — a `capabilities` descriptor plus the neutral
+`AgentTransport` (`a2ui-svelte/agent`) and audio. The interface is small: a
+`capabilities` getter, `connect`, `sendAudioChunk`, `sendText`,
+`sendToolResult`, `close`, plus an `on(event, cb)` event emitter for
+`tool-call`, `audio-out`, `text-in`, `text-out`, `interrupted`,
+`turn-complete`, `error`, `close`. (`transcript-in`/`transcript-out` remain as
+deprecated aliases of `text-in`/`text-out`.)
 Optionally implement `sendContextUpdate(text)` — a channel that appends to
 the model's context *without* triggering a response (Gemini Live:
 `sendClientContent({ turnComplete: false })`). The agent uses it to sync the

@@ -45,6 +45,11 @@
 			"svelte": "./dist/authoring/index.js",
 			"import": "./dist/authoring/index.js"
 		},
+		"./agent": {
+			"types": "./dist/agent/index.d.ts",
+			"svelte": "./dist/agent/index.js",
+			"import": "./dist/agent/index.js"
+		},
 		"./voice": {
 			"types": "./dist/voice/index.d.ts",
 			"svelte": "./dist/voice/index.js",

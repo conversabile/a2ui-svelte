@@ -361,8 +361,8 @@ export class VoiceAgent {
 				this.#onModelActivity();
 				this.#canAppendToUser = false;
 			}),
-			this.#opts.transport.on('transcript-out', (p) => this.#onTranscriptOut(p.text)),
-			this.#opts.transport.on('transcript-in', (p) => this.#onTranscriptIn(p.text)),
+			this.#opts.transport.on('text-out', (p) => this.#onTranscriptOut(p.text)),
+			this.#opts.transport.on('text-in', (p) => this.#onTranscriptIn(p.text)),
 			this.#opts.transport.on('interrupted', () => {
 				// Generation was cut off — the model is idle again.
 				this.#modelTurnActive = false;

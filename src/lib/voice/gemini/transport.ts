@@ -1,4 +1,5 @@
 import { GoogleGenAI, Modality } from '@google/genai';
+import type { TransportCapabilities } from '../../agent/transport';
 import type {
 	VoiceTransport,
 	VoiceTransportConnectOptions,
@@ -29,6 +30,24 @@ export class GeminiTransport implements VoiceTransport {
 	constructor(opts: GeminiTransportOptions = {}) {
 		this.#model = opts.model ?? 'gemini-3.1-flash-live-preview';
 		this.#apiVersion = opts.apiVersion ?? 'v1alpha';
+	}
+
+	/**
+	 * Gemini Live is a persistent bidi audio socket: the server runs the tool
+	 * loop, barge-in is real, it has a native silent-context channel, and it
+	 * holds session history (so the agent embeds prior turns in the prompt for
+	 * reconnect continuity rather than seeding `messages[]`).
+	 */
+	get capabilities(): TransportCapabilities {
+		return {
+			streaming: true,
+			interruptible: true,
+			silentContext: true,
+			historyOwnership: 'server',
+			canInitiateTurn: true,
+			input: ['audio', 'text'],
+			output: ['audio', 'text']
+		};
 	}
 
 	async connect(opts: VoiceTransportConnectOptions): Promise<void> {
@@ -237,11 +256,15 @@ export class GeminiTransport implements VoiceTransport {
 
 		const outputText = message.serverContent?.outputTranscription?.text;
 		if (outputText) {
+			this.#emit('text-out', { text: outputText });
+			// Deprecated alias — kept for external listeners predating the rename.
 			this.#emit('transcript-out', { text: outputText });
 		}
 
 		const inputText = message.serverContent?.inputTranscription?.text;
 		if (inputText) {
+			this.#emit('text-in', { text: inputText });
+			// Deprecated alias — kept for external listeners predating the rename.
 			this.#emit('transcript-in', { text: inputText });
 		}
 

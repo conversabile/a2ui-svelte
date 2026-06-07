@@ -96,12 +96,17 @@ Events:
 |-------------------|---------------------------------------------------------------|
 | `tool-call`       | `{ calls: Array<{ id, name, args }> }`                        |
 | `audio-out`       | `{ base64Pcm24k: string }`                                    |
-| `transcript-in`   | `{ text: string }`  (user → agent)                            |
-| `transcript-out`  | `{ text: string }`  (agent → user)                            |
+| `text-in`         | `{ text: string }`  (user → agent; ASR transcript)           |
+| `text-out`        | `{ text: string }`  (agent → user; TTS transcript)           |
 | `interrupted`     | `{}`                                                          |
 | `turn-complete`   | `{}`                                                          |
 | `error`           | `{ message, cause? }`                                         |
 | `close`           | `{ reason: string }`                                          |
+
+`text-in`/`text-out` were previously named `transcript-in`/`transcript-out`;
+those names remain available as deprecated aliases (voice transports dual-emit
+both). A `VoiceTransport` also exposes a `capabilities` descriptor
+(`a2ui-svelte/agent`) the agent reads to gate channel-specific behaviour.
 
 The Gemini implementation lives at `voice/gemini/transport.ts` — a
 useful reference if you're writing a new one.

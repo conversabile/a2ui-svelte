@@ -6,6 +6,7 @@ import type {
   VoiceTransportConnectOptions,
   VoiceTransportEventMap,
 } from "./transport";
+import type { TransportCapabilities } from "../agent/transport";
 import { toolRegistry } from "../core/registries/tool-registry";
 import { userActionBus, type UserAction } from "../core/registries/event-bus";
 import { ALL_EXTRAS, STRICT } from "../core/extensions";
@@ -41,6 +42,20 @@ class MockTransport implements VoiceTransport {
   audioSent: string[] = [];
   toolResults: Array<{ id: string; name: string; result: unknown }> = [];
   closed = false;
+
+  // Voice-profile capabilities — the same gated paths the real GeminiTransport
+  // exercises (barge-in, poll loop, server-held history, proactive turns).
+  get capabilities(): TransportCapabilities {
+    return {
+      streaming: true,
+      interruptible: true,
+      silentContext: true,
+      historyOwnership: "server",
+      canInitiateTurn: true,
+      input: ["audio", "text"],
+      output: ["audio", "text"],
+    };
+  }
 
   #listeners: {
     [E in keyof VoiceTransportEventMap]?: Set<(p: unknown) => void>;
@@ -530,7 +545,7 @@ describe("VoiceAgent with a mock transport", () => {
 
       // User typed while idle, then starts speaking.
       state.dm = { name: "Mario" };
-      transport.emit("transcript-in", { text: "what did I type?" });
+      transport.emit("text-in", { text: "what did I type?" });
       flushSync();
 
       // Nothing is sent at speech time — that would interrupt the answer.
@@ -797,7 +812,7 @@ describe("VoiceAgent with a mock transport", () => {
         // hasn't started its audio yet so `#modelTurnActive` is still false.
         // This is the window the old `#modelTurnActive`-only gate missed —
         // a poll-driven sendContextUpdate here barges into the forming answer.
-        transport.emit("transcript-in", { text: "what did I type?" });
+        transport.emit("text-in", { text: "what did I type?" });
         state.dm = { name: "Mario" };
         vi.advanceTimersByTime(1000);
         flushSync();
@@ -1023,7 +1038,7 @@ describe("VoiceAgent with a mock transport", () => {
     await agent.stop();
   });
 
-  it("captures transcript-in / transcript-out and clears thinking on turn-complete", async () => {
+  it("captures text-in / text-out and clears thinking on turn-complete", async () => {
     const transport = new MockTransport();
     const agent = new VoiceAgent({
       transport,
@@ -1036,9 +1051,9 @@ describe("VoiceAgent with a mock transport", () => {
     await agent.start();
     flushSync();
 
-    transport.emit("transcript-in", { text: "hello" });
+    transport.emit("text-in", { text: "hello" });
     flushSync();
-    transport.emit("transcript-out", { text: "hi back" });
+    transport.emit("text-out", { text: "hi back" });
     transport.emit("turn-complete", {} as never);
     flushSync();
 
@@ -1062,14 +1077,14 @@ describe("VoiceAgent with a mock transport", () => {
     await agent.start();
     flushSync();
 
-    // First utterance, then a tool-only turn (no transcript-out at all, as in
+    // First utterance, then a tool-only turn (no text-out at all, as in
     // dynamic-surface renders) that simply completes.
-    transport.emit("transcript-in", { text: "first" });
+    transport.emit("text-in", { text: "first" });
     transport.emit("turn-complete", {} as never);
     flushSync();
 
     // The next utterance must be its own turn — not appended to the first.
-    transport.emit("transcript-in", { text: "second" });
+    transport.emit("text-in", { text: "second" });
     flushSync();
 
     const userTurns = agent.transcript.filter((m) => m.role === "user");
@@ -1094,7 +1109,7 @@ describe("VoiceAgent with a mock transport", () => {
       flushSync();
 
       // The user speaks; a response is now expected.
-      transport.emit("transcript-in", { text: "hello?" });
+      transport.emit("text-in", { text: "hello?" });
       flushSync();
       expect(agent.status).toBe("thinking");
 
@@ -1131,7 +1146,7 @@ describe("VoiceAgent with a mock transport", () => {
       await agent.start();
       flushSync();
 
-      transport.emit("transcript-in", { text: "do some work" });
+      transport.emit("text-in", { text: "do some work" });
       flushSync();
 
       // A tool call lands every few seconds — each is model activity that
