@@ -1,7 +1,7 @@
 /**
  * A2UI v0.8 — A2A message-driven transport.
  *
- * Voice mode (`a2ui-svelte/voice`) integrates A2UI with live voice APIs that
+ * Agent mode (`a2ui-svelte/agent`) integrates A2UI with model APIs that
  * have no native event channel back into the model context — there the agent
  * generates UI via LLM function tools (`surfaceUpdate`, `beginRendering`,
  * `dataModelUpdate`). The A2UI v0.8 spec describes a different integration:
@@ -9,7 +9,7 @@
  * SSE) carrying surface mutations, with a paired client-to-server channel for
  * `userAction` / `error` events.
  *
- * This module provides the spec-aligned mode alongside `VoiceTransport`. The
+ * This module provides the spec-aligned mode alongside `AgentTransport`. The
  * interface deals in *unwrapped* A2UI JSON for ergonomics, but every wire
  * implementation MUST honour the A2A envelope:
  *

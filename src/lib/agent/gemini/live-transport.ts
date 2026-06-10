@@ -1,35 +1,52 @@
 import { GoogleGenAI, Modality } from '@google/genai';
-import type { TransportCapabilities } from '../../agent/transport';
 import type {
-	VoiceTransport,
-	VoiceTransportConnectOptions,
-	VoiceTransportEventMap
+	AgentTransport,
+	AgentTransportConnectOptions,
+	AgentTransportEventMap,
+	TransportCapabilities
 } from '../transport';
 
-export interface GeminiTransportOptions {
-	/** Gemini Live model. */
+export interface GeminiLiveTransportOptions {
+	/**
+	 * Auth for the Live socket: an ephemeral token (or raw API key), or a
+	 * function that produces one — called once per `connect()`, so a fresh
+	 * single-use token is minted for every session. Mint server-side with
+	 * `mintGeminiToken` (exported from `a2ui-svelte/agent/gemini`) and fetch it
+	 * from the browser.
+	 */
+	token: string | (() => string | Promise<string>);
+	/** Gemini Live model. Default `'gemini-3.1-flash-live-preview'`. */
 	model?: string;
 	/** API version. Default 'v1alpha' (required for Gemini Live). */
 	apiVersion?: string;
+	/** Prebuilt TTS voice name. Default `'Aoede'`. */
+	voice?: string;
 }
 
-type EventName = keyof VoiceTransportEventMap;
+type EventName = keyof AgentTransportEventMap;
 
 /**
- * Gemini Live implementation of VoiceTransport. Translates Gemini's message
- * shapes into the normalised VoiceTransportEventMap and back, so the rest
- * of the library never touches `@google/genai` directly.
+ * Gemini Live implementation of {@link AgentTransport} — the streaming
+ * audio-to-audio profile. Translates Gemini's message shapes into the
+ * normalised event map and back, so the rest of the library never touches
+ * `@google/genai` directly. The server runs the tool loop; this transport
+ * advertises audio input/output, barge-in, a native silent-context channel,
+ * and server-held history, and the `Agent` adapts to exactly that.
  */
-export class GeminiTransport implements VoiceTransport {
+export class GeminiLiveTransport implements AgentTransport {
+	#token: string | (() => string | Promise<string>);
 	#model: string;
 	#apiVersion: string;
+	#voice: string;
 	#session: any = null;
-	#listeners: { [E in EventName]?: Set<(p: VoiceTransportEventMap[E]) => void> } = {};
+	#listeners: { [E in EventName]?: Set<(p: AgentTransportEventMap[E]) => void> } = {};
 	#closed = false;
 
-	constructor(opts: GeminiTransportOptions = {}) {
+	constructor(opts: GeminiLiveTransportOptions) {
+		this.#token = opts.token;
 		this.#model = opts.model ?? 'gemini-3.1-flash-live-preview';
 		this.#apiVersion = opts.apiVersion ?? 'v1alpha';
+		this.#voice = opts.voice ?? 'Aoede';
 	}
 
 	/**
@@ -50,10 +67,11 @@ export class GeminiTransport implements VoiceTransport {
 		};
 	}
 
-	async connect(opts: VoiceTransportConnectOptions): Promise<void> {
+	async connect(opts: AgentTransportConnectOptions): Promise<void> {
 		this.#closed = false;
+		const token = typeof this.#token === 'function' ? await this.#token() : this.#token;
 		const ai = new GoogleGenAI({
-			apiKey: opts.token,
+			apiKey: token,
 			httpOptions: { apiVersion: this.#apiVersion }
 		});
 
@@ -66,9 +84,8 @@ export class GeminiTransport implements VoiceTransport {
 			inputAudioTranscription: {},
 			outputAudioTranscription: {},
 			speechConfig: {
-				voiceConfig: { prebuiltVoiceConfig: { voiceName: opts.voice ?? 'Aoede' } }
-			},
-			...(opts.providerOptions ?? {})
+				voiceConfig: { prebuiltVoiceConfig: { voiceName: this.#voice } }
+			}
 		};
 		if (toolsConfig) config.tools = toolsConfig;
 
@@ -155,9 +172,9 @@ export class GeminiTransport implements VoiceTransport {
 
 	on<E extends EventName>(
 		event: E,
-		handler: (payload: VoiceTransportEventMap[E]) => void
+		handler: (payload: AgentTransportEventMap[E]) => void
 	): () => void {
-		let set = this.#listeners[event] as Set<(p: VoiceTransportEventMap[E]) => void> | undefined;
+		let set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
 		if (!set) {
 			set = new Set();
 			(this.#listeners[event] as unknown) = set;
@@ -180,22 +197,22 @@ export class GeminiTransport implements VoiceTransport {
 		this.#session = null;
 	}
 
-	#emit<E extends EventName>(event: E, payload: VoiceTransportEventMap[E]): void {
+	#emit<E extends EventName>(event: E, payload: AgentTransportEventMap[E]): void {
 		const set = this.#listeners[event] as
-			| Set<(p: VoiceTransportEventMap[E]) => void>
+			| Set<(p: AgentTransportEventMap[E]) => void>
 			| undefined;
 		if (!set) return;
 		for (const h of set) {
 			try {
 				h(payload);
 			} catch (e) {
-				console.error(`[GeminiTransport] listener for "${event}" threw:`, e);
+				console.error(`[GeminiLiveTransport] listener for "${event}" threw:`, e);
 			}
 		}
 	}
 
 	/**
-	 * Normalise Gemini Live's `usageMetadata` into a `VoiceUsage` and emit it.
+	 * Normalise Gemini Live's `usageMetadata` into an `AgentUsage` and emit it.
 	 * Merges the per-modality `promptTokensDetails` / `responseTokensDetails`
 	 * into a single modality→tokens breakdown so a debug box can show how much
 	 * of the budget is text/JSON versus audio.
@@ -257,15 +274,11 @@ export class GeminiTransport implements VoiceTransport {
 		const outputText = message.serverContent?.outputTranscription?.text;
 		if (outputText) {
 			this.#emit('text-out', { text: outputText });
-			// Deprecated alias — kept for external listeners predating the rename.
-			this.#emit('transcript-out', { text: outputText });
 		}
 
 		const inputText = message.serverContent?.inputTranscription?.text;
 		if (inputText) {
 			this.#emit('text-in', { text: inputText });
-			// Deprecated alias — kept for external listeners predating the rename.
-			this.#emit('transcript-in', { text: inputText });
 		}
 
 		if (message.serverContent?.turnComplete) {

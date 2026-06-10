@@ -11,8 +11,8 @@ type: skill
 Use this skill when you are adding a new route (page) to a SvelteKit app
 that already consumes `a2ui-svelte` and you want the live voice agent to
 *see* the page's UI and *act on it* (click buttons, fill text fields,
-toggle checkboxes, etc.). The app already has a single `<VoiceShell>` /
-`VoiceAgent` mounted in the root layout — your job is to declare a
+toggle checkboxes, etc.). The app already has a single `<AgentShell>` /
+`Agent` mounted in the root layout — your job is to declare a
 **static surface** on this page so the agent picks it up.
 
 Trigger phrases: "add a page", "new route", "make this page agent-aware",
@@ -71,7 +71,7 @@ Container property contracts (these are spec-mandated, the helpers enforce them)
 - `Column` / `Row` / `List` use `children: { explicitList: [...] }`.
 - `Button` has a single `child` (its label) — pass it via `label` prop.
 
-### 3. Publish the surface so the layout's `<VoiceShell>` picks it up
+### 3. Publish the surface so the layout's `<AgentShell>` picks it up
 
 The library doesn't dictate *how* you publish surfaces — pick a thin
 reactive store the layout reads. The canonical pattern is a Svelte 5
@@ -109,8 +109,8 @@ Then in your page, write into the store on mount and clear on destroy:
 </script>
 ```
 
-The layout reads these and feeds them to `VoiceAgent` (see
-`integrate-voice-agent` skill). The store name is up to you — pick
+The layout reads these and feeds them to the agent definition (see
+`integrate-agent` skill). The store name is up to you — pick
 something that fits your app's naming conventions.
 
 ### 4. Add page-specific `contextInstructions`
@@ -147,4 +147,4 @@ no longer exists in the DOM and emit invalid clicks.
 - `build-custom-component` — when the catalog doesn't have what you need.
 - `build-composite-component` — when you need bespoke HTML but the agent
   should still see a clean A2UI tree.
-- `integrate-voice-agent` — wiring the layout-level `VoiceAgent`.
+- `integrate-agent` — wiring the layout-level `Agent` + transport.

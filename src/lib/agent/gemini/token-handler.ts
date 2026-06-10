@@ -17,7 +17,7 @@ export interface MintGeminiTokenOptions {
  *
  * Usage in a SvelteKit POST handler:
  *
- *   import { mintGeminiToken } from 'a2ui-svelte/voice/gemini';
+ *   import { mintGeminiToken } from 'a2ui-svelte/agent/gemini';
  *   export const POST = async ({ locals }) => {
  *     if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
  *     const apiKey = await resolveUserApiKey(locals.user);

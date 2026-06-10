@@ -1,5 +1,5 @@
 import { json, error } from '@sveltejs/kit';
-import { mintGeminiToken } from 'a2ui-svelte/voice/gemini';
+import { mintGeminiToken } from 'a2ui-svelte/agent/gemini';
 import { GEMINI_API_KEY } from '$env/static/private';
 
 export async function POST() {

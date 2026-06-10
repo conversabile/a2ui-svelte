@@ -13,12 +13,47 @@ import { ALL_EXTRAS, STRICT } from "../core/extensions";
 import { serializeSurface } from "../core/serializer";
 import { a2uiState } from "../core/state.svelte";
 
-// Neutral transport mock — implements the base `AgentTransport` only (no audio).
-// It advertises a **voice-profile** capabilities object so the channel-gated
-// paths (poll loop, barge-in gate, server-held history, proactive turns) are
-// exercised exactly as they are on the real GeminiTransport. Tests mark "the
-// model is generating" with a `text-out` event (which sets `modelTurnActive`),
-// the neutral equivalent of voice's `audio-out`.
+// Stub AudioRecorder/AudioPlayer so the audio suite never touches Web Audio
+// (jsdom has none). Each holder captures its latest instance so a test can
+// drive a 'data' event (assert what reaches the transport, e.g. mute drops it)
+// or spy on the player. The Agent only constructs these when the transport's
+// capabilities include the matching audio modality, so the text-profile tests
+// above never instantiate them.
+const recorderHolder = vi.hoisted(() => ({ last: null as EventTarget | null }));
+const playerHolder = vi.hoisted(
+  () =>
+    ({ last: null }) as {
+      last: { stop: ReturnType<typeof vi.fn>; addToQueue: ReturnType<typeof vi.fn> } | null;
+    },
+);
+vi.mock("./audio-recorder", () => ({
+  AudioRecorder: class extends EventTarget {
+    constructor() {
+      super();
+      recorderHolder.last = this;
+    }
+    async start() {}
+    stop() {}
+  },
+}));
+vi.mock("./audio-player", () => ({
+  AudioPlayer: class {
+    stop = vi.fn();
+    addToQueue = vi.fn();
+    constructor(_: number) {
+      playerHolder.last = this;
+    }
+  },
+}));
+
+// Neutral transport mock. It advertises the **streaming live profile** minus
+// the audio modalities, so the channel-gated paths (poll loop, barge-in gate,
+// server-held history, proactive turns) are exercised exactly as they are on
+// the real GeminiLiveTransport — without the Agent spinning up the mic
+// recorder / speaker player (no Web Audio in jsdom). Tests mark "the model is
+// generating" with a `text-out` event (which sets `modelTurnActive`), the
+// neutral equivalent of `audio-out`. The audio paths themselves are covered
+// by the "audio surface" suite below against `MockAudioTransport`.
 class MockAgentTransport implements AgentTransport {
   connectOpts: AgentTransportConnectOptions | null = null;
   textsSent: string[] = [];
@@ -33,8 +68,8 @@ class MockAgentTransport implements AgentTransport {
       silentContext: true,
       historyOwnership: "server",
       canInitiateTurn: true,
-      input: ["audio", "text"],
-      output: ["audio", "text"],
+      input: ["text"],
+      output: ["text"],
     };
   }
 
@@ -99,18 +134,18 @@ describe("Agent with a neutral mock transport", () => {
 
     const surfaces: AgentSurface[] = [];
     const transport = new MockAgentTransport();
-    const agent = new Agent({
+    const agent = new Agent(
+      {
+        surfaces: () => surfaces,
+        contextInstructions: () => "",
+        instructions: "You are a test agent.",
+      },
       transport,
-      surfaces: () => surfaces,
-      contextInstructions: () => "",
-      systemInstruction: "You are a test agent.",
-      mintToken: async () => "fake-token",
-    });
+    );
 
     await agent.start();
     flushSync();
     expect(agent.connected).toBe(true);
-    expect(transport.connectOpts?.token).toBe("fake-token");
     expect(transport.connectOpts?.systemInstruction).toContain(
       "You are a test agent.",
     );
@@ -140,26 +175,27 @@ describe("Agent with a neutral mock transport", () => {
     try {
       let json: unknown = { root: "v1" };
       const transport = new MockAgentTransport();
-      const agent = new Agent({
-        transport,
-        surfaces: () => [
-          {
-            id: "main",
-            type: "static",
-            getJson: () => json,
-            extensions: STRICT,
+      const agent = new Agent(
+        {
+          surfaces: () => [
+            {
+              id: "main",
+              type: "static",
+              getJson: () => json,
+              extensions: STRICT,
+            },
+          ],
+          contextInstructions: () => "",
+          instructions: "persona",
+          surfaceWatchTuning: {
+            mode: "proactive",
+            intervalMs: 1000,
+            settleMs: 0,
+            cooldownMs: 0,
           },
-        ],
-        contextInstructions: () => "",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-        surfaceWatchTuning: {
-          mode: "proactive",
-          intervalMs: 1000,
-          settleMs: 0,
-          cooldownMs: 0,
         },
-      });
+        transport,
+      );
 
       await agent.start();
       flushSync();
@@ -184,26 +220,27 @@ describe("Agent with a neutral mock transport", () => {
     try {
       let json: unknown = { root: "v1" };
       const transport = new MockAgentTransport();
-      const agent = new Agent({
-        transport,
-        surfaces: () => [
-          {
-            id: "main",
-            type: "static",
-            getJson: () => json,
-            extensions: ALL_EXTRAS,
+      const agent = new Agent(
+        {
+          surfaces: () => [
+            {
+              id: "main",
+              type: "static",
+              getJson: () => json,
+              extensions: ALL_EXTRAS,
+            },
+          ],
+          contextInstructions: () => "ctx",
+          instructions: "persona",
+          surfaceWatchTuning: {
+            mode: "proactive",
+            intervalMs: 1000,
+            settleMs: 0,
+            cooldownMs: 0,
           },
-        ],
-        contextInstructions: () => "ctx",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-        surfaceWatchTuning: {
-          mode: "proactive",
-          intervalMs: 1000,
-          settleMs: 0,
-          cooldownMs: 0,
         },
-      });
+        transport,
+      );
 
       await agent.start();
       flushSync();
@@ -242,27 +279,28 @@ describe("Agent with a neutral mock transport", () => {
       // the data model, so the JSON changes when the user writes.
       let json: unknown = { surfaceId: "canvas", data: { draft: "" } };
       const transport = new MockAgentTransport();
-      const agent = new Agent({
-        transport,
-        mode: "dynamic",
-        surfaces: () => [
-          {
-            id: "canvas",
-            type: "dynamic",
-            getJson: () => json,
-            extensions: ALL_EXTRAS,
+      const agent = new Agent(
+        {
+          mode: "dynamic",
+          surfaces: () => [
+            {
+              id: "canvas",
+              type: "dynamic",
+              getJson: () => json,
+              extensions: ALL_EXTRAS,
+            },
+          ],
+          contextInstructions: () => "",
+          instructions: "persona",
+          surfaceWatchTuning: {
+            mode: "proactive",
+            intervalMs: 1000,
+            settleMs: 0,
+            cooldownMs: 0,
           },
-        ],
-        contextInstructions: () => "",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-        surfaceWatchTuning: {
-          mode: "proactive",
-          intervalMs: 1000,
-          settleMs: 0,
-          cooldownMs: 0,
         },
-      });
+        transport,
+      );
 
       await agent.start();
       flushSync();
@@ -293,27 +331,28 @@ describe("Agent with a neutral mock transport", () => {
     try {
       let json: unknown = { surfaceId: "canvas", data: { draft: "" } };
       const transport = new MockAgentTransport();
-      const agent = new Agent({
-        transport,
-        mode: "dynamic",
-        surfaces: () => [
-          {
-            id: "canvas",
-            type: "dynamic",
-            getJson: () => json,
-            extensions: STRICT,
+      const agent = new Agent(
+        {
+          mode: "dynamic",
+          surfaces: () => [
+            {
+              id: "canvas",
+              type: "dynamic",
+              getJson: () => json,
+              extensions: STRICT,
+            },
+          ],
+          contextInstructions: () => "",
+          instructions: "persona",
+          surfaceWatchTuning: {
+            mode: "proactive",
+            intervalMs: 1000,
+            settleMs: 0,
+            cooldownMs: 0,
           },
-        ],
-        contextInstructions: () => "",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-        surfaceWatchTuning: {
-          mode: "proactive",
-          intervalMs: 1000,
-          settleMs: 0,
-          cooldownMs: 0,
         },
-      });
+        transport,
+      );
 
       await agent.start();
       flushSync();
@@ -337,21 +376,22 @@ describe("Agent with a neutral mock transport", () => {
     try {
       let json: unknown = { root: "v1" };
       const transport = new MockAgentTransport();
-      const agent = new Agent({
-        transport,
-        // Note: no `extensions` field — represents a pre-extension-era
-        // hand-rolled surface handle. Must still get polled.
-        surfaces: () => [{ id: "main", type: "static", getJson: () => json }],
-        contextInstructions: () => "",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-        surfaceWatchTuning: {
-          mode: "proactive",
-          intervalMs: 1000,
-          settleMs: 0,
-          cooldownMs: 0,
+      const agent = new Agent(
+        {
+          // Note: no `extensions` field — represents a pre-extension-era
+          // hand-rolled surface handle. Must still get polled.
+          surfaces: () => [{ id: "main", type: "static", getJson: () => json }],
+          contextInstructions: () => "",
+          instructions: "persona",
+          surfaceWatchTuning: {
+            mode: "proactive",
+            intervalMs: 1000,
+            settleMs: 0,
+            cooldownMs: 0,
+          },
         },
-      });
+        transport,
+      );
 
       await agent.start();
       flushSync();
@@ -375,26 +415,27 @@ describe("Agent with a neutral mock transport", () => {
     try {
       let json: unknown = { name: "" };
       const transport = new MockAgentTransport();
-      const agent = new Agent({
-        transport,
-        surfaces: () => [
-          {
-            id: "main",
-            type: "static",
-            getJson: () => json,
-            extensions: ALL_EXTRAS,
+      const agent = new Agent(
+        {
+          surfaces: () => [
+            {
+              id: "main",
+              type: "static",
+              getJson: () => json,
+              extensions: ALL_EXTRAS,
+            },
+          ],
+          contextInstructions: () => "",
+          instructions: "persona",
+          surfaceWatchTuning: {
+            mode: "proactive",
+            intervalMs: 1000,
+            settleMs: 3000,
+            cooldownMs: 0,
           },
-        ],
-        contextInstructions: () => "",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-        surfaceWatchTuning: {
-          mode: "proactive",
-          intervalMs: 1000,
-          settleMs: 3000,
-          cooldownMs: 0,
         },
-      });
+        transport,
+      );
 
       await agent.start();
       flushSync();
@@ -441,22 +482,23 @@ describe("Agent with a neutral mock transport", () => {
         },
       };
       const transport = new MockAgentTransport();
-      const agent = new Agent({
+      const agent = new Agent(
+        {
+          surfaces: () => [
+            {
+              id: "main",
+              type: "static",
+              getJson: () => state.struct,
+              getDataModel: () => ({ ...state.dm }),
+              extensions: ALL_EXTRAS,
+            },
+          ],
+          contextInstructions: () => "ctx",
+          instructions: "persona",
+          surfaceWatchTuning: tuning as never,
+        },
         transport,
-        surfaces: () => [
-          {
-            id: "main",
-            type: "static",
-            getJson: () => state.struct,
-            getDataModel: () => ({ ...state.dm }),
-            extensions: ALL_EXTRAS,
-          },
-        ],
-        contextInstructions: () => "ctx",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-        surfaceWatchTuning: tuning as never,
-      });
+      );
       return { state, transport, agent };
     }
 
@@ -773,25 +815,26 @@ describe("Agent with a neutral mock transport", () => {
     it("does not echo the agent's own dynamic render (surfaceUpdate + beginRendering) back to it", async () => {
       const surfaceId = "echo-canvas";
       const transport = new MockAgentTransport();
-      const agent = new Agent({
+      const agent = new Agent(
+        {
+          mode: "dynamic",
+          surfaces: () => [
+            {
+              id: surfaceId,
+              type: "dynamic",
+              getJson: () => serializeSurface(surfaceId) ?? { surfaceId },
+              getDataModel: () => ({
+                ...(a2uiState.getSurface(surfaceId)?.data ?? {}),
+              }),
+              extensions: ALL_EXTRAS,
+            },
+          ],
+          contextInstructions: () => "",
+          instructions: "persona",
+          surfaceWatchTuning: NO_POLL as never,
+        },
         transport,
-        mode: "dynamic",
-        surfaces: () => [
-          {
-            id: surfaceId,
-            type: "dynamic",
-            getJson: () => serializeSurface(surfaceId) ?? { surfaceId },
-            getDataModel: () => ({
-              ...(a2uiState.getSurface(surfaceId)?.data ?? {}),
-            }),
-            extensions: ALL_EXTRAS,
-          },
-        ],
-        contextInstructions: () => "",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-        surfaceWatchTuning: NO_POLL as never,
-      });
+      );
 
       await agent.start();
       flushSync();
@@ -872,13 +915,14 @@ describe("Agent with a neutral mock transport", () => {
 
   it("B5: falls back to wrapped text turn for userAction when transport has no sendUserAction", async () => {
     const transport = new MockAgentTransport();
-    const agent = new Agent({
+    const agent = new Agent(
+      {
+        surfaces: () => [],
+        contextInstructions: () => "",
+        instructions: "persona",
+      },
       transport,
-      surfaces: () => [],
-      contextInstructions: () => "",
-      systemInstruction: "persona",
-      mintToken: async () => "fake",
-    });
+    );
 
     await agent.start();
     flushSync();
@@ -916,13 +960,14 @@ describe("Agent with a neutral mock transport", () => {
     (transport as AgentTransport).sendUserAction = (a: UserAction) =>
       received.push(a);
 
-    const agent = new Agent({
+    const agent = new Agent(
+      {
+        surfaces: () => [],
+        contextInstructions: () => "",
+        instructions: "persona",
+      },
       transport,
-      surfaces: () => [],
-      contextInstructions: () => "",
-      systemInstruction: "persona",
-      mintToken: async () => "fake",
-    });
+    );
 
     await agent.start();
     flushSync();
@@ -951,13 +996,14 @@ describe("Agent with a neutral mock transport", () => {
     (transport as AgentTransport).sendUserAction = (a: UserAction) =>
       received.push(a);
 
-    const agent = new Agent({
+    const agent = new Agent(
+      {
+        surfaces: () => [],
+        contextInstructions: () => "",
+        instructions: "persona",
+      },
       transport,
-      surfaces: () => [],
-      contextInstructions: () => "",
-      systemInstruction: "persona",
-      mintToken: async () => "fake",
-    });
+    );
 
     await agent.start();
     flushSync();
@@ -978,13 +1024,14 @@ describe("Agent with a neutral mock transport", () => {
 
   it("captures text-in / text-out and clears thinking on turn-complete", async () => {
     const transport = new MockAgentTransport();
-    const agent = new Agent({
+    const agent = new Agent(
+      {
+        surfaces: () => [],
+        contextInstructions: () => "",
+        instructions: "persona",
+      },
       transport,
-      surfaces: () => [],
-      contextInstructions: () => "",
-      systemInstruction: "persona",
-      mintToken: async () => "fake",
-    });
+    );
 
     await agent.start();
     flushSync();
@@ -1004,13 +1051,14 @@ describe("Agent with a neutral mock transport", () => {
 
   it("starts a new user turn after turn-complete even when the model produced no text (tool-only turn)", async () => {
     const transport = new MockAgentTransport();
-    const agent = new Agent({
+    const agent = new Agent(
+      {
+        surfaces: () => [],
+        contextInstructions: () => "",
+        instructions: "persona",
+      },
       transport,
-      surfaces: () => [],
-      contextInstructions: () => "",
-      systemInstruction: "persona",
-      mintToken: async () => "fake",
-    });
+    );
 
     await agent.start();
     flushSync();
@@ -1035,13 +1083,14 @@ describe("Agent with a neutral mock transport", () => {
     vi.useFakeTimers();
     try {
       const transport = new MockAgentTransport();
-      const agent = new Agent({
+      const agent = new Agent(
+        {
+          surfaces: () => [],
+          contextInstructions: () => "",
+          instructions: "persona",
+        },
         transport,
-        surfaces: () => [],
-        contextInstructions: () => "",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-      });
+      );
 
       await agent.start();
       flushSync();
@@ -1073,13 +1122,14 @@ describe("Agent with a neutral mock transport", () => {
         execute: async () => ({ status: "success" }),
       });
       const transport = new MockAgentTransport();
-      const agent = new Agent({
+      const agent = new Agent(
+        {
+          surfaces: () => [],
+          contextInstructions: () => "",
+          instructions: "persona",
+        },
         transport,
-        surfaces: () => [],
-        contextInstructions: () => "",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-      });
+      );
 
       await agent.start();
       flushSync();
@@ -1109,13 +1159,14 @@ describe("Agent with a neutral mock transport", () => {
   describe("history routing by capability", () => {
     it("embeds prior turns in the prompt for a server-history transport", async () => {
       const transport = new MockAgentTransport();
-      const agent = new Agent({
+      const agent = new Agent(
+        {
+          surfaces: () => [],
+          contextInstructions: () => "",
+          instructions: "persona",
+        },
         transport,
-        surfaces: () => [],
-        contextInstructions: () => "",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-      });
+      );
 
       // Seed a prior turn, then connect a fresh session.
       agent.transcript = [{ role: "user", text: "remember this" }];
@@ -1146,13 +1197,14 @@ describe("Agent with a neutral mock transport", () => {
           output: ["text"],
         }),
       });
-      const agent = new Agent({
+      const agent = new Agent(
+        {
+          surfaces: () => [],
+          contextInstructions: () => "",
+          instructions: "persona",
+        },
         transport,
-        surfaces: () => [],
-        contextInstructions: () => "",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-      });
+      );
 
       agent.transcript = [{ role: "user", text: "remember this" }];
       await agent.start();
@@ -1197,24 +1249,25 @@ describe("Agent with a neutral mock transport", () => {
         (
           transport as unknown as { sendContextUpdate?: unknown }
         ).sendContextUpdate = undefined;
-        const agent = new Agent({
+        const agent = new Agent(
+          {
+            surfaces: () => [
+              {
+                id: "main",
+                type: "static",
+                getJson: () => ({ surfaceId: "main" }),
+                getDataModel: () => ({ ...state.dm }),
+                extensions: ALL_EXTRAS,
+              },
+            ],
+            contextInstructions: () => "ctx",
+            instructions: "persona",
+            // Even a fast poll cadence must not start a timer on a non-streaming
+            // transport.
+            surfaceWatchTuning: { mode: "sync", intervalMs: 1, settleMs: 0 },
+          },
           transport,
-          surfaces: () => [
-            {
-              id: "main",
-              type: "static",
-              getJson: () => ({ surfaceId: "main" }),
-              getDataModel: () => ({ ...state.dm }),
-              extensions: ALL_EXTRAS,
-            },
-          ],
-          contextInstructions: () => "ctx",
-          systemInstruction: "persona",
-          mintToken: async () => "fake",
-          // Even a fast poll cadence must not start a timer on a non-streaming
-          // transport.
-          surfaceWatchTuning: { mode: "sync", intervalMs: 1, settleMs: 0 },
-        });
+        );
 
         await agent.start();
         flushSync();
@@ -1253,22 +1306,23 @@ describe("Agent with a neutral mock transport", () => {
       (
         transport as unknown as { sendContextUpdate?: unknown }
       ).sendContextUpdate = undefined;
-      const agent = new Agent({
+      const agent = new Agent(
+        {
+          surfaces: () => [
+            {
+              id: "main",
+              type: "static",
+              getJson: () => ({ surfaceId: "main" }),
+              getDataModel: () => ({ ...state.dm }),
+              extensions: ALL_EXTRAS,
+            },
+          ],
+          contextInstructions: () => "ctx",
+          instructions: "persona",
+          surfaceWatchTuning: { mode: "sync", intervalMs: 1_000_000, settleMs: 0 },
+        },
         transport,
-        surfaces: () => [
-          {
-            id: "main",
-            type: "static",
-            getJson: () => ({ surfaceId: "main" }),
-            getDataModel: () => ({ ...state.dm }),
-            extensions: ALL_EXTRAS,
-          },
-        ],
-        contextInstructions: () => "ctx",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-        surfaceWatchTuning: { mode: "sync", intervalMs: 1_000_000, settleMs: 0 },
-      });
+      );
 
       await agent.start();
       flushSync();
@@ -1298,22 +1352,23 @@ describe("Agent with a neutral mock transport", () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       try {
         const state = { dm: {} as Record<string, string> };
-        const agent = new Agent({
+        const agent = new Agent(
+          {
+            surfaces: () => [
+              {
+                id: "main",
+                type: "static",
+                getJson: () => ({ surfaceId: "main" }),
+                getDataModel: () => ({ ...state.dm }),
+                extensions: ALL_EXTRAS,
+              },
+            ],
+            contextInstructions: () => "",
+            instructions: "persona",
+            surfaceWatchTuning: { mode: "proactive", settleMs: 0 },
+          },
           transport,
-          surfaces: () => [
-            {
-              id: "main",
-              type: "static",
-              getJson: () => ({ surfaceId: "main" }),
-              getDataModel: () => ({ ...state.dm }),
-              extensions: ALL_EXTRAS,
-            },
-          ],
-          contextInstructions: () => "",
-          systemInstruction: "persona",
-          mintToken: async () => "fake",
-          surfaceWatchTuning: { mode: "proactive", settleMs: 0 },
-        });
+        );
         expect(warn).toHaveBeenCalled();
 
         await agent.start();
@@ -1340,13 +1395,14 @@ describe("Agent with a neutral mock transport", () => {
   describe("debug telemetry", () => {
     it("records the system-prompt and tools payload sizes at connect", async () => {
       const transport = new MockAgentTransport();
-      const agent = new Agent({
+      const agent = new Agent(
+        {
+          surfaces: () => [],
+          contextInstructions: () => "",
+          instructions: "You are a test agent.",
+        },
         transport,
-        surfaces: () => [],
-        contextInstructions: () => "",
-        systemInstruction: "You are a test agent.",
-        mintToken: async () => "fake",
-      });
+      );
 
       await agent.start();
       flushSync();
@@ -1378,13 +1434,14 @@ describe("Agent with a neutral mock transport", () => {
         }),
       });
       const transport = new MockAgentTransport();
-      const agent = new Agent({
+      const agent = new Agent(
+        {
+          surfaces: () => [],
+          contextInstructions: () => "",
+          instructions: "persona",
+        },
         transport,
-        surfaces: () => [],
-        contextInstructions: () => "",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-      });
+      );
 
       await agent.start();
       flushSync();
@@ -1412,13 +1469,14 @@ describe("Agent with a neutral mock transport", () => {
 
     it("folds the provider's authoritative usage from the transport 'usage' event", async () => {
       const transport = new MockAgentTransport();
-      const agent = new Agent({
+      const agent = new Agent(
+        {
+          surfaces: () => [],
+          contextInstructions: () => "",
+          instructions: "persona",
+        },
         transport,
-        surfaces: () => [],
-        contextInstructions: () => "",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-      });
+      );
 
       await agent.start();
       flushSync();
@@ -1440,14 +1498,15 @@ describe("Agent with a neutral mock transport", () => {
 
     it("records nothing when debug is disabled", async () => {
       const transport = new MockAgentTransport();
-      const agent = new Agent({
+      const agent = new Agent(
+        {
+          surfaces: () => [],
+          contextInstructions: () => "",
+          instructions: "persona",
+          debug: false,
+        },
         transport,
-        surfaces: () => [],
-        contextInstructions: () => "",
-        systemInstruction: "persona",
-        mintToken: async () => "fake",
-        debug: false,
-      });
+      );
 
       await agent.start();
       flushSync();
@@ -1459,5 +1518,170 @@ describe("Agent with a neutral mock transport", () => {
 
       await agent.stop();
     });
+  });
+});
+
+// The same Agent class drives the audio surface — gated purely on the
+// transport's capabilities. These cases were the old VoiceAgent suite.
+class MockAudioTransport extends MockAgentTransport {
+  audioSent: string[] = [];
+
+  override get capabilities(): TransportCapabilities {
+    return {
+      streaming: true,
+      interruptible: true,
+      silentContext: true,
+      historyOwnership: "server",
+      canInitiateTurn: true,
+      input: ["audio", "text"],
+      output: ["audio", "text"],
+    };
+  }
+
+  sendAudioChunk(b64: string) {
+    this.audioSent.push(b64);
+  }
+}
+
+describe("Agent audio surface (capability-gated)", () => {
+  beforeEach(() => {
+    for (const t of toolRegistry.getDeclarations())
+      toolRegistry.unregister(t.name);
+    recorderHolder.last = null;
+    playerHolder.last = null;
+  });
+
+  it("starts no recorder or player on a text-only transport", async () => {
+    const transport = new MockAgentTransport();
+    const agent = new Agent(
+      {
+        instructions: "persona",
+        surfaces: () => [],
+      },
+      transport,
+    );
+
+    await agent.start();
+    flushSync();
+    expect(agent.connected).toBe(true);
+    expect(agent.recording).toBe(false);
+    expect(recorderHolder.last).toBeNull();
+    expect(playerHolder.last).toBeNull();
+
+    await agent.stop();
+  });
+
+  it("drops captured audio while muted, resumes on unmute, and keeps the session open", async () => {
+    const transport = new MockAudioTransport();
+    const agent = new Agent(
+      {
+        instructions: "persona",
+        surfaces: () => [],
+      },
+      transport,
+    );
+
+    await agent.start();
+    flushSync();
+    expect(agent.muted).toBe(false);
+    expect(agent.recording).toBe(true);
+
+    const emitChunk = (b64: string) =>
+      recorderHolder.last!.dispatchEvent(
+        new CustomEvent("data", { detail: b64 }),
+      );
+
+    // Unmuted: audio reaches the transport.
+    emitChunk("live-1");
+    expect(transport.audioSent).toEqual(["live-1"]);
+
+    // Muted: the chunk is dropped, but the session stays connected.
+    agent.toggleMute();
+    flushSync();
+    expect(agent.muted).toBe(true);
+    emitChunk("muted-1");
+    expect(transport.audioSent).toEqual(["live-1"]);
+    expect(agent.connected).toBe(true);
+
+    // Unmuted again: audio flows once more.
+    agent.toggleMute();
+    flushSync();
+    expect(agent.muted).toBe(false);
+    emitChunk("live-2");
+    expect(transport.audioSent).toEqual(["live-1", "live-2"]);
+
+    await agent.stop();
+    expect(agent.recording).toBe(false);
+  });
+
+  it("queues inbound audio for playback and gates a sync flush until turn-complete (barge-in)", async () => {
+    vi.useFakeTimers();
+    try {
+      const state = { dm: {} as Record<string, string> };
+      const transport = new MockAudioTransport();
+      const agent = new Agent(
+        {
+          instructions: "persona",
+          surfaces: () => [
+            {
+              id: "main",
+              type: "static",
+              getJson: () => ({ surfaceId: "main" }),
+              getDataModel: () => ({ ...state.dm }),
+              extensions: ALL_EXTRAS,
+            },
+          ] satisfies AgentSurface[],
+          contextInstructions: () => "ctx",
+          surfaceWatchTuning: { mode: "sync", intervalMs: 100, settleMs: 0 },
+        },
+        transport,
+      );
+
+      await agent.start();
+      flushSync();
+
+      // Inbound audio: queued to the player AND marks the model generating.
+      transport.emit("audio-out", { base64Pcm24k: "AAA" });
+      expect(playerHolder.last!.addToQueue).toHaveBeenCalledWith("AAA");
+
+      // The user edits mid-answer; the poll tick must NOT deliver (would
+      // barge-in-interrupt the spoken answer).
+      state.dm = { name: "Mario" };
+      vi.advanceTimersByTime(500);
+      flushSync();
+      expect(transport.contextUpdates.length).toBe(0);
+
+      // Turn ends → the gate clears and the buffered change flushes.
+      transport.emit("turn-complete", {} as never);
+      flushSync();
+      expect(transport.contextUpdates.length).toBe(1);
+
+      await agent.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("on interruption stops playback and returns to 'thinking'", async () => {
+    const transport = new MockAudioTransport();
+    const agent = new Agent(
+      {
+        instructions: "persona",
+        surfaces: () => [],
+      },
+      transport,
+    );
+
+    await agent.start();
+    flushSync();
+
+    transport.emit("audio-out", { base64Pcm24k: "AAA" });
+    transport.emit("interrupted", {} as never);
+    flushSync();
+
+    expect(playerHolder.last!.stop).toHaveBeenCalled();
+    expect(agent.status).toBe("thinking");
+
+    await agent.stop();
   });
 });

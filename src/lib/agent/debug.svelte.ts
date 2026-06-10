@@ -11,7 +11,7 @@ import type { AgentUsage } from './transport';
  * thousand tokens and trip a provider `RESOURCE_EXHAUSTED` quota error, with no
  * built-in signal as to why.
  *
- * `VoiceDebugStats` makes that visible. It tracks two things:
+ * `AgentDebugStats` makes that visible. It tracks two things:
  *
  *  1. **Exact outbound byte sizes**, per category — the system prompt, tool
  *     declarations, silent context updates, tool results, text turns, and audio.
@@ -22,7 +22,7 @@ import type { AgentUsage } from './transport';
  *     `'usage'` event — the real number the quota is measured against.
  *
  * The class is reactive (`$state`), so a host can bind a debug box straight to
- * an instance — see `<VoiceShell debug>`. Measurement is cheap (string length +
+ * an instance — see `<AgentShell debug>`. Measurement is cheap (string length +
  * a capped event ring), so the agent keeps one always-on and exposes it as
  * `agent.debug`; rendering it is opt-in. The `audio-*` categories simply stay
  * empty on a text transport.
@@ -84,7 +84,7 @@ function emptyStat(): DebugPayloadStat {
 	return { count: 0, bytes: 0, lastBytes: 0, estTokens: 0 };
 }
 
-export interface VoiceDebugStatsOptions {
+export interface AgentDebugStatsOptions {
 	/**
 	 * Average characters per token used for the rough byte→token estimate.
 	 * Default 4 (the common English-prose heuristic). The serialized surface
@@ -98,7 +98,7 @@ export interface VoiceDebugStatsOptions {
 	maxEvents?: number;
 }
 
-export class VoiceDebugStats {
+export class AgentDebugStats {
 	/** Outbound payload sizes, keyed by category. Reactive. */
 	outbound = $state<Record<DebugOutboundKind, DebugPayloadStat>>({
 		'system-prompt': emptyStat(),
@@ -159,7 +159,7 @@ export class VoiceDebugStats {
 	#charsPerToken: number;
 	#maxEvents: number;
 
-	constructor(opts: VoiceDebugStatsOptions = {}) {
+	constructor(opts: AgentDebugStatsOptions = {}) {
 		this.#charsPerToken = opts.charsPerToken ?? 4;
 		this.#maxEvents = opts.maxEvents ?? 50;
 	}
@@ -238,13 +238,6 @@ export class VoiceDebugStats {
 		this.events = next;
 	}
 }
-
-/**
- * Transport-neutral alias for {@link VoiceDebugStats}. The implementation is
- * channel-agnostic (the `audio-*` categories simply stay empty on a text
- * transport); the `Voice`-prefixed name is retained for back-compat.
- */
-export { VoiceDebugStats as AgentDebugStats };
 
 function safeStringify(v: unknown): string {
 	try {

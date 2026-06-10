@@ -1,6 +1,6 @@
 /**
  * Pure-function decomposition of the system prompt assembled by the neutral
- * `Agent` (and its `VoiceAgent` subclass). Each block takes typed inputs and
+ * `Agent`. Each block takes typed inputs and
  * returns a string (or empty string when the input is empty). The full prompt
  * is the concatenation of all non-empty blocks separated by a blank line.
  *

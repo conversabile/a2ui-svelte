@@ -42,7 +42,7 @@ Per-surface `ExtensionOptions` — set on each `<StaticSurface>` /
 
 | Flag                | Default | What it changes vs. spec-strict                                                                                                                                                                                       |
 |---------------------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `surfaceWatch`      | `true`  | The `VoiceAgent` keeps the agent aware of user-driven changes to this surface. Delivery is governed by `surfaceWatchTuning.mode`: a silent, idle-timed A2UI v0.9 data-model delta (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`) — payload wrapped in `extensions['a2ui-svelte']` either way. Off → the agent is never told this surface changed. See the [voice-integration guide](voice-integration.md#surface-change-delivery-surfacewatchtuning). |
+| `surfaceWatch`      | `true`  | The `Agent` keeps the model aware of user-driven changes to this surface. Delivery is governed by `surfaceWatchTuning.mode`: a silent, idle-timed A2UI v0.9 data-model delta (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`) — payload wrapped in `extensions['a2ui-svelte']` either way. Off → the agent is never told this surface changed. See the [agent-integration guide](agent-integration.md#surface-change-delivery-surfacewatchtuning). |
 | `batchTools`        | `true`  | The surface registers batched siblings `click_buttons({clicks})` and `update_text_fields({updates})` alongside the spec-canonical singulars. Off → only the singulars.                                                  |
 | `toolResultExtras`  | `true`  | Tool results carry `updatedSurface`, `updatedContext`, `availableElementIds` under `extensions['a2ui-svelte']`. Off → results are exactly `{ results: [...] }`.                                                          |
 | `pointerTool`       | `true`  | The surface registers `point_to_elements({element_ids})` — a non-spec generic tool that makes components glow and scrolls them into view so the agent can *point at* on-screen data without changing it. Off → the tool is not offered (components still glow as a side effect of the agent editing them). See [On-demand pointing](#on-demand-pointing-point_to_elements). |
@@ -110,7 +110,7 @@ turn (`<event>USER_ACTION</event>...`). This is still the only way to
 push events into Gemini Live (no native event channel).
 
 v0.8 transports — A2A `DataPart` carriers — implement
-`VoiceTransport.sendUserAction?(action)` directly. `VoiceAgent` prefers
+`AgentTransport.sendUserAction?(action)` directly. The `Agent` prefers
 the typed call when implemented, falls back to the wrapped text turn
 otherwise. The emitted `UserAction` is always spec-canonical, including
 `context: {}` when the source component declared none.
@@ -142,5 +142,5 @@ metadata (built with `getClientDataModel`) when a surface enabled
 `sendDataModel`. Pair them with `<A2ASurface>` from
 `a2ui-svelte/renderer` to integrate over the network.
 
-See [voice-integration.md § A2A](voice-integration.md) for the full
+See [agent-integration.md § A2A](agent-integration.md) for the full
 contract.

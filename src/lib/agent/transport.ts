@@ -44,7 +44,16 @@ export interface TransportCapabilities {
  * client-side (a text request/response API such as Claude).
  *
  * Implementations adapt a specific SDK to the same event shape, so the
- * orchestrator works unchanged across providers and modalities.
+ * orchestrator works unchanged across providers and modalities. Audio is part
+ * of the same contract: a transport that advertises `'audio'` in
+ * `capabilities.input`/`output` implements `sendAudioChunk` and emits
+ * `audio-out`; the `Agent` then runs the mic recorder and speaker player for
+ * it. A text-only transport simply omits them.
+ *
+ * **Auth belongs to the transport, not the agent.** Each implementation takes
+ * its credential (API key, ephemeral-token minter, proxy URL…) in its own
+ * constructor and resolves it inside `connect()` — the `Agent` never sees a
+ * token.
  *
  * Lifetime: caller calls `connect()` once; the transport emits events until
  * `close()` is called or `'close'`/`'error'` fires.
@@ -104,6 +113,14 @@ export interface AgentTransport {
 	 */
 	sendUserAction?(action: UserAction): void;
 
+	/**
+	 * Stream a chunk of microphone audio to the model: 16-bit little-endian PCM
+	 * @ 16 kHz, base64-encoded. Required when `capabilities.input` includes
+	 * `'audio'`; text-only transports omit it. The `Agent` owns the recorder and
+	 * calls this for every captured chunk while the session is open and unmuted.
+	 */
+	sendAudioChunk?(base64Pcm16k: string): void;
+
 	/** Subscribe to a transport event. Returns an unsubscribe function. */
 	on<E extends keyof AgentTransportEventMap>(
 		event: E,
@@ -115,9 +132,6 @@ export interface AgentTransport {
 }
 
 export interface AgentTransportConnectOptions {
-	/** Auth token / API key supplied by the host. */
-	token: string;
-
 	/** Full system prompt (assembled by the `Agent` + prompt-builder). */
 	systemInstruction: string;
 
@@ -134,9 +148,6 @@ export interface AgentTransportConnectOptions {
 	 * the agent embeds history in the prompt instead (see `historyBlock`).
 	 */
 	history?: Array<{ role: 'user' | 'model'; text: string }>;
-
-	/** Provider-specific extra options. Discouraged outside the adapter. */
-	providerOptions?: Record<string, unknown>;
 }
 
 export interface AgentTransportEventMap {
@@ -159,6 +170,20 @@ export interface AgentTransportEventMap {
 
 	/** Model finished its turn — flush the transcript buffer and clear "thinking" status. */
 	'turn-complete': Record<string, never>;
+
+	/**
+	 * Model-produced audio chunk (base64 PCM 16-bit @ 24 kHz). Only emitted by
+	 * transports whose `capabilities.output` includes `'audio'`; the `Agent`
+	 * queues it to the speaker player.
+	 */
+	'audio-out': { base64Pcm24k: string };
+
+	/**
+	 * The model's turn was cut off (the user spoke over it — barge-in). Only
+	 * emitted by transports advertising `capabilities.interruptible`; the `Agent`
+	 * stops playback and re-opens the response window.
+	 */
+	'interrupted': Record<string, never>;
 
 	/** Recoverable error from the transport. */
 	'error': { message: string; cause?: unknown };

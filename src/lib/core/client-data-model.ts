@@ -14,7 +14,7 @@
  * (no deltas). The voice transport can't use metadata (a live audio API has no
  * such side-channel and attaching at speech time interrupts the answer), so it
  * synchronises the same `{ fieldId → value }` unit via in-band deltas instead —
- * see `VoiceAgent`'s `'sync'` mode and the surface-data-model-sync plan.
+ * see the `Agent`'s `'sync'` mode and the surface-data-model-sync plan.
  *
  * @see ~/lavoro/A2UI/specification/v0_9/json/client_data_model.json
  * @see ~/lavoro/A2UI/specification/v0_9/docs/a2ui_protocol.md

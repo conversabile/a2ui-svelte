@@ -7,7 +7,7 @@
 
 	/* A2UI tokens are the catalog's own knobs. They inherit the Pico accent
 	   below by default, but are set explicitly here to document the override
-	   points — and so the catalog buttons + VoiceShell accent (mic, bubbles,
+	   points — and so the catalog buttons + AgentShell accent (mic, bubbles,
 	   glow) can diverge from Pico if you want. */
 	/* --a2ui-button-primary-bg: #b928d9; <- add if you want to style a2ui buttons differently */
 	--a2ui-button-primary-fg: #ffffff;

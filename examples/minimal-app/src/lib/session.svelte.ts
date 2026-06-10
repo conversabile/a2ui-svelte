@@ -1,7 +1,7 @@
 /**
  * Tiny session store. The library doesn't dictate the store shape —
  * this is the minimal version that satisfies the `surfaces()` /
- * `contextInstructions()` callbacks the layout passes to VoiceAgent.
+ * `contextInstructions()` callbacks the layout wires into the agent definition.
  */
 export interface SurfaceEntry {
 	id: string;

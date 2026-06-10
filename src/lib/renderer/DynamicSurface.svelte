@@ -86,7 +86,7 @@
 	export const getJson = () => serializeSurface(surfaceId);
 	/**
 	 * The surface's `{ fieldId → value }` data model — the agent's rendered
-	 * data values, as the `VoiceAgent` syncs them in `'sync'` mode (A2UI v0.9).
+	 * data values, as the `Agent` syncs them in `'sync'` mode (A2UI v0.9).
 	 * Sourced from the surface's live `data` object (the same map `getJson()`
 	 * embeds under `data`).
 	 */
@@ -95,7 +95,7 @@
 	});
 	/**
 	 * Resolved per-surface extension flags. Hosts publish this surface handle
-	 * to a `VoiceAgent`, which reads it to decide which non-spec behaviours
+	 * to an `Agent`, which reads it to decide which non-spec behaviours
 	 * apply — notably `surfaceWatch` polling, which keeps the agent's view of
 	 * a path-bound field in sync with what the user typed.
 	 */

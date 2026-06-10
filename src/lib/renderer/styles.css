@@ -31,12 +31,27 @@
 
 	--a2ui-glow-color: var(--pico-primary-focus, rgba(16, 149, 193, 0.4));
 
-	/* Voice shell accent — the "active" colour of <VoiceShell> (mic button, chat
+	/* Base surface of the agent/voice shells (control bar, and the translucent
+	   peek panel mixes from it). Pico only defines --pico-card-background-color
+	   under [data-theme], so a theme-less app would leave the shell background
+	   unset — and the peek's color-mix would collapse to an invalid value and be
+	   dropped. The plain #fff fallback keeps both solid/visible regardless. */
+	--a2ui-shell-bg: var(--pico-card-background-color, #fff);
+
+	/* Agent shell accent — the "active" colour of <AgentShell> (mic button, chat
 	   bubbles, status, glow). Defaults to the primary button colour so a single
 	   `--a2ui-button-primary-bg` override themes buttons *and* the shell together;
 	   set these to colour the shell independently. */
 	--a2ui-shell-accent-bg: var(--a2ui-button-primary-bg);
 	--a2ui-shell-accent-fg: var(--a2ui-button-primary-fg);
+
+	/* Shell "model" reply bubble. Defaults to the muted secondary surface — but
+	   via the fallback-protected --a2ui-button-secondary-* tokens, not raw Pico
+	   vars: Pico only defines --pico-secondary-* under [data-theme], so an app
+	   that sets no theme would otherwise leave the reply text unset and render it
+	   dark-on-dark. The fallbacks (#5d6b89 / #fff) keep it readable regardless. */
+	--a2ui-shell-bubble-bg: var(--a2ui-button-secondary-bg);
+	--a2ui-shell-bubble-fg: var(--a2ui-button-secondary-fg);
 }
 
 /* Honour the input tokens on native form controls inside a surface. Pico styles

@@ -1,12 +1,13 @@
-# Voice integration
+# Agent integration
 
-This guide covers wiring a voice agent to A2UI surfaces. It walks
-through the `VoiceTransport` interface, the `VoiceAgent` orchestrator,
-the `<VoiceShell>` UI, and the `SurfaceFeedback` context that bridges
-your app's session store to the library's tool result reporting.
+This guide covers wiring an AI agent to A2UI surfaces. It walks through
+the `AgentDefinition`, the `AgentTransport` interface (and the two
+built-in Gemini transports), the `Agent` orchestrator, the
+`<AgentShell>` UI, and the `SurfaceFeedback` context that bridges your
+app's session store to the library's tool result reporting.
 
 The same content in skill form is at
-[`integrate-voice-agent`](../../src/lib/skills/integrate-voice-agent.md);
+[`integrate-agent`](../../src/lib/skills/integrate-agent.md);
 this is the long-form prose version.
 
 ## The pieces
@@ -20,35 +21,48 @@ your app                    a2ui-svelte
    │
    └─ +layout.svelte
          │
-         ├─ GeminiTransport (or your VoiceTransport impl)
-         ├─ VoiceAgent ──────► owns the audio loop, prompt assembly,
-         │                     tool dispatch, surface watch
-         └─ <VoiceShell {agent} />
+         ├─ AgentDefinition ──► what the agent IS (instructions, surfaces,
+         │                      context) — model- and channel-independent
+         ├─ a transport ──────► GeminiLiveTransport (streaming voice),
+         │                      GeminiTextTransport (request/response),
+         │                      ScriptedTransport (tests), or your own
+         ├─ Agent(def, transport) ► prompt assembly, tool dispatch, surface
+         │                      watch, transcript — plus mic/speaker when the
+         │                      transport's capabilities include audio
+         └─ <AgentShell {agent} />
               ▲
-              └── default UI; replaceable via snippet slots or headless mode
+              └── the one default UI; grows a mic on audio transports;
+                  replaceable via snippet slots or headless mode
 ```
 
 The library does not own:
 
-- Your token endpoint (`/api/voice-token`).
+- Your token endpoint / key proxy (auth is handed to the transport).
 - Your session store shape (you choose what to push into it).
 - Your page layout / styling around the shell.
 
 It owns the audio plumbing, the prompt builder, the surface-watch
-heartbeat, the tool-call dispatcher, and the default mic/transcript UI.
+heartbeat, the tool-call dispatcher, and the default shell UI.
 
-## The `VoiceTransport` interface
+## The `AgentTransport` interface
 
 Provider-specific. The interface is small enough that you can write a
 new transport in an afternoon:
 
 ```ts
-import type { VoiceTransport, VoiceTransportEventMap } from 'a2ui-svelte/voice';
+import type {
+  AgentTransport,
+  AgentTransportEventMap,
+  TransportCapabilities
+} from 'a2ui-svelte/agent';
 import type { UserAction } from 'a2ui-svelte/core';
 
-interface VoiceTransport {
-  connect(opts: VoiceTransportConnectOptions): Promise<void>;
-  sendAudioChunk(base64Pcm16k: string): void;
+interface AgentTransport {
+  /** What this transport can do — the agent and the shell adapt to THIS,
+   *  never to the transport's identity. */
+  readonly capabilities: TransportCapabilities;
+
+  connect(opts: AgentTransportConnectOptions): Promise<void>;
   sendText(text: string): void;
   /**
    * Optional. Append text to the model's context WITHOUT triggering a
@@ -69,13 +83,27 @@ interface VoiceTransport {
    * `DataPart` with `mimeType: "application/json+a2ui"`) implement it.
    */
   sendUserAction?(action: UserAction): void;
+  /**
+   * Optional. Stream a mic chunk (16-bit LE PCM @16 kHz, base64). Required
+   * exactly when `capabilities.input` includes 'audio' — the agent then runs
+   * the mic recorder and calls this for every captured chunk.
+   */
+  sendAudioChunk?(base64Pcm16k: string): void;
   close(): void;
-  on<K extends keyof VoiceTransportEventMap>(
+  on<K extends keyof AgentTransportEventMap>(
     event: K,
-    cb: (payload: VoiceTransportEventMap[K]) => void
+    cb: (payload: AgentTransportEventMap[K]) => void
   ): () => void;
 }
 ```
+
+**Auth belongs to the transport, not the agent.** Each implementation
+takes its credential in its own constructor and resolves it inside
+`connect()` — `GeminiLiveTransport({ token })` (a string or a function
+minting a fresh ephemeral token per connect), `GeminiTextTransport({
+apiKey })` or `({ baseUrl })` for a key-hiding proxy. The connect options
+the agent assembles carry only `systemInstruction`, `tools`, and
+(for client-history transports) `history`.
 
 The `UserAction` is always emitted in the spec-canonical shape:
 
@@ -95,31 +123,47 @@ Events:
 | Event             | Payload                                                       |
 |-------------------|---------------------------------------------------------------|
 | `tool-call`       | `{ calls: Array<{ id, name, args }> }`                        |
-| `audio-out`       | `{ base64Pcm24k: string }`                                    |
-| `text-in`         | `{ text: string }`  (user → agent; ASR transcript)           |
-| `text-out`        | `{ text: string }`  (agent → user; TTS transcript)           |
-| `interrupted`     | `{}`                                                          |
+| `text-in`         | `{ text: string }`  (user → agent; ASR transcript on voice)  |
+| `text-out`        | `{ text: string }`  (agent → user; TTS transcript on voice)  |
 | `turn-complete`   | `{}`                                                          |
+| `audio-out`       | `{ base64Pcm24k: string }` — audio-output transports only     |
+| `interrupted`     | `{}` — interruptible (barge-in) transports only               |
+| `usage`           | `AgentUsage` — provider token counts, when reported           |
 | `error`           | `{ message, cause? }`                                         |
 | `close`           | `{ reason: string }`                                          |
 
-`text-in`/`text-out` were previously named `transcript-in`/`transcript-out`;
-those names remain available as deprecated aliases (voice transports dual-emit
-both). A `VoiceTransport` also exposes a `capabilities` descriptor
-(`a2ui-svelte/agent`) the agent reads to gate channel-specific behaviour.
+### `TransportCapabilities`
 
-The Gemini implementation lives at `voice/gemini/transport.ts` — a
-useful reference if you're writing a new one.
+The descriptor that makes one `Agent` and one `<AgentShell>` serve every
+channel:
 
-## Token mint
+| Field              | Meaning                                                                  |
+|--------------------|--------------------------------------------------------------------------|
+| `streaming`        | Persistent bidi session (live socket) vs request/response                 |
+| `interruptible`    | Barge-in is real → the agent gates surface-sync off mid-answer            |
+| `silentContext`    | Has a real `sendContextUpdate` channel                                    |
+| `historyOwnership` | `'server'` (live session holds it; agent embeds prior turns in the prompt) or `'client'` (transport owns `messages[]`; agent seeds them via connect `history`) |
+| `canInitiateTurn`  | Transport can start a model turn on its own (needed by `'proactive'` watch mode) |
+| `input` / `output` | Modalities: `['audio', 'text']` lights up the mic/speaker in the agent and the mic cluster in the shell |
 
-Voice transports authenticate with short-lived ephemeral tokens, not
+A future "voice over a text model" is just a transport decorator: wrap a
+text transport with STT/TTS, advertise `'audio'`, and the same agent and
+shell light up the mic — no new classes.
+
+The built-in implementations live at
+`src/lib/agent/gemini/live-transport.ts` (streaming audio, server-side
+tool loop) and `src/lib/agent/gemini/text-transport.ts` (request/response,
+client-side tool loop) — useful references if you're writing a new one.
+
+## Token mint (Gemini Live)
+
+The Live transport authenticates with short-lived ephemeral tokens, not
 your raw API key. Mint them server-side:
 
 ```ts
 // src/routes/api/voice-token/+server.ts
 import { json, error } from '@sveltejs/kit';
-import { mintGeminiToken } from 'a2ui-svelte/voice/gemini';
+import { mintGeminiToken } from 'a2ui-svelte/agent/gemini';
 import { GEMINI_API_KEY } from '$env/static/private';
 
 export async function POST() {
@@ -129,30 +173,45 @@ export async function POST() {
 }
 ```
 
-The token is consumed once per `agent.start()`. If your provider
-rotates keys, mint fresh on every connect.
+Hand the minting function to the transport; it is called once per
+`connect()`, so every session gets a fresh single-use token.
 
-## `VoiceAgent` construction
+For `GeminiTextTransport`, keep the key server-side with a same-origin
+proxy instead: construct it with `{ baseUrl: '/api/gemini' }` and have
+that route inject the real `x-goog-api-key` (see
+`examples/minimal-app/src/routes/api/gemini/[...path]/+server.ts`).
+
+## `Agent` construction
+
+An agent is a **definition** connected to a **transport**:
 
 ```ts
-import { VoiceAgent } from 'a2ui-svelte/voice';
-import { GeminiTransport } from 'a2ui-svelte/voice/gemini';
+import { Agent, type AgentDefinition } from 'a2ui-svelte/agent';
+import { GeminiLiveTransport, GeminiTextTransport } from 'a2ui-svelte/agent/gemini';
 import { session } from '$lib/session.svelte';
 
-const transport = new GeminiTransport({ model: 'gemini-3.1-flash-live-preview' });
-
-const agent = new VoiceAgent({
-  transport,
+// What the agent IS — declare once, valid for every transport.
+const assistant: AgentDefinition = {
+  instructions:        'You are a helpful assistant.',
   surfaces:            () => session.surfaces,
   contextInstructions: () => session.contextInstructions,
-  systemInstruction:   'You are a helpful assistant.',
-  mode:                'static',
-  mintToken: async () => {
-    const r = await fetch('/api/voice-token', { method: 'POST' });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Token mint failed');
-    return (await r.json()).token;
-  }
-});
+  mode:                'static'
+};
+
+// Streaming voice…
+const agent = new Agent(
+  assistant,
+  new GeminiLiveTransport({
+    token: async () => {
+      const r = await fetch('/api/voice-token', { method: 'POST' });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Token mint failed');
+      return (await r.json()).token;
+    }
+  })
+);
+
+// …or request/response text. Same definition, same shell, no other change.
+const textAgent = new Agent(assistant, new GeminiTextTransport({ baseUrl: '/api/gemini' }));
 ```
 
 ### `mode`
@@ -171,29 +230,34 @@ and confuses the agent with unused tools.
 
 ### Reactive state
 
-`VoiceAgent` exposes Svelte 5 `$state` fields you can bind anywhere:
+`Agent` exposes Svelte 5 `$state` fields you can bind anywhere:
 
 | Field            | Type                                                  |
 |------------------|-------------------------------------------------------|
 | `connected`      | `boolean`                                             |
-| `recording`      | `boolean`                                             |
+| `recording`      | `boolean` — mic capturing (audio transports only)     |
 | `muted`          | `boolean` — mic muted while the session stays open    |
 | `status`         | `'idle' | 'thinking' | 'error'`                       |
 | `transcript`     | `Array<{ role: 'user' | 'model', text: string }>`     |
 | `hasStarted`     | `boolean`                                             |
-| `configIssue`    | `string | null` — surfaces token-mint failures        |
-| `debug`          | `VoiceDebugStats` — live token/byte telemetry (below) |
+| `configIssue`    | `string | null` — surfaces connect/auth failures      |
+| `debug`          | `AgentDebugStats` — live token/byte telemetry (below) |
+
+Plus the read-only `capabilities` getter — what the shell uses to decide
+whether to render the mic.
 
 ### Methods
 
-- `start()` — connect transport, start mic.
+- `start()` — connect the transport; on audio transports, also start the mic.
 - `stop()` — tear everything down.
 - `toggle()` — flip start/stop.
 - `toggleMute()` — mute/unmute the mic **without** closing the session. While
   muted, captured audio is dropped instead of sent, so the model hears silence
   while playback and surface-sync keep running — for noisy environments where
   trailing background noise would otherwise barge-in and cut the agent off.
-- `sendTextMessage(text)` — type into the transcript without speaking.
+  Inert on transports without audio input.
+- `sendTextMessage(text)` — send a typed turn (works on every transport;
+  voice live-APIs accept text turns too).
 - `reset()` — clear transcript, stop session, ready for a fresh start.
 
 ## Debugging token usage
@@ -217,7 +281,7 @@ and it has two amplifiers:
 So even a *single* 20-field batch update on a large grid can push one turn well
 past a hundred thousand tokens. `agent.debug` makes that visible.
 
-### `agent.debug` (`VoiceDebugStats`)
+### `agent.debug` (`AgentDebugStats`)
 
 Always present, reactive, and cheap. It tracks two things:
 
@@ -225,7 +289,8 @@ Always present, reactive, and cheap. It tracks two things:
   agent sends them, so the bloat shows up *before* the provider responds:
   `system-prompt`, `tools`, `tool-result`, `context-update`, `text`,
   `user-action`, `audio-out`. Each is a `{ count, bytes, lastBytes, estTokens }`.
-- **Authoritative provider usage** — Gemini Live's `usageMetadata`, folded in via
+  (The `audio-*` categories simply stay empty on a text transport.)
+- **Authoritative provider usage** — Gemini's `usageMetadata`, folded in via
   the transport's `'usage'` event: `usage.last`, `usage.peakTotal` (the running
   session total — the figure the quota is measured against), `usage.reports`.
 
@@ -242,19 +307,19 @@ agent.debug.events                                 // rolling log for a feed
 > The byte→token figure is a rough estimate (`charsPerToken`, default 4). The
 > id-heavy surface JSON tokenizes *above* that, so treat it as a floor; where
 > `usage` is present it supersedes the estimate. Construct your own
-> `new VoiceDebugStats({ charsPerToken })` and pass it as the agent's `debug`
-> option to tune it.
+> `new AgentDebugStats({ charsPerToken })` and pass it as the definition's
+> `debug` option to tune it.
 
 ### The debug box
 
-Pass `debug` to `<VoiceShell>` to wire up the batteries-included panel bound to
+Pass `debug` to `<AgentShell>` to wire up the batteries-included panel bound to
 `agent.debug`. It adds a chart-icon button to the controls that toggles a stats
 box above the bar — collapsed by default so it never blocks the UI, dismissable
 from the button or the box's own `×`. "Hot" metrics (a system prompt or
 tool-result echo large enough to be the culprit) are highlighted:
 
 ```svelte
-<VoiceShell {agent} debug />
+<AgentShell {agent} debug />
 ```
 
 That box is the recommended default — most sessions want to watch the same
@@ -264,22 +329,22 @@ drives it) with the `formatBytes` / `formatTokens` helpers:
 
 ```svelte
 <script lang="ts">
-  import { formatBytes, formatTokens } from 'a2ui-svelte/voice';
+  import { formatBytes, formatTokens } from 'a2ui-svelte/agent';
 </script>
 
-<VoiceShell {agent}>
+<AgentShell {agent}>
   {#snippet debug({ debug })}
     System prompt: {formatBytes(debug.outbound['system-prompt'].lastBytes)}
     (~{formatTokens(debug.outbound['system-prompt'].estTokens)} tok) ·
     Tool echoes: {formatBytes(debug.outbound['tool-result'].bytes)}
   {/snippet}
-</VoiceShell>
+</AgentShell>
 ```
 
 A custom `controls` snippet receives `toggleDebug` / `isDebugOpen` too, so you
 can render the debug toggle wherever your own controls live.
 
-To turn measurement off entirely, pass `debug={false}` to `VoiceAgent` (the
+To turn measurement off entirely, pass `debug: false` in the definition (the
 `agent.debug` instance still exists, it just stays empty).
 
 > **Mitigations** the numbers point to: serialize the surface compactly for the
@@ -288,45 +353,54 @@ To turn measurement off entirely, pass `debug={false}` to `VoiceAgent` (the
 > results stop echoing the whole surface and rely on `surfaceWatch` deltas
 > instead.
 
-## `<VoiceShell>` mounting
+## `<AgentShell>` mounting
 
 ```svelte
 <!-- src/routes/+layout.svelte -->
 <script lang="ts">
   import { onDestroy, setContext } from 'svelte';
-  import { VoiceShell } from 'a2ui-svelte/voice';
+  import { AgentShell } from 'a2ui-svelte/agent';
   import { SURFACE_FEEDBACK_KEY, type SurfaceFeedback } from 'a2ui-svelte/renderer';
   import 'a2ui-svelte/renderer/styles.css';
-  // ...transport + agent...
+  // ...definition + transport + agent...
 
   onDestroy(() => agent.stop());
 </script>
 
 <slot />
-<VoiceShell {agent} />
+<AgentShell {agent} />
 ```
+
+One shell for every transport: a chat bar (text input + send), a compact
+"peek" of the latest exchange, an expandable transcript panel, status
+badge, reset and debug controls. When `agent.capabilities.input`
+includes `'audio'`, a mic button (session toggle) and a mute button join
+the bar — same shell, one extra cluster. Typing lazy-starts the session
+on any transport; on audio transports the mic button is the explicit
+session control.
 
 ### Snippet slots
 
-`<VoiceShell>` accepts replacement snippets for its sub-pieces. You
+`<AgentShell>` accepts replacement snippets for its sub-pieces. You
 can opt out of any of them while keeping the rest:
 
 | Snippet      | Receives                                                                |
 |--------------|-------------------------------------------------------------------------|
-| `mic`        | `{ connected, status, toggle, muted, toggleMute }`                      |
-| `transcript` | `{ entries, sendText }`                                                 |
+| `messages`   | `{ entries, sendText }`                                                 |
+| `input`      | `{ sendText, connected, status }`                                       |
+| `mic`        | `{ connected, status, toggle, muted, toggleMute }` — only rendered on audio-input transports |
 | `status`     | `{ status }`                                                            |
 | `controls`   | `{ resetConversation, toggleChat, isChatOpen, toggleDebug, isDebugOpen }` |
 | `debug`      | `{ debug }` — see [Debugging token usage](#debugging-token-usage)       |
 
 Or skip the UI entirely with `headless={true}` and render your own
 bound to the agent's `$state` fields. `debug` doubles as a boolean prop:
-`<VoiceShell {agent} debug />` adds a toggle button that reveals the built-in
+`<AgentShell {agent} debug />` adds a toggle button that reveals the built-in
 token panel.
 
 ## `SurfaceFeedback` context
 
-When the agent calls a tool, `VoiceAgent` runs the action handler and
+When the agent calls a tool, the `Agent` runs the action handler and
 sends `{ status: 'success' }` back as the result. But often the agent
 wants to *see* the surface after the action ran — for instance, to
 confirm a navigation actually happened.
@@ -361,18 +435,18 @@ single per-surface flag in `ExtensionOptions` and emits its data
 under the `extensions: { 'a2ui-svelte': ... }` envelope, so a
 spec-compliant 3P consumer just drops what it doesn't recognise.
 
-**Extensions are properties of surfaces, not of `VoiceAgent`.** Each
-`<StaticSurface>` resolves its own flag record. The `VoiceAgent` reads
+**Extensions are properties of surfaces, not of the `Agent`.** Each
+`<StaticSurface>` resolves its own flag record. The `Agent` reads
 `surface.extensions` from each handle it sees and decides what to do
 on a per-surface basis — it never carries a top-level extension
 toggle of its own. (Cadence knobs like polling interval are exposed
-separately on `VoiceAgent`; they're not feature flags.)
+separately in the agent definition; they're not feature flags.)
 
 ### The three flags
 
 | Flag                | Default | What it does                                                                                                                                                                                                                            |
 |---------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `surfaceWatch`      | `true`  | The `VoiceAgent` keeps the agent aware of user-driven changes to this surface. *How* the change is delivered is governed by `surfaceWatchTuning.mode` — a silent, idle-timed data-model sync (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`). See "Surface-change delivery" below. The payload is wrapped under `extensions['a2ui-svelte']`. |
+| `surfaceWatch`      | `true`  | The `Agent` keeps the model aware of user-driven changes to this surface. *How* the change is delivered is governed by `surfaceWatchTuning.mode` — a silent, idle-timed data-model sync (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`). See "Surface-change delivery" below. The payload is wrapped under `extensions['a2ui-svelte']`. |
 | `batchTools`        | `true`  | The surface registers batched variants `click_buttons({clicks: […]})` and `update_text_fields({updates: […]})` alongside the spec-canonical single-element `click_button` / `update_text_field`. The agent prompt is taught to prefer batching when many ops fall together. |
 | `toolResultExtras`  | `true`  | The result of every click / update call carries a post-action snapshot (`updatedSurface`, `updatedContext`, `availableElementIds`) under `extensions['a2ui-svelte']`. With this off, results are just `{ results: [...] }` and a spec-strict client gets exactly what the spec promises. |
 
@@ -400,9 +474,8 @@ import { ALL_EXTRAS, STRICT, A2UI_EXTENSIONS_CONTEXT_KEY } from 'a2ui-svelte/cor
 
 ### Common setups
 
-**Default.** Do nothing — `ALL_EXTRAS` is the
-default; the layout-level `VoiceAgent({...})` call carries no
-extension flags.
+**Default.** Do nothing — `ALL_EXTRAS` is the default; the layout-level
+agent definition carries no extension flags.
 
 **Spec-strict host-wide:**
 
@@ -429,11 +502,11 @@ unless it overrides via its own `options` prop.
 When the user changes a watched surface (types into a field, navigates,
 edits through the HTML UI), the agent needs to learn about it. *Whether* a
 surface is watched is the per-surface `surfaceWatch` flag; *how* the change
-reaches the agent is a behaviour/cadence knob, so it lives on `VoiceAgent`,
-not in `ExtensionOptions`:
+reaches the agent is a behaviour/cadence knob, so it lives in the agent
+definition, not in `ExtensionOptions`:
 
 ```ts
-const agent = new VoiceAgent({
+const assistant: AgentDefinition = {
   // ...,
   surfaceWatchTuning: {
     mode: 'sync',        // 'sync' (default) | 'proactive'
@@ -441,7 +514,7 @@ const agent = new VoiceAgent({
     settleMs: 400,       // debounce window — coalesce mid-typing values
     cooldownMs: 5000     // proactive only — suppress echo of agent's own writes
   }
-});
+};
 ```
 
 **`mode: 'sync'` (default) — A2UI v0.9 data-model synchronization.**
@@ -454,12 +527,18 @@ bytes, not the whole tree). Delivery happens **only in idle windows** — a
 debounced settle tick, `turn-complete`, or right before a typed
 message / button action — through the transport's `sendContextUpdate`
 channel (`turnComplete: false`, so it adds to context without provoking a
-response). It is **never** sent while the model is generating, so it can't
-barge-in-interrupt the answer. Edits made while the agent is speaking are
-buffered and coalesced (latest value per field wins), then flushed the
-instant the model goes idle. The effect: if the user types "John" into a
-field and then asks "what's in the box?", the model already sees "John" when
-it answers — but it never comments on the typing on its own.
+response). On an interruptible (live) transport it is **never** sent while
+the model is generating, so it can't barge-in-interrupt the answer. Edits
+made while the agent is speaking are buffered and coalesced (latest value
+per field wins), then flushed the instant the model goes idle. The effect:
+if the user types "John" into a field and then asks "what's in the box?",
+the model already sees "John" when it answers — but it never comments on
+the typing on its own.
+
+On a non-streaming (request/response) transport there is no live session to
+push into between turns, so no poll timer runs at all — the same data-model
+state is flushed right before each typed message / button action instead,
+which gives the model the current UI before it answers.
 
 Structural changes (navigation, a component appearing/disappearing) fall
 back to a full `<event>SURFACE_UPDATED</event>` re-sync (`kind:
@@ -490,7 +569,9 @@ A timer (`intervalMs`) diffs the surface and pushes a turn-triggering
 change *settles*. `settleMs` debounces in-flight edits. `cooldownMs`
 suppresses re-reporting the agent's own tool-call writes. Surface-id changes
 (navigation) bypass both windows. Useful for a chattier assistant that
-narrates UI activity — but note it *can* interrupt, since it triggers a turn.
+narrates UI activity — but note it *can* interrupt, since it triggers a
+turn. Requires `capabilities.canInitiateTurn`; on transports that can't
+start their own turn it falls back to `'sync'` with a console warning.
 
 **`mode: 'piggyback'`** is a deprecated alias for `'sync'` (the old
 implementation flushed the full tree on the user's first transcript chunk,
@@ -500,57 +581,40 @@ name still works; it resolves to `'sync'`.
 Whether any mode does anything is still decided per-surface: a surface with
 `surfaceWatch: false` is never watched.
 
-## Testing with `MockTransport`
+## Testing
 
-For unit tests, write a stub transport that emits synthetic events.
-The shape:
-
-```ts
-class MockTransport implements VoiceTransport {
-  #listeners: Partial<{ [K in keyof VoiceTransportEventMap]: Array<(p: VoiceTransportEventMap[K]) => void> }> = {};
-
-  async connect() {}
-  sendAudioChunk(_b64: string) {}
-  sendText(_t: string) {}
-  sendToolResult(_id: string, _name: string, _r: unknown) {}
-  close() {}
-
-  on<K extends keyof VoiceTransportEventMap>(
-    event: K, cb: (p: VoiceTransportEventMap[K]) => void
-  ): () => void {
-    (this.#listeners[event] ??= []).push(cb as never);
-    return () => {
-      this.#listeners[event] = this.#listeners[event]?.filter((c) => c !== cb) as never;
-    };
-  }
-
-  emit<K extends keyof VoiceTransportEventMap>(event: K, p: VoiceTransportEventMap[K]) {
-    this.#listeners[event]?.forEach((cb) => (cb as (x: typeof p) => void)(p));
-  }
-}
-```
-
-Then in a test:
+For deterministic, network-free tests, use the built-in
+`ScriptedTransport` — a queue of programmed model reactions:
 
 ```ts
-const transport = new MockTransport();
-const agent = new VoiceAgent({ transport, /* ... */ });
+import { Agent, ScriptedTransport } from 'a2ui-svelte/agent';
+
+const transport = new ScriptedTransport([
+  { on: 'save it', calls: [{ name: 'click_button', args: { element_id: 'save-btn' } }], text: 'Saved.' }
+]);
+const agent = new Agent({ instructions: 'persona', surfaces: () => fixtures }, transport);
 await agent.start();
-transport.emit('tool-call', { calls: [{ id: '1', name: 'click_button', args: { element_id: 'save' } }] });
-// assert handler ran, transcript updated, etc.
+agent.sendTextMessage('please save it');
+// assert the action ran, the tool result echoed, the transcript updated…
 ```
 
-The library's own tests use this pattern — see `agent.test.ts` for a
-full example.
+For finer control, write a stub transport that emits synthetic events —
+implement `AgentTransport`, return a `capabilities` object matching the
+profile you want to exercise (the agent's gates key off it), and re-emit
+events from your test. The library's own `agent.test.ts` defines
+`MockAgentTransport` this way; note that if your mock advertises
+`'audio'` modalities, the agent will try to construct the mic recorder /
+speaker player, so tests in jsdom should either stub
+`./audio-recorder`/`./audio-player` or advertise text-only modalities.
 
-## Extending `VoiceAgent`
+## Extending the agent
 
-The current `VoiceAgent` is intentionally a single class. Future
-versions may grow into a micro-agentic framework with sub-agents and
-guardrails — that's why the file is named `agent.svelte.ts` rather
-than `gemini-live.svelte.ts`. Treat extension points (`buildPrompt`
-override, `mode` flag, snippet slots) as the public API for now;
-inheritance is **not** supported yet — wrap, don't subclass.
+The extension axis is the **transport** (new providers, wrappers like
+STT/TTS-around-text) and the **definition** (instructions, prompt
+override via `buildPrompt`, watch tuning; guardrails and subagents are
+planned to land here as uniform mechanics). The shell extends through
+its snippet slots or `headless` mode. Subclassing `Agent` is **not**
+supported — wrap, don't subclass.
 
 ## Pitfalls
 
@@ -562,19 +626,20 @@ inheritance is **not** supported yet — wrap, don't subclass.
 - **Forgetting `agent.stop()` on `onDestroy`.** Hot reload leaks
   recorder instances. Always tear down.
 - **Sending text before connecting.** `agent.sendTextMessage` while
-  `agent.connected === false` is a no-op with a console warning. Check
-  `agent.connected` first.
+  `agent.connected === false` is a no-op with a console warning. The
+  default `<AgentShell>` lazy-starts the session on the first send; if you
+  build your own UI, do the same or check `agent.connected` first.
 - **Pico-less projects forgetting `renderer/styles.css`.** The shell
   CSS lives there; without it, the bottom bar will look unstyled.
 
 ## A2A (network) integration mode
 
-`VoiceTransport` covers live-audio APIs where the agent generates UI via
-LLM function tools. A2UI v0.8 also defines a spec-aligned, network-shaped
-integration: a unidirectional server-to-client stream of A2A `DataPart`s
-(typically over SSE) carrying surface mutations, paired with a
-client-to-server channel for `userAction` / `error` events. The library
-ships this as a sibling family rooted at `a2ui-svelte/transport`:
+`AgentTransport` covers model APIs where this library owns the agent and
+drives UI via LLM function tools. A2UI v0.8 also defines a spec-aligned,
+network-shaped integration: a unidirectional server-to-client stream of
+A2A `DataPart`s (typically over SSE) carrying surface mutations, paired
+with a client-to-server channel for `userAction` / `error` events. The
+library ships this as a sibling family rooted at `a2ui-svelte/transport`:
 
 ```ts
 import type {
@@ -641,9 +706,9 @@ Every implementation must honour the A2A envelope on the wire:
   });
   ```
 
-  This is the spec-faithful, byte-for-byte v0.9 path. The voice transport
-  can't use it (a live audio API has no metadata side-channel and attaching
-  state at speech time interrupts the answer), so it synchronises the same
+  This is the spec-faithful, byte-for-byte v0.9 path. A live audio API
+  can't use it (it has no metadata side-channel, and attaching state at
+  speech time interrupts the answer), so the agent synchronises the same
   `{ fieldId → value }` unit via in-band **deltas** instead — see
   "Surface-change delivery" above and the surface-data-model-sync plan.
 

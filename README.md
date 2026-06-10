@@ -7,9 +7,9 @@
 > and study porposes only.**
 
 A Svelte 5 runtime built on the [A2UI v0.8](https://a2ui.org/)
-component catalog: build apps where a human user and a live AI voice
-agent share the same UI. Both target the same Svelte components, the
-same component IDs, and the same state.
+component catalog: build apps where a human user and a live AI agent
+share the same UI. Both target the same Svelte components, the same
+component IDs, and the same state.
 
 Look at [A2UI v0.8 compatibility](#a2ui-v08-compatibility) for details about A2UI compatibility.
 
@@ -27,8 +27,12 @@ The library ships:
   highlight tool — namespaced so spec-strict consumers can ignore them.
 - An **authoring helper** (`defineA2uiComponent` + `<A2UIRepresentation>`)
   for adding custom and composite components.
-- A pluggable **voice transport** layer (interface + Gemini Live
-  implementation + `VoiceAgent` orchestrator + opt-in `<VoiceShell>` UI).
+- A transport-neutral **agent framework**: define your agent once
+  (`AgentDefinition`), connect it to any transport (streaming voice via
+  `GeminiLiveTransport`, request/response text via `GeminiTextTransport`,
+  deterministic `ScriptedTransport` for tests, or your own), and render
+  the one `<AgentShell>` — it adapts to the transport's capabilities
+  (the mic appears exactly when the transport speaks audio).
 - **Skills** (Markdown, frontmatter-tagged) so agentic IDEs can teach
   themselves the library.
 
@@ -46,21 +50,24 @@ the same surface, with all defaults enabled:
 <script lang="ts">
   import { StaticSurface } from 'a2ui-svelte/renderer';
   import { Card, Column, TextField, Button } from 'a2ui-svelte/components';
-  import { VoiceAgent, VoiceShell } from 'a2ui-svelte/voice';
-  import { GeminiTransport } from 'a2ui-svelte/voice/gemini';
+  import { Agent, AgentShell } from 'a2ui-svelte/agent';
+  import { GeminiLiveTransport } from 'a2ui-svelte/agent/gemini';
   import 'a2ui-svelte/renderer/styles.css';
 
   let surface: ReturnType<typeof StaticSurface>;
   let name = $state('');
 
-  const agent = new VoiceAgent({
-    transport:           new GeminiTransport(),
-    surfaces:            () => (surface ? [surface] : []),
-    contextInstructions: () => 'The user can set their name here.',
-    systemInstruction:   'You are a friendly assistant.',
-    mintToken: async () =>
-      (await (await fetch('/api/voice-token', { method: 'POST' })).json()).token
-  });
+  const agent = new Agent(
+    {
+      instructions:        'You are a friendly assistant.',
+      surfaces:            () => (surface ? [surface] : []),
+      contextInstructions: () => 'The user can set their name here.'
+    },
+    new GeminiLiveTransport({
+      token: async () =>
+        (await (await fetch('/api/voice-token', { method: 'POST' })).json()).token
+    })
+  );
 </script>
 
 <StaticSurface bind:this={surface} surfaceId="hello">
@@ -72,15 +79,27 @@ the same surface, with all defaults enabled:
   </Column></Card>
 </StaticSurface>
 
-<VoiceShell {agent} />
+<AgentShell {agent} />
 ```
 
 You'll also need a `/api/voice-token` endpoint that mints a short-lived
-Gemini token (server-side, keeps your API key out of the browser).
+Gemini token (server-side, keeps your API key out of the browser) —
+`mintGeminiToken` from `a2ui-svelte/agent/gemini` does it in three lines.
+
+Prefer a text model? Swap the transport — nothing else changes:
+
+```ts
+import { GeminiTextTransport } from 'a2ui-svelte/agent/gemini';
+
+const agent = new Agent(sameDefinition, new GeminiTextTransport({ baseUrl: '/api/gemini' }));
+```
+
+`<AgentShell>` notices the transport has no audio and renders the same
+shell without the mic.
 
 **Next steps:**
 
-- The [voice integration guide](docs/guides/voice-integration.md) for
+- The [agent integration guide](docs/guides/agent-integration.md) for
   the token endpoint, the production layout pattern (session store +
   layout-level agent), and how to write your own transport.
 - The [`examples/minimal-app/`](examples/minimal-app/README.md) for a
@@ -101,22 +120,68 @@ Gemini token (server-side, keeps your API key out of the browser).
   **Experimental** — agent-generated UI is currently slow and error-prone.
 - **Catalog** — the map from A2UI type names to Svelte components.
   `DEFAULT_CATALOG` is the standard set; `extendCatalog` adds your own.
-- **Voice agent** (`VoiceAgent`) — provider-agnostic orchestrator: owns
-  audio recorder/player, prompt assembly, tool dispatch, surface-watch
-  heartbeat, and reactive transcript state. Pair with a
-  `VoiceTransport` (e.g. `GeminiTransport`).
-- **VoiceShell** (`<VoiceShell>`) — opt-in default mic + transcript UI.
-  Snippet slots make it easy to replace pieces; `headless={true}`
-  disables it entirely.
+- **Agent definition** (`AgentDefinition`) — what your agent *is*:
+  instructions, the surfaces it can see and act on, page context. A
+  plain object, declared once, independent of any model or channel.
+- **Agent** (`Agent`) — the orchestrator: a definition connected to a
+  transport (`new Agent(definition, transport)`). Owns prompt assembly,
+  tool dispatch, the surface-watch heartbeat, reactive transcript state —
+  and, when the transport speaks audio, the mic recorder, speaker
+  player, and mute toggle. It adapts to the transport's declared
+  `capabilities`, never to its identity.
+- **Transport** (`AgentTransport`) — the per-model adapter. Ships:
+  `GeminiLiveTransport` (streaming audio-to-audio over Gemini Live),
+  `GeminiTextTransport` (request/response text), and `ScriptedTransport`
+  (deterministic, model-free, for tests). Each owns its own auth.
+- **AgentShell** (`<AgentShell>`) — the one opt-in UI: chat bar,
+  transcript, status, debug panel — plus mic + mute exactly when
+  `agent.capabilities` include audio. Snippet slots replace pieces;
+  `headless={true}` disables it entirely.
 
 Read the [guides](docs/guides/) for depth — authoring components,
-composites, theming, voice integration.
+composites, theming, agent integration.
+
+## One agent, any transport
+
+The same `AgentDefinition` runs over every transport — swap the second
+constructor argument and everything else (instructions, tools,
+surface-sync, transcript, shell) stays identical:
+
+```ts
+import { Agent, ScriptedTransport, type AgentDefinition } from 'a2ui-svelte/agent';
+import { GeminiLiveTransport, GeminiTextTransport } from 'a2ui-svelte/agent/gemini';
+
+const assistant: AgentDefinition = {
+  instructions: 'You are a helpful assistant.',
+  surfaces: () => mySurfaces
+};
+
+// Streaming voice (mic + mute appear in the shell):
+new Agent(assistant, new GeminiLiveTransport({ token: mintEphemeralToken }));
+
+// Request/response text via a key-hiding proxy (same shell, no mic):
+new Agent(assistant, new GeminiTextTransport({ baseUrl: '/api/gemini' }));
+
+// Deterministic, network-free tests:
+new Agent(assistant, new ScriptedTransport([{ on: 'hi', text: 'Hello!' }]));
+```
+
+Transports describe themselves through `TransportCapabilities` (audio
+modalities, barge-in, silent context channel, history ownership…), and
+both the `Agent` and `<AgentShell>` adapt to that descriptor — so a
+custom transport (another provider, or an STT/TTS wrapper that gives a
+text model a voice) plugs into the identical machinery.
+
+For the text path, keep your API key server-side by pointing the
+transport at a same-origin proxy (`baseUrl`) that injects the real
+`x-goog-api-key` — see [examples/minimal-app](examples/minimal-app) for
+a working proxy route.
 
 ## Example app
 
 `examples/minimal-app/` is a SvelteKit smoke-test consumer that
 exercises every public API (static surface, dynamic surface, composite,
-voice integration, theming). See its
+agent integration over both Gemini transports, theming). See its
 [README](examples/minimal-app/README.md).
 
 ```bash
@@ -136,7 +201,7 @@ is in [What `a2ui-svelte` is](docs/guides/a2ui-compatibility.md):
   `<DynamicSurface>` is the real agent-renders-the-UI model: it works,
   but is **experimental — expect slowness and rough edges.**
 - **Connecting a 3rd-party agent is DIY.** End-to-end compatibility is
-  proven on the built-in voice path (`a2ui-svelte` owns the agent). The
+  proven on the built-in agent path (`a2ui-svelte` owns the agent). The
   spec's network transport is A2A; we ship the message types, envelope
   helpers, and an `<A2ASurface>` adapter — but **no working SSE/WebSocket
   transport.** You implement the `A2ATransport` interface to connect an
@@ -231,10 +296,10 @@ The agent sees the standard tree; the user sees your custom HTML.
 Five Markdown skills ship with the library for agentic IDEs (Claude
 Code, Cursor, …):
 
-- `build-a2ui-page` — add a new page that the voice agent can read.
+- `build-a2ui-page` — add a new page that the agent can read.
 - `build-custom-component` — add a new spec component to the catalog.
 - `build-composite-component` — bespoke HTML, agent sees a clean tree.
-- `integrate-voice-agent` — wire `VoiceAgent` + `VoiceShell` in a layout.
+- `integrate-agent` — wire `Agent` + a transport + `<AgentShell>` in a layout.
 - `style-and-theme` — token overrides + custom catalog.
 
 Manual install (a CLI is deferred):
@@ -253,7 +318,7 @@ cp node_modules/a2ui-svelte/dist/skills/*.md .claude/skills/
 - [Authoring guide](docs/guides/authoring-components.md)
 - [Composite components](docs/guides/composite-components.md)
 - [Theming](docs/guides/theming.md)
-- [Voice integration](docs/guides/voice-integration.md)
+- [Agent integration](docs/guides/agent-integration.md)
 
 ## Releasing
 

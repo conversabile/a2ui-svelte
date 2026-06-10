@@ -42,14 +42,14 @@ literal when Pico isn't loaded.
 | `--a2ui-input-border`          | `--pico-form-element-border-color`       | Input border                   |
 | `--a2ui-input-fg`              | `--pico-form-element-color`              | Input text                     |
 | `--a2ui-glow-color`            | `--pico-primary-focus`                   | Agent action glow              |
-| `--a2ui-shell-bg`              | `--pico-card-background-color`           | `<VoiceShell>` panel background |
-| `--a2ui-shell-border`          | `--pico-muted-border-color`              | `<VoiceShell>` border          |
-| `--a2ui-shell-accent-bg`       | `--a2ui-button-primary-bg`               | `<VoiceShell>` accent (mic, bubbles, status) |
-| `--a2ui-shell-accent-fg`       | `--a2ui-button-primary-fg`               | `<VoiceShell>` accent text     |
-| `--a2ui-shell-glow`            | accent @ 45% alpha                       | `<VoiceShell>` active glow     |
-| `--a2ui-shell-border-active`   | `--a2ui-shell-accent-bg`                 | `<VoiceShell>` active border   |
-| `--a2ui-shell-left`            | `0`                                      | `<VoiceShell>` left inset (e.g. for a sidebar layout) |
-| `--a2ui-shell-right`           | `0`                                      | `<VoiceShell>` right inset      |
+| `--a2ui-shell-bg`              | `--pico-card-background-color`           | `<AgentShell>` panel background |
+| `--a2ui-shell-border`          | `--pico-muted-border-color`              | `<AgentShell>` border          |
+| `--a2ui-shell-accent-bg`       | `--a2ui-button-primary-bg`               | `<AgentShell>` accent (mic, bubbles, status) |
+| `--a2ui-shell-accent-fg`       | `--a2ui-button-primary-fg`               | `<AgentShell>` accent text     |
+| `--a2ui-shell-glow`            | accent @ 45% alpha                       | `<AgentShell>` active glow     |
+| `--a2ui-shell-border-active`   | `--a2ui-shell-accent-bg`                 | `<AgentShell>` active border   |
+| `--a2ui-shell-left`            | `0`                                      | `<AgentShell>` left inset (e.g. for a sidebar layout) |
+| `--a2ui-shell-right`           | `0`                                      | `<AgentShell>` right inset      |
 
 The shell is `position: fixed` and spans the full viewport width by default.
 If your app has a fixed sidebar or right panel, set `--a2ui-shell-left` /
@@ -82,7 +82,7 @@ small screens:
 ```
 
 That's it — every catalog component, every dynamic surface, every
-mounted `<VoiceShell>` picks up the new look.
+mounted `<AgentShell>` picks up the new look.
 
 ### Dark mode
 

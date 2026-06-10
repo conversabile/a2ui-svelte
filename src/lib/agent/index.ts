@@ -7,7 +7,7 @@ export {
 } from './transport';
 export {
 	Agent,
-	type AgentOptions,
+	type AgentDefinition,
 	type AgentSurface,
 	type AgentMode,
 	type AgentStatus,
@@ -15,11 +15,10 @@ export {
 	type SurfaceWatchTuning
 } from './agent.svelte';
 export {
-	VoiceDebugStats,
 	AgentDebugStats,
 	formatBytes,
 	formatTokens,
-	type VoiceDebugStatsOptions,
+	type AgentDebugStatsOptions,
 	type DebugPayloadStat,
 	type DebugEvent,
 	type DebugOutboundKind,
@@ -35,3 +34,8 @@ export {
 	type PromptInputs,
 	type PromptSurface
 } from './prompt-builder';
+export { ScriptedTransport, type ScriptedReaction } from './scripted-transport';
+export { AudioRecorder } from './audio-recorder';
+export { AudioPlayer } from './audio-player';
+export { default as AgentShell } from './AgentShell.svelte';
+export { default as DebugBox } from './DebugBox.svelte';

@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { VoiceDebugStats, formatBytes, formatTokens } from './debug.svelte';
-import type { VoiceUsage } from './transport';
+import { AgentDebugStats, formatBytes, formatTokens } from './debug.svelte';
+import type { AgentUsage } from './transport';
 
-describe('VoiceDebugStats', () => {
+describe('AgentDebugStats', () => {
 	it('records an outbound text payload: byte size, token estimate, and event', () => {
-		const d = new VoiceDebugStats();
+		const d = new AgentDebugStats();
 		d.recordOutbound('system-prompt', 'x'.repeat(4000));
 
 		const sp = d.outbound['system-prompt'];
@@ -16,7 +16,7 @@ describe('VoiceDebugStats', () => {
 	});
 
 	it('stringifies a non-string payload (tool result object) before sizing', () => {
-		const d = new VoiceDebugStats();
+		const d = new AgentDebugStats();
 		const result = { results: [{ element_id: 'a', status: 'success' }], extensions: {} };
 		d.recordOutbound('tool-result', result, 'update_text_fields');
 
@@ -27,13 +27,13 @@ describe('VoiceDebugStats', () => {
 	});
 
 	it('honours a custom charsPerToken', () => {
-		const d = new VoiceDebugStats({ charsPerToken: 3.2 });
+		const d = new AgentDebugStats({ charsPerToken: 3.2 });
 		expect(d.estimateTokens(3200)).toBe(1000);
 		expect(d.estimateTokens('abcd'.repeat(800))).toBe(1000);
 	});
 
 	it('sizes audio by decoded bytes, skips token estimate, and keeps it out of the log', () => {
-		const d = new VoiceDebugStats();
+		const d = new AgentDebugStats();
 		// "AAAA" decodes to 3 bytes; "AAA=" to 2 bytes.
 		d.recordOutbound('audio-out', 'AAAA');
 		d.recordOutbound('audio-out', 'AAA=');
@@ -46,16 +46,16 @@ describe('VoiceDebugStats', () => {
 	});
 
 	it('records inbound audio bytes without logging each chunk', () => {
-		const d = new VoiceDebugStats();
+		const d = new AgentDebugStats();
 		d.recordInboundAudio('AAAA');
 		expect(d.inbound['audio-in'].bytes).toBe(3);
 		expect(d.events).toHaveLength(0);
 	});
 
 	it('folds provider usage: last, peak total, report count, summed response tokens', () => {
-		const d = new VoiceDebugStats();
-		const u1: VoiceUsage = { promptTokenCount: 60000, responseTokenCount: 200, totalTokenCount: 60200 };
-		const u2: VoiceUsage = { promptTokenCount: 95000, responseTokenCount: 300, totalTokenCount: 95300 };
+		const d = new AgentDebugStats();
+		const u1: AgentUsage = { promptTokenCount: 60000, responseTokenCount: 200, totalTokenCount: 60200 };
+		const u2: AgentUsage = { promptTokenCount: 95000, responseTokenCount: 300, totalTokenCount: 95300 };
 		d.recordUsage(u1);
 		d.recordUsage(u2);
 
@@ -69,7 +69,7 @@ describe('VoiceDebugStats', () => {
 	});
 
 	it('derives estOutboundTokens as the sum across text categories only', () => {
-		const d = new VoiceDebugStats();
+		const d = new AgentDebugStats();
 		d.recordOutbound('system-prompt', 'a'.repeat(800)); // 200 tok
 		d.recordOutbound('tool-result', 'b'.repeat(400)); // 100 tok
 		d.recordOutbound('audio-out', 'AAAA'); // 0 tok (audio)
@@ -78,7 +78,7 @@ describe('VoiceDebugStats', () => {
 	});
 
 	it('caps the event log at maxEvents (rolling)', () => {
-		const d = new VoiceDebugStats({ maxEvents: 5 });
+		const d = new AgentDebugStats({ maxEvents: 5 });
 		for (let i = 0; i < 20; i++) d.recordOutbound('text', `m${i}`);
 		expect(d.events).toHaveLength(5);
 		// Keeps the most recent ones.
@@ -87,7 +87,7 @@ describe('VoiceDebugStats', () => {
 	});
 
 	it('reset() clears every counter, usage, and the log', () => {
-		const d = new VoiceDebugStats();
+		const d = new AgentDebugStats();
 		d.recordOutbound('system-prompt', 'hello');
 		d.recordUsage({ totalTokenCount: 100 });
 		d.toolCount = 9;

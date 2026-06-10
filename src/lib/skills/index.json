@@ -3,7 +3,7 @@
     { "name": "build-a2ui-page",           "file": "build-a2ui-page.md" },
     { "name": "build-custom-component",    "file": "build-custom-component.md" },
     { "name": "build-composite-component", "file": "build-composite-component.md" },
-    { "name": "integrate-voice-agent",     "file": "integrate-voice-agent.md" },
+    { "name": "integrate-agent",           "file": "integrate-agent.md" },
     { "name": "style-and-theme",           "file": "style-and-theme.md" }
   ]
 }

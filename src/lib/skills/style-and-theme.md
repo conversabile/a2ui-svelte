@@ -47,8 +47,8 @@ Token reference (from `renderer/styles.css`):
 | `--a2ui-input-border`        | `--pico-form-element-border-color`     | Input border         |
 | `--a2ui-input-fg`            | `--pico-form-element-color`            | Input text colour    |
 | `--a2ui-glow-color`          | `--pico-primary-focus`            | Agent-action glow          |
-| `--a2ui-shell-accent-bg`     | `--a2ui-button-primary-bg`        | `<VoiceShell>` accent colour |
-| `--a2ui-shell-accent-fg`     | `--a2ui-button-primary-fg`        | `<VoiceShell>` accent text   |
+| `--a2ui-shell-accent-bg`     | `--a2ui-button-primary-bg`        | `<AgentShell>` accent colour |
+| `--a2ui-shell-accent-fg`     | `--a2ui-button-primary-fg`        | `<AgentShell>` accent text   |
 
 Example override (20 lines):
 

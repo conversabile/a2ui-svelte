@@ -14,6 +14,8 @@ import type {
 } from './transport';
 import { buildSystemPrompt, type PromptInputs } from './prompt-builder';
 import { AgentDebugStats, type DebugOutboundKind } from './debug.svelte';
+import { AudioRecorder } from './audio-recorder';
+import { AudioPlayer } from './audio-player';
 
 export type AgentMode = 'static' | 'dynamic' | 'both';
 export type AgentStatus = 'idle' | 'thinking' | 'error';
@@ -172,21 +174,28 @@ export interface SurfaceWatchTuning {
 	cooldownMs?: number;
 }
 
-export interface AgentOptions {
-	/** Provider-agnostic transport (voice live-API, text request/response, …). */
-	transport: AgentTransport;
+/**
+ * What an agent *is*, independent of how it talks to a model: its persona,
+ * the surfaces it can see and act on, and its prompt/watch behaviour. Tools
+ * are contributed through the global `toolRegistry` (and per-surface action
+ * registrations); future uniform mechanics (guardrails, subagents, lifecycle
+ * hooks) will be added here.
+ *
+ * A definition is a plain object — declare it once and connect it to any
+ * {@link AgentTransport}: `new Agent(definition, transport)`. Swapping the
+ * transport (voice live-API ↔ request/response text) changes nothing else.
+ */
+export interface AgentDefinition {
+	/** The agent's persona + behaviour prompt (the base system instruction). */
+	instructions: string;
 	/** Live source of currently-active surfaces. Called on every interval tick. */
 	surfaces: () => AgentSurface[];
-	/** Live source of page-specific context instructions. */
-	contextInstructions: () => string;
-	/** Base system prompt (the persona + style). */
-	systemInstruction: string;
+	/** Live source of page-specific context instructions. Default: none. */
+	contextInstructions?: () => string;
 	/** Static / dynamic / both. Default 'static'. */
 	mode?: AgentMode;
 	/** Override prompt assembly entirely. */
 	buildPrompt?: (inputs: PromptInputs) => string;
-	/** Auth token mint function — called once per `start()`. */
-	mintToken: () => Promise<string>;
 	/**
 	 * Cadence tuning for the surface-watch polling loop. Whether the loop
 	 * runs is decided per-surface via `surface.extensions.surfaceWatch`;
@@ -196,7 +205,7 @@ export interface AgentOptions {
 	/**
 	 * Token/byte debug telemetry. The agent always exposes a `debug`
 	 * (`AgentDebugStats`) so a host can render a debug box (see
-	 * `<VoiceShell debug>`); this option only tunes it:
+	 * `<AgentShell debug>`); this option only tunes it:
 	 *  - omit / `true`  → default instance, recording on;
 	 *  - an `AgentDebugStats` → use this instance (e.g. to share/configure
 	 *    `charsPerToken`);
@@ -207,17 +216,20 @@ export interface AgentOptions {
 }
 
 /**
- * Provider- and channel-neutral agent orchestrator. Owns prompt assembly (via
- * prompt-builder), tool dispatch, the surface-watch engine (sync / proactive),
- * `userActionBus` subscription, transcript + status + debug state, and the
- * thinking-watchdog. It branches on the transport's {@link TransportCapabilities}
- * — never on its identity — so the same code path drives a streaming voice
- * live-API and a request/response text API.
+ * The agent orchestrator: an {@link AgentDefinition} connected to an
+ * {@link AgentTransport}. Owns prompt assembly (via prompt-builder), tool
+ * dispatch, the surface-watch engine (sync / proactive), `userActionBus`
+ * subscription, transcript + status + debug state, and the thinking-watchdog.
  *
- * Audio I/O (recorder/player, mute, barge-in) lives in `VoiceAgent extends
- * Agent`; a text agent uses the base directly. Subclasses inject channel I/O
- * through the protected hooks (`startInput`, `stopInput`,
- * `wireExtraTransportEvents`, `augmentConnectOptions`). Does NOT own any UI.
+ * One class drives every channel. It adapts to the transport's
+ * {@link TransportCapabilities} — never to its identity: the barge-in gates
+ * apply when `interruptible`, the poll loop runs when `streaming`, history is
+ * embedded or seeded per `historyOwnership`, and the mic recorder / speaker
+ * player spin up exactly when `input`/`output` include `'audio'` (with
+ * `muted`/`toggleMute` to silence the mic without dropping the session).
+ *
+ * Does NOT own any UI — pair it with `<AgentShell>` or render your own from
+ * its reactive state.
  */
 export class Agent {
 	connected = $state(false);
@@ -225,29 +237,44 @@ export class Agent {
 	transcript = $state<Array<{ role: 'user' | 'model'; text: string }>>([]);
 	hasStarted = $state(false);
 	configIssue = $state<string | null>(null);
+	/** True while the mic recorder is capturing (audio-input transports only). */
+	recording = $state(false);
+	/**
+	 * Mic muted while the session stays open. When `true`, captured audio chunks
+	 * are dropped instead of sent to the transport — the live connection,
+	 * playback, and surface-sync all keep running. Lets the user silence a noisy
+	 * environment so trailing background noise isn't heard as a barge-in that
+	 * cuts the agent off mid-answer. Meaningful only on audio-input transports;
+	 * see `toggleMute()`.
+	 */
+	muted = $state(false);
 	/**
 	 * Live token/byte telemetry for the session — outbound payload sizes the
 	 * agent sends (system prompt, tool results, context syncs, audio) plus the
 	 * provider's authoritative usage reports. Reactive; bind a debug box to it
-	 * (or pass `debug` to `<VoiceShell>`). See `AgentDebugStats`.
+	 * (or pass `debug` to `<AgentShell>`). See `AgentDebugStats`.
 	 */
 	debug: AgentDebugStats;
 
-	#opts: AgentOptions;
+	#def: AgentDefinition;
+	#transport: AgentTransport;
 	#debugEnabled: boolean;
 	#mode: AgentMode;
 	#surfaceWatchTuning: Required<SurfaceWatchTuning>;
 	#unsubs: Array<() => void> = [];
 	#surfaceInterval: ReturnType<typeof setInterval> | null = null;
 	#lastAgentMutationAt = 0;
+	// Audio I/O — created in `start()` only when the transport's capabilities
+	// include the matching modality; null on text-only transports.
+	#recorder: AudioRecorder | null = null;
+	#player: AudioPlayer | null = null;
 	// True while the model is producing a turn (audio / transcript out), false
 	// once it goes idle (turn-complete / interrupted). On an interruptible
 	// transport `'sync'` delivery is gated off while this is true so a
 	// `sendContextUpdate` can never barge-in-interrupt an in-progress answer.
 	// Skipped deliveries are not lost: the next idle tick (or turn-complete)
 	// re-attempts and the diff-vs-last-delivered design coalesces everything
-	// that changed. Protected so a voice subclass can flip it from the audio
-	// events the base layer doesn't know about.
+	// that changed. Flipped by text-out, audio-out, turn-complete, interrupted.
 	protected modelTurnActive = false;
 	// ── Proactive-mode delivery tracking ──
 	// What the model currently knows: the last full surface state delivered
@@ -276,7 +303,6 @@ export class Agent {
 	#intentionalDisconnect = false;
 	#currentModelText = '';
 	// Whether the next inbound text chunk continues the current user turn.
-	// Protected so a voice subclass can reset it from its audio events.
 	protected canAppendToUser = false;
 	// Watchdog for the `'thinking'` badge. Armed whenever status becomes
 	// `'thinking'` and cleared the moment we leave it (model activity / turn-
@@ -290,18 +316,20 @@ export class Agent {
 	// complete) re-arms or clears this well inside the window.
 	#thinkingTimeoutMs = 12_000;
 
-	constructor(opts: AgentOptions) {
-		this.#opts = opts;
-		this.debug = opts.debug instanceof AgentDebugStats ? opts.debug : new AgentDebugStats();
-		this.#debugEnabled = opts.debug !== false;
-		this.#mode = opts.mode ?? 'static';
+	constructor(definition: AgentDefinition, transport: AgentTransport) {
+		this.#def = definition;
+		this.#transport = transport;
+		this.debug =
+			definition.debug instanceof AgentDebugStats ? definition.debug : new AgentDebugStats();
+		this.#debugEnabled = definition.debug !== false;
+		this.#mode = definition.mode ?? 'static';
 		// `'piggyback'` is a deprecated alias for `'sync'` — normalise it so the
 		// rest of the class only ever sees `'sync'` / `'proactive'`.
-		const rawMode = opts.surfaceWatchTuning?.mode ?? 'sync';
+		const rawMode = definition.surfaceWatchTuning?.mode ?? 'sync';
 		let mode: SurfaceWatchMode = rawMode === 'piggyback' ? 'sync' : rawMode;
 		// `'proactive'` needs a transport that can start its own turn; fall back
 		// to silent `'sync'` when the transport can't (e.g. request/response text).
-		if (mode === 'proactive' && !opts.transport.capabilities.canInitiateTurn) {
+		if (mode === 'proactive' && !transport.capabilities.canInitiateTurn) {
 			console.warn(
 				"[Agent] 'proactive' surface-watch needs a transport that can initiate turns; falling back to 'sync'."
 			);
@@ -310,20 +338,29 @@ export class Agent {
 		const isSync = mode === 'sync';
 		this.#surfaceWatchTuning = {
 			mode,
-			intervalMs: opts.surfaceWatchTuning?.intervalMs ?? (isSync ? 500 : 3000),
-			settleMs: opts.surfaceWatchTuning?.settleMs ?? (isSync ? 400 : 3000),
-			cooldownMs: opts.surfaceWatchTuning?.cooldownMs ?? 5000
+			intervalMs: definition.surfaceWatchTuning?.intervalMs ?? (isSync ? 500 : 3000),
+			settleMs: definition.surfaceWatchTuning?.settleMs ?? (isSync ? 400 : 3000),
+			cooldownMs: definition.surfaceWatchTuning?.cooldownMs ?? 5000
 		};
 	}
 
 	/** The transport driving this agent. */
-	protected get transport(): AgentTransport {
-		return this.#opts.transport;
+	get transport(): AgentTransport {
+		return this.#transport;
 	}
 
-	/** What the transport can do — the gate for all channel-specific behaviour. */
-	protected get capabilities(): TransportCapabilities {
-		return this.#opts.transport.capabilities;
+	/**
+	 * What the transport can do — the gate for all channel-specific behaviour,
+	 * inside the agent and out (e.g. `<AgentShell>` shows the mic exactly when
+	 * `capabilities.input` includes `'audio'`).
+	 */
+	get capabilities(): TransportCapabilities {
+		return this.#transport.capabilities;
+	}
+
+	/** Page context source with the definition's optional field defaulted. */
+	#contextInstructions(): string {
+		return this.#def.contextInstructions?.() ?? '';
 	}
 
 	async start(): Promise<void> {
@@ -332,15 +369,6 @@ export class Agent {
 		this.#intentionalDisconnect = false;
 		// Fresh session ⇒ fresh telemetry.
 		if (this.#debugEnabled) this.debug.reset();
-
-		let token: string;
-		try {
-			token = await this.#opts.mintToken();
-		} catch (e) {
-			this.configIssue = (e as Error).message ?? 'Failed to mint token';
-			this.setStatus('error');
-			return;
-		}
 
 		const tools = this.#assembleToolDeclarations();
 		const systemInstruction = this.#buildPrompt(tools);
@@ -356,37 +384,35 @@ export class Agent {
 
 		// Client-history transports (text) seed prior turns through connect
 		// options; server-history transports (voice) embed them in the prompt
-		// instead (see `#buildPrompt`), so this stays absent there.
-		const connectOptions = this.augmentConnectOptions({
-			token,
+		// instead (see `#buildPrompt`), so this stays absent there. Auth is the
+		// transport's own concern (its constructor), so no token rides here.
+		const connectOptions: AgentTransportConnectOptions = {
 			systemInstruction,
 			tools,
 			...(this.capabilities.historyOwnership === 'client'
 				? { history: this.transcript }
 				: {})
-		});
+		};
 
 		try {
-			await this.#opts.transport.connect(connectOptions);
+			await this.#transport.connect(connectOptions);
 		} catch (e) {
 			console.error('[Agent] Failed to connect transport:', e);
+			this.configIssue = (e as Error).message ?? 'Failed to connect';
 			this.setStatus('error');
 			return;
 		}
 
 		this.#wireCommonTransportEvents();
-		// Subclass hook: wire any channel-specific events (voice: audio-out +
-		// interrupted) and push their unsubscribes via `pushUnsub`.
-		this.wireExtraTransportEvents();
 		this.#unsubs.push(userActionBus.subscribe((a) => this.#handleUserAction(a)));
 
-		// Subclass hook: start input capture (voice: the mic recorder). No-op in
-		// the base — a text transport has no streaming input device.
+		// Spin up the mic/speaker exactly when the transport's capabilities say
+		// so — never from its identity. No-op on text-only transports.
 		try {
-			await this.startInput();
+			await this.#startAudio();
 		} catch (e) {
-			console.error('[Agent] Failed to start input:', e);
-			this.configIssue = (e as Error).message ?? 'Input device unavailable';
+			console.error('[Agent] Failed to start audio input:', e);
+			this.configIssue = (e as Error).message ?? 'Microphone unavailable';
 			this.setStatus('error');
 			void this.stop();
 			return;
@@ -412,13 +438,12 @@ export class Agent {
 		this.#unsubs = [];
 
 		try {
-			this.#opts.transport.close();
+			this.#transport.close();
 		} catch {
 			// best-effort
 		}
 
-		// Subclass hook: tear down input/output devices (voice: recorder/player).
-		this.stopInput();
+		this.#stopAudio();
 
 		if (this.#currentModelText.trim()) {
 			this.transcript = [
@@ -455,7 +480,7 @@ export class Agent {
 			// user's message. A typed message is an idle moment, so this flushes
 			// immediately. Ordered before the text turn below.
 			if (this.#surfaceWatchTuning.mode === 'sync') this.#syncDataModel();
-			this.#opts.transport.sendText(trimmed);
+			this.#transport.sendText(trimmed);
 			this.rec('text', trimmed);
 		} else {
 			console.warn('[Agent] Cannot send text message: not connected');
@@ -476,68 +501,109 @@ export class Agent {
 		if (this.#debugEnabled) this.debug.reset();
 	}
 
-	// ===== Subclass extension hooks =====
-	//
-	// Base implementations are no-ops: a text transport has no streaming I/O and
-	// no channel-specific events. `VoiceAgent` overrides them to wire the audio
-	// recorder/player and the `audio-out`/`interrupted` events.
-
-	/** Start input capture (voice: the mic recorder). Called near the end of `start()`. */
-	protected async startInput(): Promise<void> {}
-
-	/** Tear down input/output devices (voice: recorder + player). Called from `stop()`. */
-	protected stopInput(): void {}
-
-	/** Wire channel-specific transport events; push unsubscribes via {@link pushUnsub}. */
-	protected wireExtraTransportEvents(): void {}
-
 	/**
-	 * Let a subclass widen the connect options (voice: add the `voice` field).
-	 * Base returns them unchanged.
+	 * Mute / unmute the microphone **without** tearing down the session. While
+	 * muted, captured audio chunks are dropped instead of sent, so the model
+	 * hears silence; the live connection, playback, and surface-sync keep
+	 * running. The use case is noisy environments — once the user has spoken,
+	 * trailing background noise would otherwise be heard as a barge-in and cut
+	 * the agent off mid-answer; muting prevents that. Idempotent w.r.t. the
+	 * connection: muting/unmuting never connects or disconnects. No-op effect
+	 * on transports without audio input (no recorder runs there).
 	 */
-	protected augmentConnectOptions(
-		opts: AgentTransportConnectOptions
-	): AgentTransportConnectOptions {
-		return opts;
+	toggleMute(): void {
+		this.muted = !this.muted;
 	}
 
 	// ===== Internals =====
-
-	/** Register a transport/event-bus unsubscribe so `stop()` tears it down. */
-	protected pushUnsub(unsub: () => void): void {
-		this.#unsubs.push(unsub);
-	}
 
 	/** Record an outbound payload to `debug` (no-op when debug is disabled). */
 	protected rec(kind: DebugOutboundKind, payload: unknown, note?: string): void {
 		if (this.#debugEnabled) this.debug.recordOutbound(kind, payload, note);
 	}
 
-	/** Record an inbound audio chunk to `debug` (no-op when debug is disabled). */
-	protected recordInboundAudio(base64: string): void {
-		if (this.#debugEnabled) this.debug.recordInboundAudio(base64);
+	/**
+	 * Capability-gated audio I/O: a speaker player when the transport produces
+	 * audio, a mic recorder when it accepts audio. Throws if the mic is
+	 * unavailable (surfaced as `configIssue` by `start()`).
+	 */
+	async #startAudio(): Promise<void> {
+		if (this.capabilities.output.includes('audio')) {
+			this.#player = new AudioPlayer(24000);
+		}
+		if (!this.capabilities.input.includes('audio')) return;
+		if (typeof this.#transport.sendAudioChunk !== 'function') {
+			console.warn(
+				'[Agent] Transport advertises audio input but implements no sendAudioChunk — mic disabled.'
+			);
+			return;
+		}
+		// A fresh session always starts listening — mute is a per-session state.
+		this.muted = false;
+		this.#recorder = new AudioRecorder();
+		this.#recorder.addEventListener('data', (e) => {
+			const detail = (e as CustomEvent<string>).detail;
+			// Drop captured audio while muted — the recorder keeps running (so
+			// unmute resumes instantly without re-prompting for mic access), the
+			// chunks just never reach the transport.
+			if (this.connected && !this.muted) {
+				this.#transport.sendAudioChunk!(detail);
+				this.rec('audio-out', detail);
+			}
+		});
+		await this.#recorder.start();
+		this.recording = true;
 	}
 
-	/** Wire the events every transport emits (shared by voice and text). */
+	/** Tear down the recorder + player (no-op when none were started). */
+	#stopAudio(): void {
+		this.#recorder?.stop();
+		this.#player?.stop();
+		this.#recorder = null;
+		this.#player = null;
+		this.recording = false;
+	}
+
+	/**
+	 * Wire the transport event stream. Every transport emits the text/tool
+	 * events; `audio-out` / `interrupted` only ever fire from transports whose
+	 * capabilities include them, so wiring is unconditional and the handlers
+	 * are inert elsewhere.
+	 */
 	#wireCommonTransportEvents(): void {
 		this.#unsubs.push(
-			this.#opts.transport.on('tool-call', (p) => {
+			this.#transport.on('tool-call', (p) => {
 				void this.#handleToolCall(p.calls);
 			}),
-			this.#opts.transport.on('text-out', (p) => this.#onTextOut(p.text)),
-			this.#opts.transport.on('text-in', (p) => this.#onTextIn(p.text)),
-			this.#opts.transport.on('turn-complete', () => this.#onTurnComplete()),
-			this.#opts.transport.on('error', (p) => {
+			this.#transport.on('text-out', (p) => this.#onTextOut(p.text)),
+			this.#transport.on('text-in', (p) => this.#onTextIn(p.text)),
+			this.#transport.on('turn-complete', () => this.#onTurnComplete()),
+			this.#transport.on('audio-out', (p) => {
+				// Model is producing a turn — gate sync delivery so we never
+				// interrupt the answer in flight.
+				this.modelTurnActive = true;
+				if (this.#debugEnabled) this.debug.recordInboundAudio(p.base64Pcm24k);
+				this.#player?.addToQueue(p.base64Pcm24k);
+				this.onModelActivity();
+				this.canAppendToUser = false;
+			}),
+			this.#transport.on('interrupted', () => {
+				// Generation was cut off (barge-in) — the model is idle again.
+				this.modelTurnActive = false;
+				this.#player?.stop();
+				if (this.status !== 'error') this.setStatus('thinking');
+			}),
+			this.#transport.on('error', (p) => {
 				console.error('[Agent] Transport error:', p.message, p.cause);
 				if (!this.#intentionalDisconnect) this.setStatus('error');
 				void this.stop();
 			}),
-			this.#opts.transport.on('close', (p) => {
+			this.#transport.on('close', (p) => {
 				console.log('[Agent] Transport closed:', p.reason);
 				if (!this.#intentionalDisconnect) this.setStatus('error');
 				void this.stop();
 			}),
-			this.#opts.transport.on('usage', (u) => {
+			this.#transport.on('usage', (u) => {
 				// Authoritative provider token counts — the real number the quota
 				// is measured against.
 				if (this.#debugEnabled) this.debug.recordUsage(u);
@@ -731,12 +797,12 @@ export class Agent {
 	#buildPrompt(
 		tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
 	): string {
-		const surfaces = this.#opts.surfaces();
+		const surfaces = this.#def.surfaces();
 		const allowStatic = this.#mode === 'static' || this.#mode === 'both';
 		const allowDynamic = this.#mode === 'dynamic' || this.#mode === 'both';
 
 		const inputs: PromptInputs = {
-			systemInstruction: this.#opts.systemInstruction,
+			systemInstruction: this.#def.instructions,
 			staticSurfaces: allowStatic
 				? surfaces.filter((s) => s && s.type === 'static')
 				: [],
@@ -744,7 +810,7 @@ export class Agent {
 				? surfaces.filter((s) => s && s.type === 'dynamic')
 				: [],
 			toolDeclarations: tools,
-			contextInstructions: this.#opts.contextInstructions(),
+			contextInstructions: this.#contextInstructions(),
 			// Server-history transports (voice) embed the recent transcript in the
 			// prompt for reconnect continuity; client-history transports (text)
 			// own `messages[]` and get prior turns via connect options instead, so
@@ -754,7 +820,7 @@ export class Agent {
 			includeDynamicGuide: this.#mode === 'dynamic'
 		};
 
-		return (this.#opts.buildPrompt ?? buildSystemPrompt)(inputs);
+		return (this.#def.buildPrompt ?? buildSystemPrompt)(inputs);
 	}
 
 	async #handleToolCall(
@@ -793,7 +859,7 @@ export class Agent {
 				// extension the result echoes the FULL serialized surface back to
 				// the model on every call. Size it so that's visible.
 				this.rec('tool-result', result, call.name);
-				this.#opts.transport.sendToolResult(call.id, call.name, result);
+				this.#transport.sendToolResult(call.id, call.name, result);
 			} catch (e) {
 				console.error('[Agent] Failed to send tool result:', e);
 				this.setStatus('error');
@@ -829,14 +895,14 @@ export class Agent {
 		// XML-tagged-text wrapping otherwise — that's the only way to push the
 		// event through voice live-APIs that lack a native event channel.
 		try {
-			if (typeof this.#opts.transport.sendUserAction === 'function') {
-				this.#opts.transport.sendUserAction(canonical);
+			if (typeof this.#transport.sendUserAction === 'function') {
+				this.#transport.sendUserAction(canonical);
 				this.rec('user-action', canonical, canonical.name);
 				return;
 			}
 			const payload = { userAction: canonical };
 			const message = `<event>USER_ACTION</event>\n<payload>\n${JSON.stringify(payload, null, 2)}\n</payload>`;
-			this.#opts.transport.sendText(message);
+			this.#transport.sendText(message);
 			this.rec('user-action', message, canonical.name);
 		} catch (e) {
 			console.warn('[Agent] Failed to forward userAction:', e);
@@ -855,9 +921,7 @@ export class Agent {
 	 * via `surfaceWatch === false`.
 	 */
 	#watchedSurfaces(): AgentSurface[] {
-		return this.#opts
-			.surfaces()
-			.filter((s) => s && s.extensions?.surfaceWatch !== false);
+		return this.#def.surfaces().filter((s) => s && s.extensions?.surfaceWatch !== false);
 	}
 
 	#getSurfaceSnapshot(): string {
@@ -920,7 +984,7 @@ export class Agent {
 
 		const now = Date.now();
 		const cur = this.#getSurfaceSnapshot();
-		const ctx = this.#opts.contextInstructions();
+		const ctx = this.#contextInstructions();
 		const ids = this.#getSurfaceIds();
 
 		// Track when the observed value last moved, independent of delivery, so
@@ -976,7 +1040,7 @@ export class Agent {
 		const now = Date.now();
 		const structure = this.#getStructuralSnapshot(watched);
 		const dataModels = this.#getDataModelSnapshot(watched);
-		const ctx = this.#opts.contextInstructions();
+		const ctx = this.#contextInstructions();
 		const observed = `${structure} ${this.#serializeDataModels(dataModels)} ${ctx}`;
 
 		// Track when the observed state last moved, independent of delivery.
@@ -1008,7 +1072,7 @@ export class Agent {
 			watched,
 			this.#getStructuralSnapshot(watched),
 			this.#getDataModelSnapshot(watched),
-			this.#opts.contextInstructions()
+			this.#contextInstructions()
 		);
 	}
 
@@ -1097,10 +1161,10 @@ export class Agent {
 	 */
 	#sendSilently(message: string): boolean {
 		try {
-			if (typeof this.#opts.transport.sendContextUpdate === 'function') {
-				this.#opts.transport.sendContextUpdate(message);
+			if (typeof this.#transport.sendContextUpdate === 'function') {
+				this.#transport.sendContextUpdate(message);
 			} else {
-				this.#opts.transport.sendText(message);
+				this.#transport.sendText(message);
 			}
 			return true;
 		} catch (e) {
@@ -1178,7 +1242,7 @@ export class Agent {
 	 */
 	#markAllDelivered(): void {
 		const watched = this.#watchedSurfaces();
-		const ctx = this.#opts.contextInstructions();
+		const ctx = this.#contextInstructions();
 		// Proactive baselines.
 		this.#markDelivered(this.#getSurfaceSnapshot(), ctx, this.#getSurfaceIds());
 		// Sync baselines.
@@ -1219,10 +1283,10 @@ export class Agent {
 		});
 		const message = `<event>SURFACE_UPDATED</event>\n<payload>\n${JSON.stringify(payload, null, 2)}\n</payload>`;
 		try {
-			if (silent && typeof this.#opts.transport.sendContextUpdate === 'function') {
-				this.#opts.transport.sendContextUpdate(message);
+			if (silent && typeof this.#transport.sendContextUpdate === 'function') {
+				this.#transport.sendContextUpdate(message);
 			} else {
-				this.#opts.transport.sendText(message);
+				this.#transport.sendText(message);
 			}
 			this.rec('context-update', message, 'proactive-surface');
 			this.#markDelivered(surfacesJson, context, ids);

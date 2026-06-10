@@ -309,13 +309,13 @@
 	export const getTools = () => registry.getTools();
 	/**
 	 * The surface's `{ fieldId → value }` data model — the unit the
-	 * `VoiceAgent` syncs in `'sync'` mode (A2UI v0.9). Decoupled from the
+	 * `Agent` syncs in `'sync'` mode (A2UI v0.9). Decoupled from the
 	 * component tree so a keystroke ships as a tiny delta, not the whole tree.
 	 */
 	export const getDataModel = () => registry.getDataModel();
 	/**
 	 * Resolved per-surface extension flags. Hosts that publish this surface
-	 * handle to a `VoiceAgent` pass it through unchanged; the agent reads it
+	 * handle to an `Agent` pass it through unchanged; the agent reads it
 	 * to decide which non-spec behaviours apply for this surface (e.g.
 	 * `surfaceWatch` polling).
 	 */

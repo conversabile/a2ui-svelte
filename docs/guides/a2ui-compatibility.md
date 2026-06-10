@@ -33,7 +33,7 @@ is currently slow and error-prone; treat it as experimental.
 ## How the agent connects
 
 Today there is **one end-to-end agent path that ships working**: the
-built-in voice layer (`a2ui-svelte/voice` + Gemini), where
+built-in agent layer (`a2ui-svelte/agent` + Gemini), where
 `a2ui-svelte` owns the agent and drives surfaces through LLM function
 tools. Everything in the Quick Start uses this path.
 
@@ -54,7 +54,7 @@ the *contract*, not a working connection:
 So an external A2UI agent *can* render to and receive events from an
 `a2ui-svelte` app — once you've written the ~one-file transport that
 carries the bytes. See the
-[A2A section of the voice guide](voice-integration.md#a2a-network-integration-mode).
+[A2A section of the agent guide](agent-integration.md#a2a-network-integration-mode).
 
 ## What conforms to the v0.8 wire
 

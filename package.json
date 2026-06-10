@@ -50,15 +50,10 @@
 			"svelte": "./dist/agent/index.js",
 			"import": "./dist/agent/index.js"
 		},
-		"./voice": {
-			"types": "./dist/voice/index.d.ts",
-			"svelte": "./dist/voice/index.js",
-			"import": "./dist/voice/index.js"
-		},
-		"./voice/gemini": {
-			"types": "./dist/voice/gemini/index.d.ts",
-			"svelte": "./dist/voice/gemini/index.js",
-			"import": "./dist/voice/gemini/index.js"
+		"./agent/gemini": {
+			"types": "./dist/agent/gemini/index.d.ts",
+			"svelte": "./dist/agent/gemini/index.js",
+			"import": "./dist/agent/gemini/index.js"
 		},
 		"./transport": {
 			"types": "./dist/transport/index.d.ts",

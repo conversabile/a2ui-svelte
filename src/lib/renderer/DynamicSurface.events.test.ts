@@ -41,10 +41,10 @@ describe('Dynamic surface rendering', () => {
         expect(txt).toBeTruthy();
     });
 
-    it('reacts to agent-shaped processMessage calls (mirrors VoiceAgent flow)', async () => {
+    it('reacts to agent-shaped processMessage calls (mirrors Agent flow)', async () => {
         const { findByText } = render(DynamicSurface, { surfaceId: 'agent-flow', catalog: DEFAULT_CATALOG });
 
-        // This is the exact shape the VoiceAgent passes to processMessage when
+        // This is the exact shape the Agent passes to processMessage when
         // the agent emits surfaceUpdate / beginRendering tool calls.
         processMessage({
             surfaceUpdate: {
