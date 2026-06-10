@@ -95,12 +95,22 @@ export interface ExtensionOptions {
 	 */
 	batchTools: boolean;
 	/**
-	 * Tool-result envelope — the surface's tool results include
-	 * `updatedSurface`, `updatedContext`, and `availableElementIds` under
-	 * the `a2ui-svelte` extension namespace. With this off, results are
-	 * just `{ results: [...] }`. (Wired up in B4.)
+	 * Tool-result envelope — what a surface's tool results carry beyond the
+	 * spec-canonical `results` array, under the `a2ui-svelte` extension
+	 * namespace. (Wired up in B4; `'diff'` added for context economy.)
+	 *
+	 *  - `true` (default): every result echoes the FULL post-action state —
+	 *    `updatedSurface`, `updatedContext`, `availableElementIds`. Maximally
+	 *    informative, but the single biggest token amplifier on dense
+	 *    surfaces: the whole tree is re-billed on every tool call.
+	 *  - `'diff'`: results carry **only what changed** since the model's last
+	 *    known state — `updatedSurface` only when the component STRUCTURE
+	 *    changed; `updatedDataModel` (`{ surfaceId: { fieldId: value } }`)
+	 *    when field values changed beyond the agent's own edit; the rest only
+	 *    when changed. An unchanged surface returns just `{ results }`.
+	 *  - `false` (STRICT): always just `{ results: [...] }` — no extras.
 	 */
-	toolResultExtras: boolean;
+	toolResultExtras: boolean | 'diff';
 	/**
 	 * On-demand pointer tool — registers `point_to_elements({ element_ids })`,
 	 * a non-spec generic tool that makes components glow briefly and scrolls

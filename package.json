@@ -19,6 +19,7 @@
 		"lint": "eslint .",
 		"format": "prettier --write .",
 		"test": "vitest",
+		"eval": "vitest run --config evals/vitest.config.ts",
 		"release": "standard-version",
 		"release:dry": "standard-version --dry-run",
 		"update-version-file": "node scripts/update-version.js"

@@ -41,6 +41,9 @@ export type DebugOutboundKind =
 /** A live API category we receive. */
 export type DebugInboundKind = 'audio-in' | 'usage';
 
+/** A non-fatal transport signal (neither sent nor received) — e.g. a rate-limit retry. */
+export type DebugMetaKind = 'notice';
+
 /** Running totals for one payload category. */
 export interface DebugPayloadStat {
 	/** How many payloads of this kind have been sent/received. */
@@ -57,8 +60,8 @@ export interface DebugPayloadStat {
 export interface DebugEvent {
 	/** `Date.now()` when recorded. */
 	t: number;
-	dir: 'out' | 'in';
-	kind: DebugOutboundKind | DebugInboundKind;
+	dir: 'out' | 'in' | 'meta';
+	kind: DebugOutboundKind | DebugInboundKind | DebugMetaKind;
 	bytes?: number;
 	estTokens?: number;
 	/** Short human note (e.g. tool name, or the provider total at this point). */
@@ -217,6 +220,15 @@ export class AgentDebugStats {
 			kind: 'usage',
 			note: `total ${u.totalTokenCount ?? '?'} (prompt ${u.promptTokenCount ?? '?'} / resp ${u.responseTokenCount ?? '?'})`
 		});
+	}
+
+	/**
+	 * Record a non-fatal transport notice (e.g. a rate-limit retry) into the
+	 * rolling feed. Tracked only as an event line — it carries no byte/token
+	 * cost of its own.
+	 */
+	recordNotice(note: string): void {
+		this.#push({ t: Date.now(), dir: 'meta', kind: 'notice', note });
 	}
 
 	/** Clear everything — call when a session resets. */

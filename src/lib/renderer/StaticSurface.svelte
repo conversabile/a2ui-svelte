@@ -10,6 +10,11 @@
 		resolveExtensionOptions,
 		type ExtensionOptions
 	} from '../core/extensions';
+	import {
+		structuralFingerprint,
+		readDataModelsBySurface,
+		diffDataModelsBySurface
+	} from '../core/surface-snapshot';
 	import type { Snippet } from 'svelte';
 	import { SURFACE_FEEDBACK_KEY, type SurfaceFeedback } from './surface-feedback';
 	import './styles.css';
@@ -56,6 +61,32 @@
 	setSurfaceContext(registry);
 	setParentId('root');
 
+	// ── 'diff' tool-result mode: the model's last-known state ──
+	// Seeded lazily just before the FIRST tool action runs (at that moment the
+	// surface state is exactly what the system prompt showed the model — any
+	// earlier user edits were delivered by the surface-watch sync), then
+	// advanced after every envelope build. Lets `buildToolResult` echo only
+	// what the action actually changed instead of the whole tree.
+	let echoBaseline: {
+		structure: string;
+		dataModels: Record<string, Record<string, unknown>>;
+		context: string;
+		elementIds: string;
+	} | null = null;
+
+	function captureEchoBaseline() {
+		if (resolvedExtensions.toolResultExtras !== 'diff' || echoBaseline) return;
+		const fb = effectiveFeedback;
+		if (!fb) return;
+		const surfaces = fb.globalSurfaces();
+		echoBaseline = {
+			structure: structuralFingerprint(surfaces),
+			dataModels: readDataModelsBySurface(surfaces),
+			context: fb.contextInstructions(),
+			elementIds: JSON.stringify(actionRegistry.listActions())
+		};
+	}
+
 	function buildToolResult(results: Record<string, unknown>[]) {
 		// B4: shape the tool-result envelope per the surface's
 		// `toolResultExtras` extension flag.
@@ -66,11 +97,20 @@
 		//                     `extensions['a2ui-svelte']` so 3P consumers that
 		//                     don't recognise the namespace can drop the whole
 		//                     extension blob and still see the spec result.
+		//   `'diff'`:         extras carry only what CHANGED vs the model's
+		//                     last-known state — `updatedSurface` only on a
+		//                     structural change, `updatedDataModel` for value
+		//                     changes, context/ids only when changed. Nothing
+		//                     changed ⇒ just `{ results }`.
 		//   `false` (STRICT): just `{ results: [...] }` — no extras.
-		if (!resolvedExtensions.toolResultExtras) {
+		const mode = resolvedExtensions.toolResultExtras;
+		if (mode === false) {
 			return { results };
 		}
 		const fb = effectiveFeedback;
+		if (mode === 'diff' && fb) {
+			return buildDiffToolResult(results, fb);
+		}
 		const extras: Record<string, unknown> = {
 			availableElementIds: actionRegistry.listActions()
 		};
@@ -84,7 +124,44 @@
 		};
 	}
 
+	function buildDiffToolResult(results: Record<string, unknown>[], fb: SurfaceFeedback) {
+		const surfaces = fb.globalSurfaces();
+		const structure = structuralFingerprint(surfaces);
+		const dataModels = readDataModelsBySurface(surfaces);
+		const context = fb.contextInstructions();
+		const elementIds = JSON.stringify(actionRegistry.listActions());
+
+		const prev = echoBaseline;
+		const extras: Record<string, unknown> = {};
+		if (!prev || structure !== prev.structure) {
+			// Structure changed (a component appeared/disappeared, navigation):
+			// a value delta can't convey that, so echo the full tree — exactly
+			// like `true` mode. The data-model values ride inside it.
+			extras.updatedSurface = surfaces;
+		} else {
+			const delta = diffDataModelsBySurface(prev.dataModels, dataModels);
+			// The model already knows the values it just wrote — but a click may
+			// have mutated OTHER fields too (a form reset). Report every change;
+			// the agent's own writes are a few bytes and double as confirmation.
+			if (Object.keys(delta).length > 0) extras.updatedDataModel = delta;
+		}
+		if (!prev || context !== prev.context) extras.updatedContext = context;
+		if (!prev || elementIds !== prev.elementIds) {
+			extras.availableElementIds = JSON.parse(elementIds);
+		}
+		echoBaseline = { structure, dataModels, context, elementIds };
+
+		if (Object.keys(extras).length === 0) return { results };
+		return {
+			results,
+			extensions: { [A2UI_EXTENSION_NAMESPACE]: extras }
+		};
+	}
+
 	async function runClicks(ids: string[]) {
+		// 'diff' mode: the pre-action state is what the model last saw (the
+		// system prompt at connect; sync-mode delivery covers user edits since).
+		captureEchoBaseline();
 		revealElements(ids);
 		highlightElements(ids);
 		const results: Record<string, any>[] = [];
@@ -135,6 +212,7 @@
 	}
 
 	async function runUpdates(items: Array<{ element_id: string; value: string }>) {
+		captureEchoBaseline();
 		const ids = items.map((u) => u.element_id);
 		revealElements(ids);
 		highlightElements(ids);

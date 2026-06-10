@@ -62,12 +62,14 @@ function listen(transport: GeminiTextTransport) {
 		toolCall: [] as Array<Array<{ id: string; name: string; args: Record<string, unknown> }>>,
 		turnComplete: 0,
 		usage: [] as unknown[],
+		notice: [] as string[],
 		error: [] as string[]
 	};
 	transport.on('text-out', (p) => ev.textOut.push(p.text));
 	transport.on('tool-call', (p) => ev.toolCall.push(p.calls));
 	transport.on('turn-complete', () => (ev.turnComplete += 1));
 	transport.on('usage', (u) => ev.usage.push(u));
+	transport.on('notice', (n) => ev.notice.push(n.message));
 	transport.on('error', (e) => ev.error.push(e.message));
 	return ev;
 }
@@ -299,6 +301,104 @@ describe('GeminiTextTransport', () => {
 		await expect(transport.connect({ systemInstruction: 'sys', tools: [] })).rejects.toThrow(
 			/apiKey/
 		);
+	});
+
+	// A 429 / quota error the transport should retry (vs. a generic SDK failure).
+	const rateLimit = () =>
+		Object.assign(new Error('429 RESOURCE_EXHAUSTED: rate limit exceeded'), { status: 429 });
+
+	it('retries a rate-limited (429) request with backoff, then recovers', async () => {
+		// retryBaseMs 0 → backoff resolves immediately (no real waiting).
+		const transport = new GeminiTextTransport({ apiKey: 'key', maxRetries: 3, retryBaseMs: 0 });
+		const ev = listen(transport);
+		await transport.connect({ systemInstruction: 'sys', tools: [] });
+
+		// First two attempts 429; the third uses the persistent mock → succeeds.
+		generateContentStream.mockRejectedValueOnce(rateLimit());
+		generateContentStream.mockRejectedValueOnce(rateLimit());
+		programs = [[{ text: 'recovered' }]];
+
+		transport.sendText('hi');
+		await vi.waitFor(() => expect(ev.turnComplete).toBe(1));
+
+		expect(generateContentStream).toHaveBeenCalledTimes(3);
+		expect(ev.textOut).toEqual(['recovered']);
+		expect(ev.error).toEqual([]);
+		// Each retry is announced for the debug box.
+		expect(ev.notice).toHaveLength(2);
+		expect(ev.notice[0]).toMatch(/rate-limited.*retry 1\/3/);
+	});
+
+	it('defaults to a single retry', async () => {
+		// Default maxRetries (1): attempt + one retry = two calls before erroring.
+		const transport = new GeminiTextTransport({ apiKey: 'key', retryBaseMs: 0 });
+		const ev = listen(transport);
+		await transport.connect({ systemInstruction: 'sys', tools: [] });
+
+		generateContentStream.mockRejectedValue(rateLimit());
+		transport.sendText('hi');
+		await vi.waitFor(() => expect(ev.error.length).toBe(1));
+
+		expect(generateContentStream).toHaveBeenCalledTimes(2);
+		expect(ev.notice).toHaveLength(1);
+	});
+
+	it('surfaces a 429 as an error only after exhausting maxRetries', async () => {
+		const transport = new GeminiTextTransport({ apiKey: 'key', maxRetries: 2, retryBaseMs: 0 });
+		const ev = listen(transport);
+		await transport.connect({ systemInstruction: 'sys', tools: [] });
+
+		generateContentStream.mockRejectedValue(rateLimit());
+		transport.sendText('hi');
+		await vi.waitFor(() => expect(ev.error.length).toBe(1));
+
+		// Initial attempt + 2 retries = 3 calls before giving up.
+		expect(generateContentStream).toHaveBeenCalledTimes(3);
+		expect(ev.error[0]).toMatch(/429|RESOURCE_EXHAUSTED/);
+		expect(ev.turnComplete).toBe(0);
+	});
+
+	it('does not retry a non-rate-limit error', async () => {
+		const transport = new GeminiTextTransport({ apiKey: 'key', retryBaseMs: 0 });
+		const ev = listen(transport);
+		await transport.connect({ systemInstruction: 'sys', tools: [] });
+
+		generateContentStream.mockRejectedValue(new Error('boom'));
+		transport.sendText('hi');
+		await vi.waitFor(() => expect(ev.error).toEqual(['boom']));
+
+		expect(generateContentStream).toHaveBeenCalledTimes(1);
+		expect(ev.notice).toEqual([]);
+		expect(ev.turnComplete).toBe(0);
+	});
+
+	it('honours the server retryDelay hint over the exponential base', async () => {
+		const transport = new GeminiTextTransport({ apiKey: 'key', maxRetries: 1, retryBaseMs: 0 });
+		const ev = listen(transport);
+		await transport.connect({ systemInstruction: 'sys', tools: [] });
+
+		// retryBaseMs 0 ⇒ exponential delay is 0; the 2s server hint must be used.
+		generateContentStream.mockRejectedValueOnce(
+			Object.assign(new Error('429 RESOURCE_EXHAUSTED {"retryDelay":"2s"}'), { status: 429 })
+		);
+		programs = [[{ text: 'ok' }]];
+
+		// Capture the backoff duration while resolving it instantly (scoped spy:
+		// leaves the SDK mock's call count untouched).
+		const slept: number[] = [];
+		const real = globalThis.setTimeout;
+		const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, d?: number) => {
+			slept.push(d ?? 0);
+			return real(fn, 0);
+		}) as typeof setTimeout);
+
+		transport.sendText('hi');
+		await vi.waitFor(() => expect(ev.turnComplete).toBe(1));
+		spy.mockRestore();
+
+		expect(slept).toContain(2000);
+		expect(ev.notice[0]).toMatch(/in 2s/);
+		expect(ev.error).toEqual([]);
 	});
 
 	it('close() guards the loop, swallows the abort, and is idempotent', async () => {

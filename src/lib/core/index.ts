@@ -40,3 +40,11 @@ export {
     getClientDataModel,
     type A2UIClientDataModel
 } from './client-data-model';
+export {
+    stripDataModel,
+    structuralFingerprint,
+    readDataModelFromJson,
+    readDataModelsBySurface,
+    diffDataModel,
+    diffDataModelsBySurface
+} from './surface-snapshot';

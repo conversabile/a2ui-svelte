@@ -40,6 +40,40 @@ export interface GeminiTextTransportOptions {
 	 * (`apiKey` is then a real key, exposed client-side).
 	 */
 	baseUrl?: string;
+	/**
+	 * How many times to retry a request that fails with a rate-limit error
+	 * (HTTP 429 / `RESOURCE_EXHAUSTED`) before surfacing it as an `error` event,
+	 * using exponential backoff (and honouring the server's `retryDelay` hint
+	 * when present). Each retry is announced as a `'notice'` event (the agent's
+	 * debug box renders it). Default `1`. Set `0` to disable retries.
+	 */
+	maxRetries?: number;
+	/**
+	 * Base delay, in ms, for the exponential backoff between rate-limit retries
+	 * (attempt _n_ waits `retryBaseMs · 2ⁿ`, capped at 60s and never shorter than
+	 * the server's `retryDelay` hint). Default `1000`.
+	 */
+	retryBaseMs?: number;
+}
+
+/** Hard ceiling on any single backoff wait, so a pathological server hint can't hang the loop. */
+const RETRY_MAX_MS = 60_000;
+
+/** A 429 / quota-exhaustion error the request can be retried after. */
+function isRateLimited(e: unknown): boolean {
+	const err = e as { status?: number; code?: number; message?: string } | null;
+	if (err?.status === 429 || err?.code === 429) return true;
+	return /\b429\b|RESOURCE_EXHAUSTED|rate.?limit|too many requests|quota/i.test(
+		String(err?.message ?? e ?? '')
+	);
+}
+
+/** Best-effort parse of a server-provided retry delay (e.g. Gemini's `"retryDelay": "57s"`), in ms. */
+function retryHintMs(e: unknown): number | undefined {
+	const m = String((e as { message?: string } | null)?.message ?? '').match(
+		/ret(?:ry)?[-_ ]?(?:delay|after)["':= ]+(\d+(?:\.\d+)?)\s*s/i
+	);
+	return m ? Math.ceil(parseFloat(m[1]) * 1000) : undefined;
 }
 
 type EventName = keyof AgentTransportEventMap;
@@ -62,6 +96,8 @@ export class GeminiTextTransport implements AgentTransport {
 	#apiKey?: string | (() => string | Promise<string>);
 	#model: string;
 	#baseUrl?: string;
+	#maxRetries: number;
+	#retryBaseMs: number;
 	#ai: GoogleGenAI | null = null;
 	#systemInstruction = '';
 	#toolDeclarations: AgentTransportConnectOptions['tools'] = [];
@@ -83,6 +119,8 @@ export class GeminiTextTransport implements AgentTransport {
 		this.#apiKey = opts.apiKey;
 		this.#model = opts.model ?? 'gemini-3.5-flash';
 		this.#baseUrl = opts.baseUrl;
+		this.#maxRetries = Math.max(0, opts.maxRetries ?? 1);
+		this.#retryBaseMs = Math.max(0, opts.retryBaseMs ?? 1000);
 	}
 
 	/**
@@ -214,13 +252,26 @@ export class GeminiTextTransport implements AgentTransport {
 		// `chunk.functionCalls` convenience accessor drops it.
 		const functionCallParts: Part[] = [];
 		let usage: GenerateContentResponseUsageMetadata | undefined;
+		// Obtaining the stream is where a 429 surfaces (before any chunk arrives),
+		// so the throttle + rate-limit retry wraps that step; draining it below is a
+		// separate try/catch because partial output can't be cleanly retried.
+		let stream: AsyncGenerator<GenerateContentResponse>;
 		try {
-			const stream = await this.#ai.models.generateContentStream({
+			stream = await this.#requestStream({
 				model: this.#model,
 				contents: this.#contents,
 				config
 			});
-			for await (const chunk of stream as AsyncGenerator<GenerateContentResponse>) {
+		} catch (e) {
+			if (this.#closed) return;
+			this.#emit('error', {
+				message: (e as Error).message ?? 'Gemini text transport error',
+				cause: e
+			});
+			return;
+		}
+		try {
+			for await (const chunk of stream) {
 				if (this.#closed) return;
 				const text = chunk.text;
 				if (text) {
@@ -277,6 +328,55 @@ export class GeminiTextTransport implements AgentTransport {
 		// Final text turn.
 		if (modelText) this.#contents.push({ role: 'model', parts: [{ text: modelText }] });
 		this.#emit('turn-complete', {} as never);
+	}
+
+	/**
+	 * Issue one `generateContentStream` request, retrying transient rate-limit
+	 * (429) failures with exponential backoff (honouring the server's
+	 * `retryDelay` hint, capped at {@link RETRY_MAX_MS}). Each retry is announced
+	 * as a `'notice'` event so the agent's debug box surfaces it. Non-rate-limit
+	 * errors, a closed transport, and exhausted retries all propagate.
+	 */
+	async #requestStream(params: {
+		model: string;
+		contents: Content[];
+		config: GenerateContentConfig;
+	}): Promise<AsyncGenerator<GenerateContentResponse>> {
+		for (let attempt = 0; ; attempt++) {
+			try {
+				return (await this.#ai!.models.generateContentStream(
+					params
+				)) as AsyncGenerator<GenerateContentResponse>;
+			} catch (e) {
+				if (this.#closed || attempt >= this.#maxRetries || !isRateLimited(e)) throw e;
+				const backoff = Math.min(
+					Math.max(this.#retryBaseMs * 2 ** attempt, retryHintMs(e) ?? 0),
+					RETRY_MAX_MS
+				);
+				this.#emit('notice', {
+					message: `rate-limited (429) — retry ${attempt + 1}/${this.#maxRetries} in ${Math.round(backoff / 1000)}s`
+				});
+				await this.#delay(backoff);
+				if (this.#closed) throw e;
+			}
+		}
+	}
+
+	/** Sleep `ms`, resolving early if the in-flight turn is aborted (e.g. `close()`). */
+	#delay(ms: number): Promise<void> {
+		return new Promise<void>((resolve) => {
+			if (ms <= 0 || this.#closed) return resolve();
+			const signal = this.#abort?.signal;
+			const onAbort = () => {
+				clearTimeout(timer);
+				resolve();
+			};
+			const timer = setTimeout(() => {
+				signal?.removeEventListener('abort', onAbort);
+				resolve();
+			}, ms);
+			signal?.addEventListener('abort', onAbort, { once: true });
+		});
 	}
 
 	/**

@@ -129,6 +129,7 @@ Events:
 | `audio-out`       | `{ base64Pcm24k: string }` — audio-output transports only     |
 | `interrupted`     | `{}` — interruptible (barge-in) transports only               |
 | `usage`           | `AgentUsage` — provider token counts, when reported           |
+| `notice`          | `{ message: string }` — non-fatal info (e.g. a 429 retry); folded into the debug feed |
 | `error`           | `{ message, cause? }`                                         |
 | `close`           | `{ reason: string }`                                          |
 
@@ -227,6 +228,20 @@ const textAgent = new Agent(assistant, new GeminiTextTransport({ baseUrl: '/api/
 
 Pick the smallest set you need. `'both'` doubles the prompt overhead
 and confuses the agent with unused tools.
+
+### `compactSurfaceJson`
+
+```ts
+const assistant: AgentDefinition = { …, compactSurfaceJson: true };
+```
+
+Serializes the surface JSON on a single line wherever the agent feeds it to
+the model — the system prompt's surface blocks and the `SURFACE_UPDATED` sync
+payloads — instead of pretty-printing it. Same JSON, same spec compliance;
+on the eval fixture it shrinks the prompt by ~30%, and the saving recurs on
+**every** turn of the session. Default `false` (pretty) for backwards
+compatibility. Pair it with `toolResultExtras: 'diff'` (below) for the full
+context-economy setup.
 
 ### Reactive state
 
@@ -347,11 +362,32 @@ can render the debug toggle wherever your own controls live.
 To turn measurement off entirely, pass `debug: false` in the definition (the
 `agent.debug` instance still exists, it just stays empty).
 
-> **Mitigations** the numbers point to: serialize the surface compactly for the
-> prompt; split a huge grid into smaller per-day/department surfaces and only
-> publish the visible one; or set `toolResultExtras: false` (STRICT) so tool
-> results stop echoing the whole surface and rely on `surfaceWatch` deltas
-> instead.
+### Context economy — the two opt-in knobs
+
+The two amplifiers above have matching, A2UI-compliant mitigations:
+
+1. **`compactSurfaceJson: true`** on the `AgentDefinition` — single-line
+   surface JSON in the prompt and sync payloads (~30% smaller prompt on the
+   eval fixture; see [`Agent` construction](#compactsurfacejson)).
+2. **`toolResultExtras: 'diff'`** on the surface — tool results echo **only
+   what changed**: a tiny `updatedDataModel` delta for value edits, the full
+   `updatedSurface` only when the component structure actually changed. See
+   the [extensions guide](extensions.md#changed-only-tool-results-toolresultextras-diff).
+
+On the eval suite's 6-row shift planner, a realistic 7-call task bills
+~179k input tokens across the request/response loop with the defaults and
+~63k with both knobs on — with identical task outcomes. The `evals/` suite
+(`pnpm eval`, see [evals/README.md](../../evals/README.md)) measures this
+hermetically and runs live LLM A/B scenarios so you can verify the agent
+stays stable before flipping the flags in your app.
+
+If even the structural echo is too much, `toolResultExtras: false` (STRICT)
+removes it entirely — but then nothing tells the model about components that
+appear as a result of its own actions; on transports without `surfaceWatch`
+delivery (request/response text) the model is blind to structure changes
+until the next user turn. Splitting a huge grid into smaller per-day /
+per-department surfaces and publishing only the visible one remains the best
+structural fix.
 
 ## `<AgentShell>` mounting
 

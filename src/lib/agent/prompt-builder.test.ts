@@ -102,6 +102,38 @@ describe('prompt-builder', () => {
 		);
 	});
 
+	describe('compactSurfaceJson', () => {
+		const bigJson = {
+			surfaceId: 'main',
+			components: [{ id: 'root', component: { Column: { children: { explicitList: ['a'] } } } }]
+		};
+
+		it('pretty-prints surface JSON by default', () => {
+			const out = staticSurfacesBlock([{ id: 'main', getJson: () => bigJson }]);
+			expect(out).toContain(JSON.stringify(bigJson, null, 2));
+		});
+
+		it('serializes surface JSON on a single line when compactSurfaceJson is set', () => {
+			const opts = { compactSurfaceJson: true };
+			const out = staticSurfacesBlock([{ id: 'main', getJson: () => bigJson }], opts);
+			expect(out).toContain(JSON.stringify(bigJson));
+			expect(out).not.toContain(JSON.stringify(bigJson, null, 2));
+
+			const dyn = dynamicSurfacesBlock([{ id: 'canvas', getJson: () => bigJson }], false, opts);
+			expect(dyn).toContain(JSON.stringify(bigJson));
+			expect(dyn).not.toContain(JSON.stringify(bigJson, null, 2));
+		});
+
+		it('threads through buildSystemPrompt', () => {
+			const out = buildSystemPrompt({
+				...baseInputs,
+				staticSurfaces: [{ id: 'main', getJson: () => bigJson }],
+				compactSurfaceJson: true
+			});
+			expect(out).toContain(JSON.stringify(bigJson));
+		});
+	});
+
 	describe('optional history (client-history transports)', () => {
 		const withHistory: PromptInputs = {
 			...baseInputs,
@@ -190,6 +222,30 @@ describe('prompt-builder', () => {
 			expect(out).toContain('BATCH OPERATIONS');
 			expect(out).not.toContain('TOOL-RESULT ENVELOPE');
 			expect(out).not.toContain('SURFACE UPDATES');
+		});
+
+		it("'diff' toolResultExtras: teaches the changed-only envelope instead of the full echo", () => {
+			const out = staticSurfacesBlock([
+				{
+					id: 'main',
+					getJson: () => ({}),
+					extensions: { ...ALL_EXTRAS, toolResultExtras: 'diff' as const }
+				}
+			]);
+			expect(out).toContain('TOOL-RESULT ENVELOPE (changed-only)');
+			expect(out).toContain('updatedDataModel');
+			expect(out).toContain('present ONLY when the component STRUCTURE changed');
+			// The full-echo guidance must NOT also be present.
+			expect(out).not.toContain('The original static-surface JSON shown at session start is stale');
+		});
+
+		it("mixed 'diff' + full surfaces: errs toward the full-echo envelope description", () => {
+			const out = staticSurfacesBlock([
+				{ id: 'a', getJson: () => ({}), extensions: { ...ALL_EXTRAS, toolResultExtras: 'diff' as const } },
+				{ id: 'b', getJson: () => ({}) } // missing extensions = ALL_EXTRAS = true
+			]);
+			expect(out).toContain('TOOL-RESULT ENVELOPE');
+			expect(out).not.toContain('TOOL-RESULT ENVELOPE (changed-only)');
 		});
 
 		it('per-flag overrides: only toolResultExtras stays on', () => {

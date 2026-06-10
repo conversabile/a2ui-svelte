@@ -230,7 +230,8 @@ theming is done, update the matching skill — it's what teaches consuming IDEs.
 
 | Command | Does |
 |---|---|
-| `pnpm test` | Run Vitest |
+| `pnpm test` | Run Vitest (unit tests only — never the evals) |
+| `pnpm eval` | Run the eval suite in [evals/](evals/): hermetic context-cost measurement always; live LLM A/B scenarios when `GEMINI_API_KEY` is set |
 | `pnpm check` | `svelte-check` type/diagnostic pass |
 | `pnpm lint` / `pnpm format` | ESLint / Prettier |
 | `pnpm package` | Build the publishable `dist/` (`svelte-package` + `publint`) |
@@ -274,5 +275,6 @@ Read the relevant docs before starting any implementation task.
 | Library skills (for consuming IDEs) | [src/lib/skills/](src/lib/skills/) |
 | Public API surface | `exports` in [package.json](package.json) |
 | Runnable example consumer | [examples/minimal-app/](examples/minimal-app/) |
+| Model-in-the-loop eval suite (context cost + stability A/B) | [evals/](evals/) ([README](evals/README.md)) |
 | Guides | [docs/guides/](docs/guides/) |
 | Implementation plans (in-flight / archived) | [docs/implementation_plans/](docs/implementation_plans/) |

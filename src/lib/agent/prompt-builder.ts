@@ -50,6 +50,14 @@ export interface PromptInputs {
   includeHistory?: boolean;
   /** Whether to include the dynamic-surface mini-spec in the prompt. */
   includeDynamicGuide: boolean;
+  /**
+   * Serialize embedded surface JSON compactly (single line) instead of
+   * pretty-printed. Pretty-printing a dense surface roughly doubles its
+   * character count in pure indentation/newlines — tokens the model is billed
+   * for on every turn. Semantically identical JSON either way; default false
+   * (pretty) for backwards compatibility.
+   */
+  compactSurfaceJson?: boolean;
 }
 
 export function buildSystemPrompt(inputs: PromptInputs): string {
@@ -57,8 +65,12 @@ export function buildSystemPrompt(inputs: PromptInputs): string {
     inputs.includeHistory === false ? [] : inputs.transcriptHistory ?? [];
   return [
     inputs.systemInstruction,
-    staticSurfacesBlock(inputs.staticSurfaces),
-    dynamicSurfacesBlock(inputs.dynamicSurfaces, inputs.includeDynamicGuide),
+    staticSurfacesBlock(inputs.staticSurfaces, {
+      compactSurfaceJson: inputs.compactSurfaceJson,
+    }),
+    dynamicSurfacesBlock(inputs.dynamicSurfaces, inputs.includeDynamicGuide, {
+      compactSurfaceJson: inputs.compactSurfaceJson,
+    }),
     toolsBlock(inputs.toolDeclarations),
     contextBlock(inputs.contextInstructions),
     historyBlock(history),
@@ -69,6 +81,7 @@ export function buildSystemPrompt(inputs: PromptInputs): string {
 
 export function staticSurfacesBlock(
   surfaces: PromptInputs["staticSurfaces"],
+  opts: { compactSurfaceJson?: boolean } = {},
 ): string {
   if (surfaces.length === 0) return "";
 
@@ -87,16 +100,24 @@ export function staticSurfacesBlock(
   const isOn = (s: PromptSurface, k: keyof ExtensionOptions) =>
     s.extensions === undefined || s.extensions[k] !== false;
   const batchToolsEnabled = surfaces.some((s) => isOn(s, "batchTools"));
-  const toolResultExtrasEnabled = surfaces.some((s) =>
-    isOn(s, "toolResultExtras"),
+  // The envelope rule must describe what the surfaces actually return. When
+  // every extras-enabled surface uses 'diff', describe the changed-only
+  // envelope; any surface on `true` (incl. the missing-extensions default)
+  // keeps the full-echo description — a mixed set errs toward the richer
+  // shape so the model is never told to expect less than it gets.
+  const extrasModes = surfaces.map((s) =>
+    s.extensions === undefined ? true : s.extensions.toolResultExtras,
   );
+  const toolResultExtrasEnabled = extrasModes.some((m) => m !== false);
+  const diffEnvelope = toolResultExtrasEnabled && !extrasModes.includes(true);
   const surfaceWatchEnabled = surfaces.some((s) => isOn(s, "surfaceWatch"));
   const pointerToolEnabled = surfaces.some((s) => isOn(s, "pointerTool"));
+  const indent = opts.compactSurfaceJson ? undefined : 2;
 
   let out =
     "## Static Surfaces\nThe application UI has the following static surfaces rendered natively by Svelte. You CANNOT change their component structure, but you can reference them. You CAN interact with them using the available function tools (e.g. clicking buttons).\n";
   for (const s of surfaces) {
-    out += `\n### Static Surface ("${s.id}")\n\`\`\`json\n${JSON.stringify(s.getJson(), null, 2)}\n\`\`\``;
+    out += `\n### Static Surface ("${s.id}")\n\`\`\`json\n${JSON.stringify(s.getJson(), null, indent)}\n\`\`\``;
   }
   out += "\n\n**CRITICAL RULES FOR STATIC SURFACES:**\n";
 
@@ -155,7 +176,15 @@ export function staticSurfacesBlock(
     ruleNo++;
   }
 
-  if (toolResultExtrasEnabled) {
+  if (toolResultExtrasEnabled && diffEnvelope) {
+    out +=
+      `${ruleNo}. **TOOL-RESULT ENVELOPE (changed-only)**: Every \`click_button\` / \`update_text_field\` (and their batched variants) returns the spec-canonical \`results\` array, plus — under \`extensions["a2ui-svelte"]\` — ONLY what the action actually changed:\n` +
+      '   - `updatedSurface`: present ONLY when the component STRUCTURE changed (a component appeared or disappeared, navigation). When present, replace your structural understanding with it. When absent, the structure you already know is still current.\n' +
+      '   - `updatedDataModel`: `{ "<surfaceId>": { "<fieldId>": "<value>" } }` of field values that changed — including side effects of your action (e.g. a form resetting after save). Merge them (upsert each key); fields not listed are unchanged.\n' +
+      "   - `updatedContext` / `availableElementIds`: present only when they changed.\n" +
+      "   If `extensions` is absent entirely, nothing changed beyond what `results` reports — do NOT re-read or re-request the surface; your current understanding is up to date.\n";
+    ruleNo++;
+  } else if (toolResultExtrasEnabled) {
     out +=
       `${ruleNo}. **TOOL-RESULT ENVELOPE**: Every \`click_button\` / \`update_text_field\` (and their batched variants) returns an envelope shaped like:\n` +
       "   ```\n" +
@@ -276,15 +305,17 @@ Agent Action: Call point_to_elements({element_ids: ["order-total"]}) and say "Ec
 export function dynamicSurfacesBlock(
   surfaces: PromptInputs["dynamicSurfaces"],
   includeGuide: boolean,
+  opts: { compactSurfaceJson?: boolean } = {},
 ): string {
   if (surfaces.length === 0 && !includeGuide) return "";
 
   const fallbackId = surfaces[0]?.id || "ai-canvas";
+  const indent = opts.compactSurfaceJson ? undefined : 2;
 
   let out =
     "## Dynamic Surfaces\nYou have a dynamic UI canvas you can populate with components using the `render_a2ui` tool.\n";
   for (const s of surfaces) {
-    out += `\n### Dynamic Surface: "${s.id}"\n\`\`\`json\n${JSON.stringify(s.getJson(), null, 2)}\n\`\`\``;
+    out += `\n### Dynamic Surface: "${s.id}"\n\`\`\`json\n${JSON.stringify(s.getJson(), null, indent)}\n\`\`\``;
   }
 
   out += `

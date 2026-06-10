@@ -78,7 +78,7 @@
 		<div class="a2ui-debug-feed">
 			{#each d.events.slice(-6).reverse() as e (e.t + e.kind + (e.note ?? ''))}
 				<div class="a2ui-debug-evt {e.dir}">
-					<span class="kind">{e.dir === 'out' ? '↑' : '↓'} {e.kind}</span>
+					<span class="kind">{e.dir === 'out' ? '↑' : e.dir === 'in' ? '↓' : '⚠'} {e.kind}</span>
 					{#if e.bytes != null}<span class="sz"
 							>{formatBytes(e.bytes)}{#if e.estTokens}/~{formatTokens(e.estTokens)}t{/if}</span
 						>{/if}
@@ -184,6 +184,9 @@
 	}
 	.a2ui-debug-evt.in .kind {
 		color: var(--pico-ins-color, seagreen);
+	}
+	.a2ui-debug-evt.meta .kind {
+		color: var(--pico-del-color, crimson);
 	}
 	.a2ui-debug-evt .sz {
 		flex: 0 0 auto;

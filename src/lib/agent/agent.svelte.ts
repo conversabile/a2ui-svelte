@@ -7,6 +7,7 @@ import {
 	wrapExtension,
 	type ExtensionOptions
 } from '../core/extensions';
+import { stripDataModel, readDataModelFromJson } from '../core/surface-snapshot';
 import type {
 	AgentTransport,
 	AgentTransportConnectOptions,
@@ -19,22 +20,6 @@ import { AudioPlayer } from './audio-player';
 
 export type AgentMode = 'static' | 'dynamic' | 'both';
 export type AgentStatus = 'idle' | 'thinking' | 'error';
-
-/**
- * Strip data-model *values* from a serialised surface, leaving only its
- * structure. A static surface carries values in a `dataModel` array
- * (`[{ key, valueString }]`); a dynamic surface in a `data` object. Removing
- * both yields a value-independent structural view, so the sync loop can tell
- * a structural change (navigation, a component appearing) apart from a mere
- * value edit.
- */
-function stripDataModel(json: unknown): unknown {
-	if (json && typeof json === 'object' && !Array.isArray(json)) {
-		const { dataModel: _dataModel, data: _data, ...rest } = json as Record<string, unknown>;
-		return rest;
-	}
-	return json;
-}
 
 /**
  * Read a surface's `{ fieldId → value }` data model. Prefers the handle's
@@ -50,21 +35,7 @@ function readDataModel(surface: AgentSurface): Record<string, unknown> {
 			return {};
 		}
 	}
-	const json = surface.getJson();
-	if (json && typeof json === 'object') {
-		const obj = json as Record<string, unknown>;
-		if (Array.isArray(obj.dataModel)) {
-			const out: Record<string, unknown> = {};
-			for (const entry of obj.dataModel as Array<{ key?: unknown; valueString?: unknown }>) {
-				if (entry && typeof entry.key === 'string') out[entry.key] = entry.valueString;
-			}
-			return out;
-		}
-		if (obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data)) {
-			return { ...(obj.data as Record<string, unknown>) };
-		}
-	}
-	return {};
+	return readDataModelFromJson(surface.getJson());
 }
 
 export interface AgentSurface {
@@ -202,6 +173,16 @@ export interface AgentDefinition {
 	 * these knobs only control timing.
 	 */
 	surfaceWatchTuning?: SurfaceWatchTuning;
+	/**
+	 * Serialize surface JSON compactly (single line) wherever it is fed to the
+	 * model — the system prompt's surface blocks and the `SURFACE_UPDATED`
+	 * sync payloads. Pretty-printing a dense surface roughly doubles its
+	 * character count in pure indentation, and on a live session that cost is
+	 * re-billed every turn. Semantically identical JSON either way. Default
+	 * `false` (pretty) for backwards compatibility; ignored when a custom
+	 * `buildPrompt` chooses its own formatting.
+	 */
+	compactSurfaceJson?: boolean;
 	/**
 	 * Token/byte debug telemetry. The agent always exposes a `debug`
 	 * (`AgentDebugStats`) so a host can render a debug box (see
@@ -523,6 +504,14 @@ export class Agent {
 	}
 
 	/**
+	 * Serialize an event payload for an XML-tagged model message, honouring
+	 * `compactSurfaceJson` (these payloads can embed whole surface trees).
+	 */
+	#stringifyPayload(payload: unknown): string {
+		return JSON.stringify(payload, null, this.#def.compactSurfaceJson ? undefined : 2);
+	}
+
+	/**
 	 * Capability-gated audio I/O: a speaker player when the transport produces
 	 * audio, a mic recorder when it accepts audio. Throws if the mic is
 	 * unavailable (surfaced as `configIssue` by `start()`).
@@ -592,6 +581,11 @@ export class Agent {
 				this.modelTurnActive = false;
 				this.#player?.stop();
 				if (this.status !== 'error') this.setStatus('thinking');
+			}),
+			this.#transport.on('notice', (p) => {
+				// Non-fatal transport signal (e.g. a rate-limit retry) — log it for
+				// the debug box; it does not change session status.
+				if (this.#debugEnabled) this.debug.recordNotice(p.message);
 			}),
 			this.#transport.on('error', (p) => {
 				console.error('[Agent] Transport error:', p.message, p.cause);
@@ -811,6 +805,7 @@ export class Agent {
 				: [],
 			toolDeclarations: tools,
 			contextInstructions: this.#contextInstructions(),
+			compactSurfaceJson: this.#def.compactSurfaceJson,
 			// Server-history transports (voice) embed the recent transcript in the
 			// prompt for reconnect continuity; client-history transports (text)
 			// own `messages[]` and get prior turns via connect options instead, so
@@ -901,7 +896,7 @@ export class Agent {
 				return;
 			}
 			const payload = { userAction: canonical };
-			const message = `<event>USER_ACTION</event>\n<payload>\n${JSON.stringify(payload, null, 2)}\n</payload>`;
+			const message = `<event>USER_ACTION</event>\n<payload>\n${this.#stringifyPayload(payload)}\n</payload>`;
 			this.#transport.sendText(message);
 			this.rec('user-action', message, canonical.name);
 		} catch (e) {
@@ -1116,7 +1111,7 @@ export class Agent {
 			updatedContext: ctx,
 			availableElementIds: actionRegistry.listActions()
 		});
-		const message = `<event>SURFACE_UPDATED</event>\n<payload>\n${JSON.stringify(payload, null, 2)}\n</payload>`;
+		const message = `<event>SURFACE_UPDATED</event>\n<payload>\n${this.#stringifyPayload(payload)}\n</payload>`;
 		if (this.#sendSilently(message)) {
 			// Structural re-sync ships the whole tree — the expensive sync path.
 			this.rec('context-update', message, 'full-surface');
@@ -1145,7 +1140,7 @@ export class Agent {
 		};
 		if (ctxChanged) ext.updatedContext = ctx;
 		const payload = wrapExtension(A2UI_EXTENSION_NAMESPACE, ext);
-		const message = `<event>SURFACE_UPDATED</event>\n<payload>\n${JSON.stringify(payload, null, 2)}\n</payload>`;
+		const message = `<event>SURFACE_UPDATED</event>\n<payload>\n${this.#stringifyPayload(payload)}\n</payload>`;
 		if (this.#sendSilently(message)) {
 			// The cheap path: only the changed fields, not the tree.
 			this.rec('context-update', message, 'data-model-delta');
@@ -1281,7 +1276,7 @@ export class Agent {
 			updatedContext: context,
 			availableElementIds: actionRegistry.listActions()
 		});
-		const message = `<event>SURFACE_UPDATED</event>\n<payload>\n${JSON.stringify(payload, null, 2)}\n</payload>`;
+		const message = `<event>SURFACE_UPDATED</event>\n<payload>\n${this.#stringifyPayload(payload)}\n</payload>`;
 		try {
 			if (silent && typeof this.#transport.sendContextUpdate === 'function') {
 				this.#transport.sendContextUpdate(message);

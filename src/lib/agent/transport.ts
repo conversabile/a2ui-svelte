@@ -185,6 +185,14 @@ export interface AgentTransportEventMap {
 	 */
 	'interrupted': Record<string, never>;
 
+	/**
+	 * A non-fatal, informational signal worth surfacing in debug tooling — e.g.
+	 * a retry after a rate-limit (429). Unlike `'error'` it does NOT end the
+	 * session. Optional for transports to emit; the `Agent` folds it into
+	 * `debug.events`.
+	 */
+	'notice': { message: string };
+
 	/** Recoverable error from the transport. */
 	'error': { message: string; cause?: unknown };
 

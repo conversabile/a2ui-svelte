@@ -88,7 +88,9 @@ and shell adapt to — modalities, barge-in, silent context, history
 ownership), `connect`, `sendText`, `sendToolResult`, `close`, plus an
 `on(event, cb)` emitter for `tool-call`, `text-in`, `text-out`,
 `turn-complete`, `error`, `close` (and `audio-out` / `interrupted` /
-`usage` where applicable). Audio transports also implement
+`usage` / `notice` where applicable — `notice` is a non-fatal info
+signal, e.g. a rate-limit retry, that the agent logs to its debug box).
+Audio transports also implement
 `sendAudioChunk`. Optionally implement `sendContextUpdate(text)` — a
 channel that appends to the model's context *without* triggering a
 response (Gemini Live: `sendClientContent({ turnComplete: false })`);
@@ -203,6 +205,15 @@ test environment can construct Web Audio objects.
   and dynamic surfaces. The prompt builder will include guidance for
   both. `'dynamic'` only registers the `surfaceUpdate` /
   `dataModelUpdate` / `beginRendering` tools.
+- **Dense surfaces / quota pressure.** The defaults are token-hungry:
+  the prompt embeds the surface pretty-printed and every tool result
+  echoes the whole surface back. Two opt-in, spec-compliant fixes — set
+  `compactSurfaceJson: true` on the definition (single-line surface
+  JSON, ~30% smaller prompt) and `options={{ toolResultExtras: 'diff' }}`
+  on the surface (results report only what changed; the full tree only
+  when the structure actually changed). On a 6-row roster fixture a
+  7-call task drops from ~179k to ~63k billed input tokens with both on,
+  with identical outcomes.
 - **Custom prompt.** Pass `buildPrompt: (inputs) => string` in the
   definition to override the assembled system prompt entirely. Use
   `staticSurfacesBlock`, `toolsBlock`, etc. from `a2ui-svelte/agent` to

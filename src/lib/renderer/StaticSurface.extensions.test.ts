@@ -4,7 +4,9 @@ import StaticSurface from './StaticSurface.svelte';
 import { toolRegistry } from '../core/registries/tool-registry';
 import { actionRegistry } from '../core/registries/action-registry';
 import { STRICT, ALL_EXTRAS } from '../core/extensions';
+import type { SurfaceFeedback } from './surface-feedback';
 import ButtonHarness from './__fixtures__/ButtonHarness.svelte';
+import DiffHarness from './__fixtures__/DiffHarness.svelte';
 
 // jsdom doesn't provide `CSS` — the reveal / highlight helpers in core
 // use `CSS.escape(id)` to safely interpolate component IDs into a CSS
@@ -159,6 +161,112 @@ describe('StaticSurface — B4: tool-result envelope shape', () => {
 		expect(result).toEqual({
 			results: [{ element_id: 'save-btn', status: 'success' }]
 		});
+	});
+});
+
+describe("StaticSurface — 'diff' tool-result mode (changed-only envelope)", () => {
+	beforeEach(clearRegistries);
+
+	/**
+	 * Mount the DiffHarness with `toolResultExtras: 'diff'` and a feedback
+	 * provider wired to the surface's own JSON (the lazy holder lets the
+	 * closure read the mounted component's exports after render returns).
+	 */
+	function mountDiffSurface(surfaceId: string) {
+		const ctx = { value: 'initial context' };
+		const holder: { getJson: (() => unknown) | null } = { getJson: null };
+		const feedback: SurfaceFeedback = {
+			globalSurfaces: () => (holder.getJson ? [holder.getJson()] : []),
+			contextInstructions: () => ctx.value
+		};
+		const { component } = render(StaticSurface, {
+			surfaceId,
+			children: DiffHarness as never,
+			feedback,
+			options: { toolResultExtras: 'diff' as const }
+		});
+		holder.getJson = () => (component as { getJson: () => unknown }).getJson();
+		return { ctx };
+	}
+
+	it('a value-only update returns updatedDataModel, NOT the surface echo', async () => {
+		mountDiffSurface('diff-value');
+		const result: any = await toolRegistry.execute('update_text_field', {
+			element_id: 'name-field',
+			value: 'John'
+		});
+		expect(result.results[0].status).toBe('success');
+		const extras = result.extensions?.['a2ui-svelte'];
+		expect(extras).toBeDefined();
+		expect(extras.updatedDataModel).toEqual({ 'diff-value': { name: 'John' } });
+		expect(extras).not.toHaveProperty('updatedSurface');
+		expect(extras).not.toHaveProperty('updatedContext');
+		expect(extras).not.toHaveProperty('availableElementIds');
+	});
+
+	it('a no-op action returns bare { results } with no extensions at all', async () => {
+		mountDiffSurface('diff-noop');
+		await toolRegistry.execute('update_text_field', {
+			element_id: 'name-field',
+			value: 'John'
+		});
+		// Same value again: nothing changed vs the last delivered state.
+		const result: any = await toolRegistry.execute('update_text_field', {
+			element_id: 'name-field',
+			value: 'John'
+		});
+		expect(result.results[0].status).toBe('success');
+		expect(result).not.toHaveProperty('extensions');
+	});
+
+	it('a structural change (component added) echoes the full updatedSurface', async () => {
+		mountDiffSurface('diff-structure');
+		const result: any = await toolRegistry.execute('click_button', { element_id: 'add-row' });
+		const extras = result.extensions?.['a2ui-svelte'];
+		expect(extras).toBeDefined();
+		expect(extras).toHaveProperty('updatedSurface');
+		const surfaces = extras.updatedSurface as Array<{ components: Array<{ id: string }> }>;
+		expect(surfaces[0].components.map((c) => c.id)).toContain('row-1');
+		// The full echo carries the data model inside it — no separate delta.
+		expect(extras).not.toHaveProperty('updatedDataModel');
+	});
+
+	it("a click's side effect on a field (form reset) surfaces as updatedDataModel", async () => {
+		mountDiffSurface('diff-side-effect');
+		await toolRegistry.execute('update_text_field', {
+			element_id: 'name-field',
+			value: 'John'
+		});
+		const result: any = await toolRegistry.execute('click_button', {
+			element_id: 'reset-form'
+		});
+		const extras = result.extensions?.['a2ui-svelte'];
+		expect(extras).toBeDefined();
+		expect(extras.updatedDataModel).toEqual({ 'diff-side-effect': { name: '' } });
+		expect(extras).not.toHaveProperty('updatedSurface');
+	});
+
+	it('reports updatedContext only when the context instructions changed', async () => {
+		const { ctx } = mountDiffSurface('diff-context');
+		// First call seeds the baseline (pre-action state = what the prompt
+		// showed), so a context change made before it counts as already known.
+		await toolRegistry.execute('update_text_field', {
+			element_id: 'name-field',
+			value: 'Jane'
+		});
+		ctx.value = 'context after action';
+		const result: any = await toolRegistry.execute('update_text_field', {
+			element_id: 'name-field',
+			value: 'Janet'
+		});
+		const extras = result.extensions?.['a2ui-svelte'];
+		expect(extras.updatedContext).toBe('context after action');
+		// And once delivered, an unchanged context is not repeated.
+		const third: any = await toolRegistry.execute('update_text_field', {
+			element_id: 'name-field',
+			value: 'Joan'
+		});
+		expect(third.extensions?.['a2ui-svelte']).not.toHaveProperty('updatedContext');
 	});
 });
 

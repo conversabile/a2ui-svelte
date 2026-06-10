@@ -43,3 +43,5 @@ docs/implementation_plans/archived
 wireframes/
 
 tmp/
+# Eval artifacts
+evals/results/
