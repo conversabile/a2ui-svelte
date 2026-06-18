@@ -73,10 +73,16 @@ One framework, three pieces — definition, transport, shell (see
   on the transport's identity**. Audio members (`sendAudioChunk?`, `audio-out`,
   `interrupted`) are optional parts of this same contract — there is no separate
   voice interface. **Auth lives on each transport's constructor**, never on the
-  agent. Built-ins: `GeminiLiveTransport` (streaming audio-to-audio) and
-  `GeminiTextTransport` (request/response) in
-  [src/lib/agent/gemini/](src/lib/agent/gemini/), plus the deterministic
-  `ScriptedTransport` for tests.
+  agent. Built-ins (one provider directory each under
+  [src/lib/agent/](src/lib/agent/), with a server-side token-mint helper per
+  voice provider): `GeminiLiveTransport` + `GeminiTextTransport` (`gemini/`),
+  `AnthropicTextTransport` (`anthropic/`, official SDK), `OpenAITextTransport`
+  + `OpenAIRealtimeTransport` (`openai/`), `DeepgramVoiceAgentTransport`
+  (`deepgram/`), `HumeEviTransport` (`hume/`), plus the deterministic
+  `ScriptedTransport` for tests. Shared PCM/WAV adapters live in
+  [src/lib/agent/pcm.ts](src/lib/agent/pcm.ts) — the contract's audio shapes
+  (16 kHz mic in, 24 kHz speaker out) are fixed; transports resample/unpack
+  internally.
 - **`AgentDefinition` + `Agent`** ([src/lib/agent/agent.svelte.ts](src/lib/agent/agent.svelte.ts))
   — the definition is a plain object (instructions, surfaces, context, mode,
   tuning; future guardrails/subagents) declared once and valid for every
@@ -193,8 +199,10 @@ identity.**
   **transports** (or transport wrappers, e.g. STT/TTS around a text model) —
   not new agents or shells.
 - Keep model/provider specifics inside the transport adapters
-  ([src/lib/agent/gemini/](src/lib/agent/gemini/)); nothing provider-specific
-  belongs in [src/lib/core/](src/lib/core/) or the neutral agent/shell files.
+  (the per-provider directories under [src/lib/agent/](src/lib/agent/):
+  `gemini/`, `anthropic/`, `openai/`, `deepgram/`, `hume/`); nothing
+  provider-specific belongs in [src/lib/core/](src/lib/core/) or the neutral
+  agent/shell files.
 
 ### 7. Tests Ship With Behaviour
 
@@ -206,7 +214,8 @@ serializer path, extension, or transport behaviour ships with a test. Run
 
 The package's surface is the `exports` map in [package.json](package.json)
 (`./core`, `./components`, `./renderer`, `./authoring`, `./agent`,
-`./agent/gemini`, `./transport`, `./skills`). Adding to it is cheap; **changing
+`./agent/gemini`, `./agent/anthropic`, `./agent/openai`, `./agent/deepgram`,
+`./agent/hume`, `./transport`, `./skills`). Adding to it is cheap; **changing
 or removing an export is a breaking change** — flag it, don't do it silently.
 The package is pre-1.0 and experimental, but breakage should still be deliberate
 and noted.
@@ -235,7 +244,7 @@ theming is done, update the matching skill — it's what teaches consuming IDEs.
 | `pnpm check` | `svelte-check` type/diagnostic pass |
 | `pnpm lint` / `pnpm format` | ESLint / Prettier |
 | `pnpm package` | Build the publishable `dist/` (`svelte-package` + `publint`) |
-| `GEMINI_API_KEY=… pnpm --filter minimal-app dev` | Run the example consumer app |
+| `pnpm --filter minimal-app dev` | Run the example consumer app (copy `examples/minimal-app/.env.template` → `.env`, add ≥1 provider key) |
 
 ---
 
@@ -250,6 +259,7 @@ Read the relevant docs before starting any implementation task.
 | Build a composite (bespoke HTML, agent sees a clean tree) | [docs/guides/composite-components.md](docs/guides/composite-components.md) |
 | Theme components (tokens / custom catalog) | [docs/guides/theming.md](docs/guides/theming.md) |
 | Work on the agent, transports, or `<AgentShell>` | [docs/guides/agent-integration.md](docs/guides/agent-integration.md) |
+| Pick a model/voice provider (free tiers, selection criteria, rejected candidates) | [docs/guides/transport-providers.md](docs/guides/transport-providers.md) |
 | Add or change a namespaced extension | [docs/guides/extensions.md](docs/guides/extensions.md) |
 | Generalise the agent across voice/text transports | [docs/implementation_plans/transport-neutral-agent-framework.md](docs/implementation_plans/transport-neutral-agent-framework.md) |
 | Understand A2UI spec / compliance | [v0.8 spec](https://a2ui.org/) + [docs/reference/components.md](docs/reference/components.md) |
@@ -271,6 +281,7 @@ Read the relevant docs before starting any implementation task.
 | Agent framework (contract, `Agent`, `AgentShell`, prompt builder, audio, debug) | [src/lib/agent/](src/lib/agent/) |
 | Transport contract (`AgentTransport`, `TransportCapabilities`) | [src/lib/agent/transport.ts](src/lib/agent/transport.ts) |
 | Gemini transports (Live + text) + token minter | [src/lib/agent/gemini/](src/lib/agent/gemini/) |
+| Anthropic / OpenAI / Deepgram / Hume transports + token minters | [src/lib/agent/anthropic/](src/lib/agent/anthropic/), [src/lib/agent/openai/](src/lib/agent/openai/), [src/lib/agent/deepgram/](src/lib/agent/deepgram/), [src/lib/agent/hume/](src/lib/agent/hume/) |
 | A2A network types + envelope helpers | [src/lib/transport/a2a.ts](src/lib/transport/a2a.ts) |
 | Library skills (for consuming IDEs) | [src/lib/skills/](src/lib/skills/) |
 | Public API surface | `exports` in [package.json](package.json) |

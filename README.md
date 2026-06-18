@@ -29,8 +29,9 @@ The library ships:
   for adding custom and composite components.
 - A transport-neutral **agent framework**: define your agent once
   (`AgentDefinition`), connect it to any transport (streaming voice via
-  `GeminiLiveTransport`, request/response text via `GeminiTextTransport`,
-  deterministic `ScriptedTransport` for tests, or your own), and render
+  Gemini Live, OpenAI Realtime, Deepgram Voice Agent or Hume EVI;
+  request/response text via Gemini, Anthropic Claude or OpenAI;
+  deterministic `ScriptedTransport` for tests; or your own), and render
   the one `<AgentShell>` — it adapts to the transport's capabilities
   (the mic appears exactly when the transport speaks audio).
 - **Skills** (Markdown, frontmatter-tagged) so agentic IDEs can teach
@@ -130,9 +131,12 @@ shell without the mic.
   player, and mute toggle. It adapts to the transport's declared
   `capabilities`, never to its identity.
 - **Transport** (`AgentTransport`) — the per-model adapter. Ships:
-  `GeminiLiveTransport` (streaming audio-to-audio over Gemini Live),
-  `GeminiTextTransport` (request/response text), and `ScriptedTransport`
-  (deterministic, model-free, for tests). Each owns its own auth.
+  `GeminiLiveTransport`, `OpenAIRealtimeTransport`,
+  `DeepgramVoiceAgentTransport` and `HumeEviTransport` (streaming voice),
+  `GeminiTextTransport`, `AnthropicTextTransport` and `OpenAITextTransport`
+  (request/response text), and `ScriptedTransport` (deterministic,
+  model-free, for tests). Each owns its own auth and ships a server-side
+  token-mint helper where the provider uses short-lived credentials.
 - **AgentShell** (`<AgentShell>`) — the one opt-in UI: chat bar,
   transcript, status, debug panel — plus mic + mute exactly when
   `agent.capabilities` include audio. Snippet slots replace pieces;
@@ -166,6 +170,16 @@ new Agent(assistant, new GeminiTextTransport({ baseUrl: '/api/gemini' }));
 new Agent(assistant, new ScriptedTransport([{ on: 'hi', text: 'Hello!' }]));
 ```
 
+The other built-ins plug in the same way: `AnthropicTextTransport`
+(`a2ui-svelte/agent/anthropic`), `OpenAITextTransport` and
+`OpenAIRealtimeTransport` (`a2ui-svelte/agent/openai`),
+`DeepgramVoiceAgentTransport` (`a2ui-svelte/agent/deepgram`),
+`HumeEviTransport` (`a2ui-svelte/agent/hume`) — see the
+[built-in transport table](docs/guides/agent-integration.md#built-in-transports)
+for the wiring and the
+[provider comparison](docs/guides/transport-providers.md) for free
+tiers and how to pick one.
+
 Transports describe themselves through `TransportCapabilities` (audio
 modalities, barge-in, silent context channel, history ownership…), and
 both the `Agent` and `<AgentShell>` adapt to that descriptor — so a
@@ -181,12 +195,15 @@ a working proxy route.
 
 `examples/minimal-app/` is a SvelteKit smoke-test consumer that
 exercises every public API (static surface, dynamic surface, composite,
-agent integration over both Gemini transports, theming). See its
-[README](examples/minimal-app/README.md).
+agent integration over all seven built-in transports, theming). Its
+model picker enables a provider exactly when its key is configured. See
+its [README](examples/minimal-app/README.md).
 
 ```bash
 pnpm install
-GEMINI_API_KEY=... pnpm --filter minimal-app dev
+cp examples/minimal-app/.env.template examples/minimal-app/.env
+# edit .env — add at least one real provider key
+pnpm --filter minimal-app dev
 ```
 
 ## A2UI v0.8 compatibility

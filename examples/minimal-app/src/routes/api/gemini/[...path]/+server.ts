@@ -1,46 +1,28 @@
 import { error } from '@sveltejs/kit';
-import { GEMINI_API_KEY } from '$env/static/private';
+import { apiKey } from '$lib/server/providers';
+import { proxyToUpstream } from '$lib/server/proxy';
 import type { RequestHandler } from './$types';
 
 /**
- * Dev proxy for the Gemini **text** (request/response) path.
- *
- * The browser-side `GeminiTextTransport` is pointed here via its `baseUrl`
- * option, so the real `GEMINI_API_KEY` stays server-only — the client never
- * sees it. The `@google/genai` SDK builds paths like
+ * Dev proxy for the Gemini **text** (request/response) path. The browser-side
+ * `GeminiTextTransport` is pointed here via its `baseUrl`, so the real
+ * `GEMINI_API_KEY` stays server-only — the client only sends a placeholder.
+ * The `@google/genai` SDK builds paths like
  * `/v1beta/models/<model>:streamGenerateContent?alt=sse`; this catch-all
- * mirrors whatever path it produces onto the real host, injects the key as the
- * `x-goog-api-key` header (overriding the client's placeholder), and streams the
- * SSE response straight back.
+ * mirrors them onto the real host with the key injected as `x-goog-api-key`.
  *
  * The voice path doesn't use this — Gemini Live mints a short-lived token via
- * `/api/voice-token` instead.
+ * `/api/voice-token/gemini` instead.
  */
-const UPSTREAM = 'https://generativelanguage.googleapis.com';
-
 const proxy: RequestHandler = async ({ params, url, request }) => {
-	if (!GEMINI_API_KEY) {
-		error(503, 'GEMINI_API_KEY is not set. Run `GEMINI_API_KEY=... pnpm dev`.');
-	}
-
-	const target = `${UPSTREAM}/${params.path}${url.search}`;
-	const upstream = await fetch(target, {
-		method: request.method,
-		headers: {
-			'content-type': request.headers.get('content-type') ?? 'application/json',
-			// Inject the real key here — the browser only ever sent a placeholder.
-			'x-goog-api-key': GEMINI_API_KEY
-		},
-		body: request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.text()
-	});
-
-	// Pass the (streaming SSE) body straight through without buffering.
-	return new Response(upstream.body, {
-		status: upstream.status,
-		headers: {
-			'content-type': upstream.headers.get('content-type') ?? 'application/json',
-			'cache-control': 'no-store'
-		}
+	const key = apiKey.gemini();
+	if (!key) error(503, 'GEMINI_API_KEY is not set — see .env.template.');
+	return proxyToUpstream({
+		upstreamBase: 'https://generativelanguage.googleapis.com',
+		path: params.path,
+		search: url.search,
+		request,
+		inject: { 'x-goog-api-key': key }
 	});
 };
 

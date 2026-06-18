@@ -1,10 +1,11 @@
 # Agent integration
 
 This guide covers wiring an AI agent to A2UI surfaces. It walks through
-the `AgentDefinition`, the `AgentTransport` interface (and the two
-built-in Gemini transports), the `Agent` orchestrator, the
-`<AgentShell>` UI, and the `SurfaceFeedback` context that bridges your
-app's session store to the library's tool result reporting.
+the `AgentDefinition`, the `AgentTransport` interface (and the built-in
+transports for Gemini, Anthropic, OpenAI, Deepgram and Hume), the
+`Agent` orchestrator, the `<AgentShell>` UI, and the `SurfaceFeedback`
+context that bridges your app's session store to the library's tool
+result reporting.
 
 The same content in skill form is at
 [`integrate-agent`](../../src/lib/skills/integrate-agent.md);
@@ -23,9 +24,11 @@ your app                    a2ui-svelte
          │
          ├─ AgentDefinition ──► what the agent IS (instructions, surfaces,
          │                      context) — model- and channel-independent
-         ├─ a transport ──────► GeminiLiveTransport (streaming voice),
-         │                      GeminiTextTransport (request/response),
-         │                      ScriptedTransport (tests), or your own
+         ├─ a transport ──────► streaming voice (Gemini Live, OpenAI
+         │                      Realtime, Deepgram, Hume EVI),
+         │                      request/response text (Gemini, Anthropic,
+         │                      OpenAI), ScriptedTransport (tests), or
+         │                      your own
          ├─ Agent(def, transport) ► prompt assembly, tool dispatch, surface
          │                      watch, transcript — plus mic/speaker when the
          │                      transport's capabilities include audio
@@ -151,15 +154,41 @@ A future "voice over a text model" is just a transport decorator: wrap a
 text transport with STT/TTS, advertise `'audio'`, and the same agent and
 shell light up the mic — no new classes.
 
-The built-in implementations live at
-`src/lib/agent/gemini/live-transport.ts` (streaming audio, server-side
-tool loop) and `src/lib/agent/gemini/text-transport.ts` (request/response,
-client-side tool loop) — useful references if you're writing a new one.
+## Built-in transports
 
-## Token mint (Gemini Live)
+One per provider/channel, all implementing the same contract — swap the
+constructor and nothing else changes. (For provider-level guidance —
+free tiers, cost posture, what was evaluated and rejected — see
+[transport providers](transport-providers.md).)
 
-The Live transport authenticates with short-lived ephemeral tokens, not
-your raw API key. Mint them server-side:
+| Transport | Import from | Profile | Notes |
+|---|---|---|---|
+| `GeminiLiveTransport` | `a2ui-svelte/agent/gemini` | streaming speech-to-speech | Server tool loop, barge-in, silent context. Auth: ephemeral token (`mintGeminiToken`). |
+| `GeminiTextTransport` | `a2ui-svelte/agent/gemini` | request/response text | Client tool loop, streamed deltas, 429 retry. Auth: `apiKey` or `baseUrl` proxy. |
+| `AnthropicTextTransport` | `a2ui-svelte/agent/anthropic` | request/response text | Claude via the official SDK; adaptive thinking on by default (`thinking: false` for pre-4.6 models); default model `claude-opus-4-8`. Auth: `apiKey` or `baseUrl` proxy. |
+| `OpenAITextTransport` | `a2ui-svelte/agent/openai` | request/response text | Chat Completions via the official SDK; default model `gpt-5.2`. Auth: `apiKey` or `baseUrl` proxy. |
+| `OpenAIRealtimeTransport` | `a2ui-svelte/agent/openai` | streaming speech-to-speech | GA Realtime WebSocket (`gpt-realtime-2`); barge-in, silent context (item-create without response). Auth: ephemeral client secret (`mintOpenAIRealtimeSecret`). |
+| `DeepgramVoiceAgentTransport` | `a2ui-svelte/agent/deepgram` | streaming voice (STT→LLM→TTS pipeline) | Whole agent configured over the socket; client-side function calls; native 16 kHz-in/24 kHz-out match. Free signup credits. Auth: grant JWT (`mintDeepgramToken`). |
+| `HumeEviTransport` | `a2ui-svelte/agent/hume` | streaming speech-to-speech | Empathic Voice Interface; prompt + tools pushed via `session_settings`; free monthly credits. Auth: OAuth token (`fetchHumeAccessToken`). |
+| `ScriptedTransport` | `a2ui-svelte/agent` | deterministic test double | No model, no network. |
+
+The implementations live under `src/lib/agent/{gemini,anthropic,openai,deepgram,hume}/`
+— useful references if you're writing a new one. The voice transports
+adapt their provider's wire formats to the contract's fixed audio shapes
+(16 kHz PCM mic in, 24 kHz PCM speaker out) internally — e.g. OpenAI
+Realtime upsamples the mic stream, Hume unpacks its WAV output — so the
+`Agent`'s recorder/player never special-case a provider.
+
+## Auth: token mints and key proxies
+
+Auth always lives on the transport constructor. Two patterns:
+
+**Voice transports — short-lived tokens, minted server-side.** Each
+voice provider has a mint helper (same shape as the route below): Gemini
+Live → `mintGeminiToken` (`a2ui-svelte/agent/gemini`), OpenAI Realtime →
+`mintOpenAIRealtimeSecret` (`a2ui-svelte/agent/openai`), Deepgram →
+`mintDeepgramToken` (`a2ui-svelte/agent/deepgram`), Hume EVI →
+`fetchHumeAccessToken` (`a2ui-svelte/agent/hume`).
 
 ```ts
 // src/routes/api/voice-token/+server.ts
@@ -174,13 +203,19 @@ export async function POST() {
 }
 ```
 
-Hand the minting function to the transport; it is called once per
-`connect()`, so every session gets a fresh single-use token.
+Hand the minting function to the transport (`token: async () => …`,
+Hume: `accessToken`); it is called once per `connect()`, so every
+session gets a fresh short-lived credential.
 
-For `GeminiTextTransport`, keep the key server-side with a same-origin
-proxy instead: construct it with `{ baseUrl: '/api/gemini' }` and have
-that route inject the real `x-goog-api-key` (see
+**Text transports — same-origin key proxy.** `GeminiTextTransport`,
+`AnthropicTextTransport` and `OpenAITextTransport` all accept
+`{ baseUrl: '/api/<provider>' }`: the browser sends a placeholder key
+and your proxy route injects the real one (`x-goog-api-key`,
+`x-api-key`, or `Authorization: Bearer`) before forwarding to the
+provider (see
 `examples/minimal-app/src/routes/api/gemini/[...path]/+server.ts`).
+Passing `apiKey` directly works too, but exposes the key client-side —
+development only.
 
 ## `Agent` construction
 
@@ -213,6 +248,13 @@ const agent = new Agent(
 
 // …or request/response text. Same definition, same shell, no other change.
 const textAgent = new Agent(assistant, new GeminiTextTransport({ baseUrl: '/api/gemini' }));
+
+// …or any other provider — still nothing else changes:
+//   new AnthropicTextTransport({ baseUrl: '/api/claude' })       (a2ui-svelte/agent/anthropic)
+//   new OpenAITextTransport({ baseUrl: '/api/openai' })          (a2ui-svelte/agent/openai)
+//   new OpenAIRealtimeTransport({ token: mintFromYourServer })   (a2ui-svelte/agent/openai)
+//   new DeepgramVoiceAgentTransport({ token: mintFromYourServer }) (a2ui-svelte/agent/deepgram)
+//   new HumeEviTransport({ accessToken: mintFromYourServer })    (a2ui-svelte/agent/hume)
 ```
 
 ### `mode`

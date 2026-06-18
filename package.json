@@ -56,6 +56,26 @@
 			"svelte": "./dist/agent/gemini/index.js",
 			"import": "./dist/agent/gemini/index.js"
 		},
+		"./agent/anthropic": {
+			"types": "./dist/agent/anthropic/index.d.ts",
+			"svelte": "./dist/agent/anthropic/index.js",
+			"import": "./dist/agent/anthropic/index.js"
+		},
+		"./agent/openai": {
+			"types": "./dist/agent/openai/index.d.ts",
+			"svelte": "./dist/agent/openai/index.js",
+			"import": "./dist/agent/openai/index.js"
+		},
+		"./agent/deepgram": {
+			"types": "./dist/agent/deepgram/index.d.ts",
+			"svelte": "./dist/agent/deepgram/index.js",
+			"import": "./dist/agent/deepgram/index.js"
+		},
+		"./agent/hume": {
+			"types": "./dist/agent/hume/index.d.ts",
+			"svelte": "./dist/agent/hume/index.js",
+			"import": "./dist/agent/hume/index.js"
+		},
 		"./transport": {
 			"types": "./dist/transport/index.d.ts",
 			"svelte": "./dist/transport/index.js",
@@ -74,10 +94,12 @@
 		"svelte": "^5.0.0"
 	},
 	"dependencies": {
+		"@anthropic-ai/sdk": "^0.103.0",
 		"@capacitor/core": "^8.1.0",
 		"@google/genai": "^1.41.0",
 		"capacitor-voice-recorder": "^7.0.6",
-		"marked": "^17.0.5"
+		"marked": "^17.0.5",
+		"openai": "^6.42.0"
 	},
 	"devDependencies": {
 		"@sveltejs/kit": "^2.50.1",
@@ -92,13 +114,13 @@
 		"prettier": "^3.8.1",
 		"prettier-plugin-svelte": "^3.4.1",
 		"publint": "^0.3.0",
+		"standard-version": "^9.5.0",
 		"svelte": "^5.48.2",
 		"svelte-check": "^4.3.5",
 		"typescript": "^5.9.3",
 		"typescript-eslint": "^8.53.1",
 		"vite": "^7.3.1",
-		"vitest": "^4.0.18",
-		"standard-version": "^9.5.0"
+		"vitest": "^4.0.18"
 	},
 	"pnpm": {
 		"onlyBuiltDependencies": [

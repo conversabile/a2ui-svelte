@@ -1,6 +1,6 @@
 ---
 name: integrate-agent
-description: Use when wiring an AI agent (voice via Gemini Live, text via Gemini request/response, or a custom AgentTransport) to the A2UI surfaces in a SvelteKit app. Covers the AgentDefinition, transport auth, AgentShell mounting, and the SurfaceFeedback context.
+description: Use when wiring an AI agent (voice via Gemini Live / OpenAI Realtime / Deepgram / Hume EVI, text via Gemini / Anthropic Claude / OpenAI, or a custom AgentTransport) to the A2UI surfaces in a SvelteKit app. Covers the AgentDefinition, transport auth, AgentShell mounting, and the SurfaceFeedback context.
 type: skill
 ---
 
@@ -13,7 +13,8 @@ A2UI surfaces declared on your pages. The agent reads your surfaces,
 dispatches tool calls back to your action handlers, and gives the user
 a chat bar — with a microphone when the transport supports audio.
 
-Trigger phrases: "wire up the agent", "set up Gemini Live", "add the
+Trigger phrases: "wire up the agent", "set up Gemini Live", "use
+Claude/GPT for the agent", "set up OpenAI Realtime", "add the
 mic", "add a chat agent", "connect a custom transport", "integrate
 voice", "integrate the assistant".
 
@@ -80,6 +81,31 @@ import { GeminiTextTransport } from 'a2ui-svelte/agent/gemini';
 
 const transport = new GeminiTextTransport({ baseUrl: '/api/gemini' });
 // or, key in the browser (dev only): new GeminiTextTransport({ apiKey })
+```
+
+**Other built-in providers.** Same contract, same agent, same shell —
+only the constructor changes. Text (request/response, `apiKey` or a
+`baseUrl` key proxy exactly like Gemini's):
+
+```ts
+import { AnthropicTextTransport } from 'a2ui-svelte/agent/anthropic';
+import { OpenAITextTransport } from 'a2ui-svelte/agent/openai';
+
+new AnthropicTextTransport({ baseUrl: '/api/claude' });  // Claude (default claude-opus-4-8)
+new OpenAITextTransport({ baseUrl: '/api/openai' });     // GPT (default gpt-5.2)
+```
+
+Streaming voice (each authenticates with a short-lived credential minted
+server-side by the matching helper, exactly like the Gemini route above):
+
+```ts
+import { OpenAIRealtimeTransport } from 'a2ui-svelte/agent/openai';   // mintOpenAIRealtimeSecret
+import { DeepgramVoiceAgentTransport } from 'a2ui-svelte/agent/deepgram'; // mintDeepgramToken
+import { HumeEviTransport } from 'a2ui-svelte/agent/hume';            // fetchHumeAccessToken
+
+new OpenAIRealtimeTransport({ token: fetchTokenFromYourServer });
+new DeepgramVoiceAgentTransport({ token: fetchTokenFromYourServer });
+new HumeEviTransport({ accessToken: fetchTokenFromYourServer });
 ```
 
 **Custom provider.** Implement the `AgentTransport` interface

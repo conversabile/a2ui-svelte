@@ -1,7 +1,7 @@
 /// <reference types="vitest/config" />
 import { sveltekit } from '@sveltejs/kit/vite';
 import { svelteTesting } from '@testing-library/svelte/vite';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 
 /**
  * Eval-suite config — deliberately separate from the unit-test config
@@ -14,7 +14,17 @@ import { defineConfig } from 'vite';
  *
  * Without the key the LLM scenarios skip; the hermetic context-cost
  * measurement still runs.
+ *
+ * Vitest does not surface `.env` files on `process.env` (only `VITE_`-prefixed
+ * vars reach `import.meta.env`), and the harness reads `process.env.GEMINI_API_KEY`
+ * directly — so load `.env` (empty prefix ⇒ every var, not just `VITE_`) into
+ * `process.env` here, without clobbering vars already set on the command line.
  */
+const fileEnv = loadEnv(process.env.NODE_ENV ?? 'test', process.cwd(), '');
+for (const [key, value] of Object.entries(fileEnv)) {
+	if (process.env[key] === undefined) process.env[key] = value;
+}
+
 // A scenario waits the inter-turn gap (default 30s) before each of its turns;
 // size the per-test budget so that pacing never trips the timeout on its own.
 const turnGapMs = Number(process.env.A2UI_EVAL_TURN_GAP_MS ?? 30_000);

@@ -25,6 +25,10 @@ pnpm eval
 # Full run including LLM scenarios:
 GEMINI_API_KEY=… pnpm eval
 
+# …or put GEMINI_API_KEY (and any A2UI_EVAL_* knob) in a repo-root .env —
+# the eval config loads it into process.env. A var set on the command line
+# always wins over the .env file.
+
 # Knobs:
 A2UI_EVAL_MODEL=gemini-3.5-flash      # model under test
 A2UI_EVAL_PROFILES=baseline,optimized # subset of the profile matrix
