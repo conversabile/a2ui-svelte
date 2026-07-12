@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import { createRequire } from 'node:module';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { defineConfig, loadEnv } from 'vite';
@@ -29,10 +30,42 @@ for (const [key, value] of Object.entries(fileEnv)) {
 // size the per-test budget so that pacing never trips the timeout on its own.
 const turnGapMs = Number(process.env.A2UI_EVAL_TURN_GAP_MS ?? 30_000);
 
+/**
+ * Absolute path of `ws`'s ESM wrapper (proper named exports, node transport).
+ * `ws` is the SDK's dependency, not ours, so under pnpm's strict layout it
+ * must be resolved from the SDK's own location; only `ws/package.json` is an
+ * exported subpath, so resolve that and take `wrapper.mjs` beside it.
+ */
+function wsEsmWrapper(): string {
+	const here = createRequire(import.meta.url);
+	const sdkEntry = here.resolve('@google/genai');
+	return createRequire(sdkEntry)
+		.resolve('ws/package.json')
+		.replace(/package\.json$/, 'wrapper.mjs');
+}
+
 export default defineConfig({
 	plugins: [sveltekit(), svelteTesting()],
+	resolve: {
+		alias: [
+			// The jsdom environment resolves `browser` export conditions, which
+			// hands us @google/genai's web build — its live socket runs on the
+			// global WebSocket (undici under Node), and undici's events clash
+			// with jsdom's patched Event realm mid-handshake. The evals run in
+			// Node, so pin the SDK's node build (ws-backed live socket), and pin
+			// `ws` itself to its ESM wrapper — under the browser condition `ws`
+			// resolves to a stub with no WebSocket export.
+			{ find: /^@google\/genai$/, replacement: '@google/genai/node' },
+			{ find: /^ws$/, replacement: wsEsmWrapper() }
+		]
+	},
 	test: {
 		environment: 'jsdom',
+		server: {
+			// The aliases above only apply to modules Vite processes — keep the
+			// SDK in the pipeline rather than externalized to Node's resolver.
+			deps: { inline: [/@google\/genai/] }
+		},
 		include: ['evals/**/*.eval.ts'],
 		// One model conversation at a time: keeps token accounting attributable
 		// and avoids racing a per-key rate limit.

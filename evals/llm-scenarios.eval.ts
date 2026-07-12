@@ -1,31 +1,37 @@
 /**
- * LLM eval scenarios — a real Gemini text model (request/response loop)
- * drives real mounted surfaces through the real `Agent`, and we assert on the
- * resulting UI state / tool results. Each scenario runs once per profile
- * (baseline / optimized / bare — see `PROFILES` in harness.ts) so the report
- * answers the question: do the context optimizations make the agent unstable?
+ * LLM eval scenarios — a real Gemini model drives real mounted surfaces
+ * through the real `Agent`, and we assert on the resulting UI state / tool
+ * results. Each scenario runs once per profile (baseline / optimized / bare —
+ * see `PROFILES` in harness.ts) so the report answers the question: do the
+ * context optimizations make the agent unstable?
+ *
+ * The transport family is selectable (`A2UI_EVAL_TRANSPORT=text|live`, see
+ * harness.ts): the request/response text loop, or the streaming Live API —
+ * the family whose per-turn context re-billing the optimizations target.
  *
  * Requires GEMINI_API_KEY (skips cleanly without it):
  *
  *   GEMINI_API_KEY=… pnpm eval
  *
- * Env knobs: A2UI_EVAL_MODEL (default gemini-3.5-flash),
+ * Env knobs: A2UI_EVAL_TRANSPORT (default text),
+ *            A2UI_EVAL_MODEL (default per transport — see harness.ts),
  *            A2UI_EVAL_PROFILES (comma list, default all).
  */
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import { Agent } from '../src/lib/agent/agent.svelte';
-import { GeminiTextTransport } from '../src/lib/agent/gemini/text-transport';
 import { a2uiState } from '../src/lib/core/state.svelte';
 import type { ExtensionOptions } from '../src/lib/core/extensions';
 import {
 	API_KEY,
 	EVAL_MODEL,
-	EVAL_MAX_RETRIES,
+	EVAL_TRANSPORT,
+	EVAL_STAFF_COUNT,
 	type EvalProfile,
 	selectedProfiles,
 	clearRegistries,
 	stubJsdomGaps,
+	makeEvalTransport,
 	RecordingTransport,
 	sendAndWait
 } from './harness';
@@ -69,14 +75,7 @@ async function startSession(opts: {
 	instructions: string;
 	mode: 'static' | 'dynamic';
 }) {
-	const rec = new RecordingTransport(
-		new GeminiTextTransport({
-			apiKey: API_KEY!,
-			model: EVAL_MODEL,
-			// Inter-turn pacing lives in the harness; this is just the 429 safety net.
-			maxRetries: EVAL_MAX_RETRIES
-		})
-	);
+	const rec = new RecordingTransport(makeEvalTransport());
 	const agent = new Agent(
 		{
 			instructions: opts.instructions,
@@ -115,11 +114,14 @@ async function runScenario(opts: {
 		failures.push((e as Error).message);
 	}
 	const { prompt, response, requests } = rec.billedTokens;
+	// On Gemini Live the high-water session `totalTokenCount` is the number the
+	// quota (RESOURCE_EXHAUSTED) is measured against — surface it per row.
+	const info = rec.peakTotalTokens > 0 ? [`session total ${rec.peakTotalTokens} tok`] : [];
 	record({
 		scenario,
 		profile: profile.name,
 		pass: failures.length === 0,
-		notes: failures,
+		notes: [...failures, ...info],
 		requests,
 		toolCalls: rec.toolCalls.length,
 		promptTokens: prompt,
@@ -143,7 +145,7 @@ describeLive('LLM evals — static shift planner', () => {
 		describe(`[${profile.name}]`, () => {
 			async function start() {
 				const { component } = render(ShiftPlannerPage, {
-					staffCount: 6,
+					staffCount: EVAL_STAFF_COUNT,
 					options: profile.options
 				});
 				const page = component as unknown as PlannerExports;
@@ -295,5 +297,10 @@ describeLive('LLM evals — dynamic surface', () => {
 });
 
 afterAll(() => {
-	printSummary(`LLM eval results — model ${EVAL_MODEL}`, 'llm-scenarios');
+	// Live results persist under their own tag so the text-loop history stays
+	// diffable against text-loop runs only.
+	printSummary(
+		`LLM eval results — model ${EVAL_MODEL} (${EVAL_TRANSPORT} transport)`,
+		EVAL_TRANSPORT === 'live' ? 'llm-scenarios-live' : 'llm-scenarios'
+	);
 });

@@ -13,14 +13,35 @@ import type {
 	AgentTransport,
 	AgentTransportConnectOptions,
 	AgentTransportEventMap,
-	AgentUsage
+	AgentUsage,
+	TransportCapabilities
 } from '../src/lib/agent/transport';
 import type { Agent } from '../src/lib/agent/agent.svelte';
 import type { ExtensionOptions } from '../src/lib/core/extensions';
 import { toolRegistry } from '../src/lib/core/registries/tool-registry';
 import { actionRegistry } from '../src/lib/core/registries/action-registry';
+import { GeminiTextTransport } from '../src/lib/agent/gemini/text-transport';
+import { GeminiLiveTransport } from '../src/lib/agent/gemini/live-transport';
 
-export const EVAL_MODEL = process.env.A2UI_EVAL_MODEL ?? 'gemini-3.5-flash';
+/**
+ * Which Gemini transport family the scenarios drive (`A2UI_EVAL_TRANSPORT`):
+ *
+ * - `'text'` (default) — `GeminiTextTransport`, the request/response loop.
+ * - `'live'` — `GeminiLiveTransport`, the streaming Live-API socket: the
+ *   server runs the tool loop and every turn re-bills the whole session
+ *   context, so this is the family the context optimizations exist for.
+ *   The session still generates audio (+ output transcription — that is the
+ *   realistic production load and its token bill); the harness masks the
+ *   audio *capabilities* so the `Agent` never starts mic/speaker I/O, which
+ *   jsdom cannot provide. Assertions ride the output transcription.
+ */
+export const EVAL_TRANSPORT = (process.env.A2UI_EVAL_TRANSPORT ?? 'text') as 'text' | 'live';
+if (EVAL_TRANSPORT !== 'text' && EVAL_TRANSPORT !== 'live') {
+	throw new Error(`Unknown A2UI_EVAL_TRANSPORT "${EVAL_TRANSPORT}" (use "text" or "live")`);
+}
+export const EVAL_MODEL =
+	process.env.A2UI_EVAL_MODEL ??
+	(EVAL_TRANSPORT === 'live' ? 'gemini-3.1-flash-live-preview' : 'gemini-3.5-flash');
 export const API_KEY = process.env.GEMINI_API_KEY;
 
 /**
@@ -35,6 +56,14 @@ export const API_KEY = process.env.GEMINI_API_KEY;
  */
 export const EVAL_TURN_GAP_MS = Number(process.env.A2UI_EVAL_TURN_GAP_MS ?? 30_000);
 export const EVAL_MAX_RETRIES = Number(process.env.A2UI_EVAL_MAX_RETRIES ?? 1);
+
+/**
+ * Roster rows on the static fixture (`A2UI_EVAL_STAFF_COUNT`, default 6).
+ * Surface density is the variable the context optimizations exist for — raise
+ * it to measure how each profile's token bill scales. The first six members
+ * are a fixed seed, so scenario assertions hold at any count ≥ 6.
+ */
+export const EVAL_STAFF_COUNT = Number(process.env.A2UI_EVAL_STAFF_COUNT ?? 6);
 
 /** One experimental arm: how the surface + agent are configured. */
 export interface EvalProfile {
@@ -94,6 +123,74 @@ export function stubJsdomGaps(): void {
 type EventName = keyof AgentTransportEventMap;
 
 /**
+ * Capability mask for running an audio transport headless (jsdom has no
+ * mic/speaker): presents the inner transport with `'audio'` stripped from the
+ * input/output modalities and without `sendAudioChunk`, so the `Agent` — which
+ * adapts to capabilities, never identity — runs it as a text-in/text-out
+ * streaming session. The Live model still *speaks* (audio generation and its
+ * token bill are unchanged — exactly the production load); the audio frames
+ * are simply dropped and the output transcription carries the model text.
+ */
+class HeadlessTextMask implements AgentTransport {
+	#inner: AgentTransport;
+
+	constructor(inner: AgentTransport) {
+		this.#inner = inner;
+		if (typeof inner.sendContextUpdate === 'function') {
+			this.sendContextUpdate = (text: string) => inner.sendContextUpdate!(text);
+		}
+		if (typeof inner.sendUserAction === 'function') {
+			this.sendUserAction = ((a) => inner.sendUserAction!(a)) as AgentTransport['sendUserAction'];
+		}
+	}
+
+	get capabilities(): TransportCapabilities {
+		const caps = this.#inner.capabilities;
+		return {
+			...caps,
+			input: caps.input.filter((m) => m !== 'audio'),
+			output: caps.output.filter((m) => m !== 'audio')
+		};
+	}
+	connect(opts: AgentTransportConnectOptions) {
+		return this.#inner.connect(opts);
+	}
+	sendText(text: string) {
+		this.#inner.sendText(text);
+	}
+	sendToolResult(callId: string, name: string, result: unknown) {
+		this.#inner.sendToolResult(callId, name, result);
+	}
+	sendContextUpdate?: (text: string) => void;
+	sendUserAction?: AgentTransport['sendUserAction'];
+	on<E extends EventName>(event: E, handler: (p: AgentTransportEventMap[E]) => void) {
+		return this.#inner.on(event, handler);
+	}
+	close() {
+		this.#inner.close();
+	}
+}
+
+/**
+ * Build the transport under test (see {@link EVAL_TRANSPORT}). Inter-turn
+ * pacing lives in the harness either way; `maxRetries` is the text loop's
+ * 429 safety net (the Live socket has no client-side retry — a quota error
+ * there fails the scenario, which is itself the signal being measured).
+ */
+export function makeEvalTransport(): AgentTransport {
+	if (EVAL_TRANSPORT === 'live') {
+		return new HeadlessTextMask(
+			new GeminiLiveTransport({ token: API_KEY!, model: EVAL_MODEL })
+		);
+	}
+	return new GeminiTextTransport({
+		apiKey: API_KEY!,
+		model: EVAL_MODEL,
+		maxRetries: EVAL_MAX_RETRIES
+	});
+}
+
+/**
  * Transparent recorder around any {@link AgentTransport}. Optional contract
  * members are only exposed when the inner transport implements them, so the
  * `Agent`'s capability/feature detection behaves exactly as it would against
@@ -105,6 +202,7 @@ export class RecordingTransport implements AgentTransport {
 	toolResults: Array<{ name: string; result: unknown }> = [];
 	usageReports: AgentUsage[] = [];
 	errors: string[] = [];
+	closes: string[] = [];
 	modelText = '';
 	turnCompletes = 0;
 
@@ -115,6 +213,7 @@ export class RecordingTransport implements AgentTransport {
 		});
 		inner.on('usage', (u) => this.usageReports.push(u));
 		inner.on('error', (e) => this.errors.push(e.message));
+		inner.on('close', (e) => this.closes.push(e.reason ?? ''));
 		inner.on('text-out', (p) => (this.modelText += p.text));
 		inner.on('turn-complete', () => this.turnCompletes++);
 		if (typeof inner.sendContextUpdate === 'function') {
@@ -161,6 +260,18 @@ export class RecordingTransport implements AgentTransport {
 		}
 		return { prompt, response, requests: this.usageReports.length };
 	}
+
+	/**
+	 * High-water `totalTokenCount` across the session. On Gemini Live this is
+	 * the cumulative session figure a `RESOURCE_EXHAUSTED` quota error is
+	 * measured against — the live-viability number. 0 on transports that don't
+	 * report it.
+	 */
+	get peakTotalTokens(): number {
+		let peak = 0;
+		for (const u of this.usageReports) peak = Math.max(peak, u.totalTokenCount ?? 0);
+		return peak;
+	}
 }
 
 /**
@@ -170,10 +281,20 @@ export class RecordingTransport implements AgentTransport {
 let lastTurnEndedAt = 0;
 
 /**
+ * How long a streaming (live) turn must stay quiet *after* a `turn-complete`
+ * before the harness trusts it. The Live server runs the tool loop itself and
+ * can emit a turn boundary between the tool call and the continuation pass —
+ * returning on the first `turn-complete` would run the scenario's `verify()`
+ * mid-loop. Request/response transports complete the whole loop before their
+ * single `turn-complete`, so they skip the quiesce window.
+ */
+export const EVAL_QUIESCE_MS = Number(process.env.A2UI_EVAL_QUIESCE_MS ?? 4_000);
+
+/**
  * Send one user turn and wait until the transport completes it (the
  * request/response loop may take several tool-call round trips). Returns the
  * turn's wall-clock duration (excludes the pre-turn pacing gap). Rejects on
- * transport error or timeout.
+ * transport error, close, or timeout.
  *
  * Before sending, it waits out the remainder of {@link EVAL_TURN_GAP_MS} since
  * the previous turn finished, capping the request rate to stay under the
@@ -192,21 +313,40 @@ export async function sendAndWait(
 		await new Promise((r) => setTimeout(r, EVAL_TURN_GAP_MS - sinceLast));
 	}
 
+	const quiesceMs = agent.capabilities.streaming ? EVAL_QUIESCE_MS : 0;
 	const before = rec.turnCompletes;
 	const errBefore = rec.errors.length;
+	const closeBefore = rec.closes.length;
 	const start = Date.now();
+	// Activity fingerprint for the quiesce window: any new tool call, turn
+	// boundary, or transcript text resets the quiet clock.
+	const activity = () => `${rec.turnCompletes}:${rec.toolCalls.length}:${rec.modelText.length}`;
+	let lastActivity = activity();
+	let lastActivityAt = Date.now();
 	agent.sendTextMessage(text);
 	for (;;) {
 		if (rec.errors.length > errBefore) {
 			lastTurnEndedAt = Date.now();
 			throw new Error(`Transport error during "${text}": ${rec.errors.slice(errBefore).join('; ')}`);
 		}
-		if (rec.turnCompletes > before) {
+		if (rec.closes.length > closeBefore) {
 			lastTurnEndedAt = Date.now();
-			return Date.now() - start;
+			throw new Error(
+				`Transport closed during "${text}": ${rec.closes.slice(closeBefore).join('; ') || '(no reason)'}`
+			);
 		}
-		if (Date.now() - start > timeoutMs) {
-			lastTurnEndedAt = Date.now();
+		const now = Date.now();
+		const cur = activity();
+		if (cur !== lastActivity) {
+			lastActivity = cur;
+			lastActivityAt = now;
+		}
+		if (rec.turnCompletes > before && now - lastActivityAt >= quiesceMs) {
+			lastTurnEndedAt = now;
+			return now - start;
+		}
+		if (now - start > timeoutMs) {
+			lastTurnEndedAt = now;
 			throw new Error(`Timed out (${timeoutMs}ms) waiting for turn-complete after: "${text}"`);
 		}
 		await new Promise((r) => setTimeout(r, 150));

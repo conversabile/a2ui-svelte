@@ -30,11 +30,36 @@ GEMINI_API_KEY=… pnpm eval
 # always wins over the .env file.
 
 # Knobs:
-A2UI_EVAL_MODEL=gemini-3.5-flash      # model under test
+A2UI_EVAL_TRANSPORT=text              # transport family: text (request/response) | live (Live API)
+A2UI_EVAL_MODEL=gemini-3.5-flash      # model under test (live default: gemini-3.1-flash-live-preview)
 A2UI_EVAL_PROFILES=baseline,optimized # subset of the profile matrix
+A2UI_EVAL_STAFF_COUNT=6               # roster rows on the static fixture (surface density)
 A2UI_EVAL_TURN_GAP_MS=30000           # min gap between conversation turns (quota pacing)
-A2UI_EVAL_MAX_RETRIES=1               # 429 retries (exponential backoff) before failing
+A2UI_EVAL_MAX_RETRIES=1               # 429 retries (exponential backoff) before failing (text only)
+A2UI_EVAL_QUIESCE_MS=4000             # live only: quiet window after turn-complete before verify
 ```
+
+### Running against Gemini Live
+
+`A2UI_EVAL_TRANSPORT=live` drives the same scenarios through `GeminiLiveTransport`
+— the streaming socket whose per-turn context re-billing the optimizations
+target. The session generates audio exactly as in production (that bill is the
+point); the harness masks the audio *capabilities* so the `Agent` runs headless
+under jsdom, and assertions ride the output transcription. Live results persist
+under `llm-scenarios-live-*` so text-loop history stays comparable.
+
+Live quota is exhausted by **session tokens**, not request count — a full
+matrix run is not survivable on a free key. Run one scenario × one profile per
+invocation and give the per-minute token window time to reset between runs:
+
+```bash
+A2UI_EVAL_TRANSPORT=live A2UI_EVAL_PROFILES=optimized \
+  pnpm exec vitest run --config evals/vitest.config.ts llm-scenarios -t add-staff-then-edit
+```
+
+Each row's `notes` column carries `session total N tok` — the Live API's
+cumulative `totalTokenCount`, the figure a `RESOURCE_EXHAUSTED` error is
+measured against.
 
 ### Surviving provider quotas
 
