@@ -57,6 +57,10 @@
 		_a2uiSetters
 	}: Props = $props();
 
+	// The container carries the A2UI component `id`; the label needs to point
+	// at the actual form control, so the input gets a derived DOM id.
+	const inputId = $derived(id ? `${id}-input` : undefined);
+
 	function pushToSurfaceData(newValue: string) {
 		_a2uiSetters?.text?.(newValue);
 	}
@@ -245,7 +249,7 @@
 <div class="text-field-container {className}" {id} {...dataAttr} {...handle.a11yAttr} style={handle.weightStyle}>
 	{#if label}
 		<div class="field-header">
-			<label>{label}</label>
+			<label for={inputId}>{label}</label>
 		</div>
 	{/if}
 
@@ -264,6 +268,7 @@
 		{:else}
 			<textarea
 				bind:this={longTextAreaEl}
+				id={inputId}
 				{placeholder}
 				{disabled}
 				value={value}
@@ -276,6 +281,7 @@
 	{:else if textFieldType === 'number'}
 		<input
 			type="number"
+			id={inputId}
 			{placeholder}
 			{disabled}
 			value={value}
@@ -285,6 +291,7 @@
 	{:else if textFieldType === 'date'}
 		<input
 			type="date"
+			id={inputId}
 			{placeholder}
 			{disabled}
 			value={value}
@@ -294,6 +301,7 @@
 	{:else if textFieldType === 'obscured'}
 		<input
 			type="password"
+			id={inputId}
 			{placeholder}
 			{disabled}
 			value={value}
@@ -303,6 +311,7 @@
 	{:else}
 		<input
 			type="text"
+			id={inputId}
 			{placeholder}
 			{disabled}
 			value={value}
