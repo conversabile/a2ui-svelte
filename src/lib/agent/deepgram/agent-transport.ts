@@ -287,6 +287,12 @@ export class DeepgramVoiceAgentTransport implements AgentTransport {
 				return;
 
 			// The server finished sending the response audio — the turn is over.
+			// Audited against Gemini Live's mid-loop `turnComplete` hazard: this
+			// event tracks audio playback only, and `FunctionCallRequest` arrives
+			// on its own, so there is no post-tool-call echo to suppress. The
+			// residual case — the agent speaking a filler line *before* calling a
+			// tool — puts the event ahead of the call, which no pending-result
+			// counter can catch; left as-is rather than guessed at.
 			case 'AgentAudioDone':
 				this.#emit('turn-complete', {} as never);
 				return;

@@ -128,7 +128,7 @@ Events:
 | `tool-call`       | `{ calls: Array<{ id, name, args }> }`                        |
 | `text-in`         | `{ text: string }`  (user → agent; ASR transcript on voice)  |
 | `text-out`        | `{ text: string }`  (agent → user; TTS transcript on voice)  |
-| `turn-complete`   | `{}`                                                          |
+| `turn-complete`   | `{}` — only after the tool loop closes, never between `tool-call` and the continuation |
 | `audio-out`       | `{ base64Pcm24k: string }` — audio-output transports only     |
 | `interrupted`     | `{}` — interruptible (barge-in) transports only               |
 | `usage`           | `AgentUsage` — provider token counts, when reported           |

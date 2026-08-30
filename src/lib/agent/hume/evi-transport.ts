@@ -280,6 +280,10 @@ export class HumeEviTransport implements AgentTransport {
 				return;
 
 			// The model finished its response — the turn is over.
+			// Audited against Gemini Live's mid-loop `turnComplete` hazard: EVI
+			// closes a tool round-trip with `tool_response` and only emits
+			// `assistant_end` once the spoken response is done, so there is no
+			// pre-result echo to suppress here.
 			case 'assistant_end':
 				this.#emit('turn-complete', {} as never);
 				return;

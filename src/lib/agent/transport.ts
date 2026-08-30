@@ -168,7 +168,13 @@ export interface AgentTransportEventMap {
 	 */
 	'text-in': { text: string };
 
-	/** Model finished its turn — flush the transcript buffer and clear "thinking" status. */
+	/**
+	 * Model finished its turn — flush the transcript buffer and clear
+	 * "thinking" status. A turn that called tools is **not** finished until the
+	 * model has seen the results and produced its continuation: an adapter must
+	 * suppress any provider signal that fires between `tool-call` and the
+	 * continuation, or listeners act mid-loop.
+	 */
 	'turn-complete': Record<string, never>;
 
 	/**

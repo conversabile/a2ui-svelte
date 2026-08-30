@@ -1,6 +1,6 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
-**Status:** in progress — WP0 done (changeset stashed), WP1, WP1b and WP2 done.
+**Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2 and WP3 done.
 See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
@@ -523,7 +523,7 @@ Button, authors no longer maintain it by hand.
 
 ---
 
-### WP3 — Normalize `turn-complete` on `GeminiLiveTransport`
+### WP3 — Normalize `turn-complete` on `GeminiLiveTransport` — DONE
 
 **The bug.** [transport.ts:172](../../src/lib/agent/transport.ts#L172) defines
 `turn-complete` as "model finished its turn", but
@@ -1209,3 +1209,17 @@ text, what the next WP must know. The diff holds everything else.)_
 - Found, out of scope: static surfaces emit no `userAction` on human click
   (dynamic only), yet `a2ui-compatibility.md:69` claims it unqualified.
 - `pnpm test` 240 / 1 skipped; `pnpm check` 0 errors.
+
+### WP3 — DONE (2026-08-30, branch `develop`)
+
+- `GeminiLiveTransport` counts `#pendingToolResults`, drops the `turnComplete`
+  that trails a `toolCall`, and forwards the post-continuation one. 1500 ms
+  private fallback if no continuation arrives; cleared on `interrupted`/`close`.
+- Deviation: `+=` not `=` — the server may split one turn's calls across several
+  `toolCall` messages; a new batch also stands down an armed fallback.
+- Audit: Hume `assistant_end` is safe (fires after `tool_response`). Deepgram
+  `AgentAudioDone` has a residual hazard — a filler utterance *before* a
+  `FunctionCallRequest` puts it ahead of the call, which no counter can catch.
+  Documented in both files; not "fixed" by guesswork.
+- New `live-transport.test.ts` (mocks `@google/genai`, drives `onmessage`).
+  `pnpm test` 247 / 1 skipped; `pnpm check` 0 errors. WP6 is unblocked.

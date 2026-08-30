@@ -26,6 +26,15 @@ export interface GeminiLiveTransportOptions {
 type EventName = keyof AgentTransportEventMap;
 
 /**
+ * How long to wait, after the last tool result went out, for the server's
+ * genuine end-of-turn `turnComplete`. If the continuation never arrives (a
+ * dropped frame, a server that answers the call silently) we synthesise one so
+ * listeners aren't stuck mid-turn forever. Deliberately not a public option —
+ * it is an adapter-level safety net, not a tuning knob.
+ */
+const TURN_COMPLETE_FALLBACK_MS = 1500;
+
+/**
  * Gemini Live implementation of {@link AgentTransport} — the streaming
  * audio-to-audio profile. Translates Gemini's message shapes into the
  * normalised event map and back, so the rest of the library never touches
@@ -41,6 +50,14 @@ export class GeminiLiveTransport implements AgentTransport {
 	#session: any = null;
 	#listeners: { [E in EventName]?: Set<(p: AgentTransportEventMap[E]) => void> } = {};
 	#closed = false;
+	/**
+	 * Tool results still owed to the server. Gemini Live sends a `turnComplete`
+	 * right after a `toolCall` — before the model has seen any result — but the
+	 * contract defines `'turn-complete'` as "the model finished its turn", so
+	 * that one is suppressed and only the post-continuation one is forwarded.
+	 */
+	#pendingToolResults = 0;
+	#fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(opts: GeminiLiveTransportOptions) {
 		this.#token = opts.token;
@@ -154,6 +171,12 @@ export class GeminiLiveTransport implements AgentTransport {
 
 	sendToolResult(callId: string, name: string, result: unknown): void {
 		if (!this.#session || this.#closed) return;
+		if (this.#pendingToolResults > 0) {
+			this.#pendingToolResults -= 1;
+			// Last result of the batch: the model owes us a continuation ending in
+			// a real `turnComplete`. Arm the safety net in case it never comes.
+			if (this.#pendingToolResults === 0) this.#armFallback();
+		}
 		const functionResponses = [{ id: callId, name, response: result as Record<string, unknown> }];
 		try {
 			if (typeof this.#session.sendToolResponse === 'function') {
@@ -186,6 +209,7 @@ export class GeminiLiveTransport implements AgentTransport {
 	close(): void {
 		if (this.#closed) return;
 		this.#closed = true;
+		this.#resetTurnTracking();
 		if (this.#session) {
 			try {
 				if (typeof this.#session.close === 'function') this.#session.close();
@@ -195,6 +219,32 @@ export class GeminiLiveTransport implements AgentTransport {
 			}
 		}
 		this.#session = null;
+	}
+
+	/** Emit the normalised end-of-turn and stand the safety net down. */
+	#completeTurn(): void {
+		this.#resetTurnTracking();
+		this.#emit('turn-complete', {} as never);
+	}
+
+	#armFallback(): void {
+		this.#cancelFallback();
+		this.#fallbackTimer = setTimeout(() => {
+			this.#fallbackTimer = null;
+			if (!this.#closed) this.#completeTurn();
+		}, TURN_COMPLETE_FALLBACK_MS);
+	}
+
+	#cancelFallback(): void {
+		if (this.#fallbackTimer) {
+			clearTimeout(this.#fallbackTimer);
+			this.#fallbackTimer = null;
+		}
+	}
+
+	#resetTurnTracking(): void {
+		this.#pendingToolResults = 0;
+		this.#cancelFallback();
 	}
 
 	#emit<E extends EventName>(event: E, payload: AgentTransportEventMap[E]): void {
@@ -253,11 +303,19 @@ export class GeminiLiveTransport implements AgentTransport {
 					args: fc.args ?? {}
 				})
 			);
+			// Count, don't assign: the server may split one turn's calls across
+			// several `toolCall` messages, and each still owes us a result. A new
+			// batch also stands down a fallback armed by the previous one.
+			this.#cancelFallback();
+			this.#pendingToolResults += calls.length;
 			this.#emit('tool-call', { calls });
 			return;
 		}
 
 		if (message.serverContent?.interrupted) {
+			// Barge-in cancels the outstanding loop: the results we still owe are
+			// moot and no continuation is coming.
+			this.#resetTurnTracking();
 			this.#emit('interrupted', {} as never);
 			return;
 		}
@@ -282,7 +340,10 @@ export class GeminiLiveTransport implements AgentTransport {
 		}
 
 		if (message.serverContent?.turnComplete) {
-			this.#emit('turn-complete', {} as never);
+			// Mid-loop `turnComplete` (the one that trails a `toolCall`) is not a
+			// finished turn — drop it and wait for the post-continuation one.
+			if (this.#pendingToolResults > 0) return;
+			this.#completeTurn();
 		}
 	}
 }
