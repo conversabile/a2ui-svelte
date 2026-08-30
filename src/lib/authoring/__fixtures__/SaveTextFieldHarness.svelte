@@ -27,7 +27,7 @@
 		bind:value
 		label="Name"
 	/>
-	<Button bind:this={saveNode} id="save-action" label="Save" action={{ name: 'save-action' }} onclick={onSave} />
+	<Button bind:this={saveNode} id="save-action" label="Save" onclick={onSave} />
 </A2UIRepresentation>
 
 <div class="bespoke-save">

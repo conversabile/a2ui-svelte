@@ -1,6 +1,6 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
-**Status:** in progress — WP0 done (changeset stashed), WP1 and WP1b done.
+**Status:** in progress — WP0 done (changeset stashed), WP1, WP1b and WP2 done.
 See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
@@ -354,6 +354,8 @@ text.
   changelog where each entry is a finished thing. Breaking WPs (WP2, WP9c) use
   the `!` marker **and** a `BREAKING CHANGE:` footer describing the migration.
   WP12 holds only the *new* documents, not fixes to existing ones.
+- **Be terse.** §5 entries: 8 lines, hard cap. Docs and comments: state the rule
+  and the one reason it exists. One line per fact; the diff holds the rest.
 - **Do not run `pnpm lint` / `pnpm format`** — no config in the repo; Prettier
   corrupts the tabs + single-quote style.
 - **You do the changes, the user commits.** Never operate git — including WP0's
@@ -463,7 +465,7 @@ id reports that id as `field`.
 
 ---
 
-### WP2 — A Button without `action` is dead for the human too
+### WP2 — A Button without `action` is dead for the human too — DONE
 
 **Reproduced 2026-08-27** with a throwaway test.
 `<Button label="Save" id="save-btn" onclick={fn} />` — no `action` prop — does
@@ -492,7 +494,8 @@ its own instance; a repo-wide warning cleanup is a separate task, not this WP.)
 2. Emit `action: { name: componentId }` from inside the reactive `a2ui:` closure
    instead of taking it as a prop, so the JSON stays spec-shaped and
    `action.name === id` holds **by construction**.
-3. Replace the `action?: { name: string }` prop with `actionName?: string` for
+3. ~~Replace `action?: { name: string }` with `actionName?: string`~~ — **not
+   done, see §5**; the prop is removed outright. Original rationale: for
    the rare case where the semantic action name must differ from the id (the
    spec keeps `name` and `sourceComponentId` separate on `userAction`, and the
    dynamic path uses `name` — [Component.svelte:126](../../src/lib/renderer/Component.svelte#L126),
@@ -1193,3 +1196,16 @@ text, what the next WP must know. The diff holds everything else.)_
   `componentId` via `bind:this` — auto-ids are a per-surface counter, so
   hardcoding `slider-2` makes tests order-dependent. Reuse that.
 - `pnpm test` 236 passed / 1 skipped; `pnpm check` 0 errors.
+
+### WP2 — DONE (2026-08-30, branch `develop`)
+
+- `Button`: `action` prop removed, no replacement; `action: { name: componentId }`
+  synthesised in the `a2ui` thunk; `click` registered unconditionally. Breaking.
+- Deviation: **no `actionName`** — the WP asked for it, nothing reads
+  `action.name` on the static path, so it was pure drift risk.
+- `action={{ name }}` dropped from all fixtures/examples/skills/docs;
+  CLAUDE.md Rule 3 + `authoring-components.md` §`action` reworded.
+- `Button.test.ts` + fixture. Uses `fireEvent`; switch to `user-event` in WP9b.
+- Found, out of scope: static surfaces emit no `userAction` on human click
+  (dynamic only), yet `a2ui-compatibility.md:69` claims it unqualified.
+- `pnpm test` 240 / 1 skipped; `pnpm check` 0 errors.

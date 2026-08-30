@@ -46,7 +46,7 @@ zones backed by hidden form fields.
 <A2UIRepresentation>
   <Column>
     <TextField bind:this={inputNode} id="input" fieldName="value" bind:value />
-    <Button bind:this={saveNode} id="save" primary label="Save" action={{ name: 'save' }} />
+    <Button bind:this={saveNode} id="save" primary label="Save" />
   </Column>
 </A2UIRepresentation>
 
@@ -118,8 +118,7 @@ input-with-button row.
   <Column>
     <TextField bind:this={inputNode} id="input" fieldName="value"
                {label} bind:value textFieldType="shortText" />
-    <Button bind:this={saveNode} id="save" primary label="Save"
-            action={{ name: 'save' }} onclick={() => onSave?.(value)} />
+    <Button bind:this={saveNode} id="save" primary label="Save" onclick={() => onSave?.(value)} />
   </Column>
 </A2UIRepresentation>
 

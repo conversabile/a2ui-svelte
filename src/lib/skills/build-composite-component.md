@@ -57,8 +57,7 @@ them) but **render no visible markup**.
   <Column>
     <TextField bind:this={inputNode} id="input" fieldName="value"
                {label} bind:value textFieldType="shortText" />
-    <Button bind:this={saveNode} id="save" primary label="Save"
-            action={{ name: 'save' }} onclick={commit} />
+    <Button bind:this={saveNode} id="save" primary label="Save" onclick={commit} />
   </Column>
 </A2UIRepresentation>
 

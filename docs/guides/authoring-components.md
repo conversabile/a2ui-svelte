@@ -117,6 +117,14 @@ Registering only `if (fieldName)` leaves the component in the surface JSON
 readable but not writable, which breaks screen/tree parity from the agent's
 side. Report the data-model key back in the result: `fieldName ?? componentId`.
 
+The same holds for `'click'`: register it whenever the component is clickable,
+never `action ? … : undefined`. Gating on an action prop leaves the DOM handler
+inert too, so the *human's* click silently does nothing — that was a real bug in
+the built-in `Button`. And synthesise the spec's `action` property from the id —
+`action: { name: componentId }` inside the `a2ui` thunk — rather than taking it
+as a prop: authors write `id` + `onclick`, and `action.name === id` holds by
+construction.
+
 ### `isContainer`
 
 Set to `true` for `Card`, `Column`, `Row`, `List`, `Tabs`. The helper

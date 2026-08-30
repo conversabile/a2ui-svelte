@@ -151,8 +151,10 @@ The library is theme-agnostic and must stay that way.
 
 - **Component IDs use hyphens throughout** — never mix `save-button` with
   `save_button`. Divergent separators cause agent hallucinations.
-- **`action.name` = component `id`** — both appear in the surface JSON; keep them
-  identical so the agent targets what it sees.
+- **`action.name` = component `id`** — so the agent targets what it sees. The
+  spec property is **synthesised** from the component's own resolved id, never
+  authored: no component takes an `action` name as a prop, so the two cannot
+  drift. Authors write `id` + `onclick`; the JSON is derived.
 - **Generic tools are spec-canonical** — `click_button({element_id})` and
   `update_text_field({element_id, value})`. Batched siblings are an extension
   (Rule 5), never a replacement.

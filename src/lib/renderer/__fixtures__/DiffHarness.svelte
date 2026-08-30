@@ -15,7 +15,6 @@
 <Button
 	id="add-row"
 	label="Add row"
-	action={{ name: 'add-row' }}
 	onclick={() => {
 		rows = [...rows, `Row ${rows.length + 1}`];
 	}}
@@ -23,7 +22,6 @@
 <Button
 	id="reset-form"
 	label="Reset"
-	action={{ name: 'reset-form' }}
 	onclick={() => {
 		name = '';
 	}}

@@ -24,8 +24,7 @@ library serializes the tree for the agent:
   <Card id="signup-card">
     <Column id="signup-fields">
       <TextField id="email-input" label="Email" bind:value={email} />
-      <Button id="signup-btn" primary label="Sign up"
-              action={{ name: 'signup-btn' }} onclick={signUp} />
+      <Button id="signup-btn" primary label="Sign up" onclick={signUp} />
     </Column>
   </Card>
 </StaticSurface>
@@ -63,8 +62,8 @@ Horizontal layout container. Children are arranged left-to-right.
 
     ```svelte
     <Row id="toolbar" distribution="spaceBetween" alignment="center">
-      <Button id="btn-back" label="Back" action={{ name: 'btn-back' }} onclick={back} />
-      <Button id="btn-next" label="Next" action={{ name: 'btn-next' }} onclick={next} />
+      <Button id="btn-back" label="Back" onclick={back} />
+      <Button id="btn-next" label="Next" onclick={next} />
     </Row>
     ```
 
@@ -407,14 +406,14 @@ Clickable button that triggers an action.
       id="submit-btn"
       primary
       label="Submit"
-      action={{ name: 'submit-btn' }}
       onclick={submitForm}
     />
     ```
 
     `label` is authoring sugar for the spec's single `child`: the library registers
     the label as its own `Text` component (`submit-btn-label`) and points `child`
-    at it. Keep `action.name` identical to `id` — the agent clicks what it sees.
+    at it. You never write `action`: it is synthesised as `{ name: id }`, so the
+    name the agent reads and the id it targets cannot drift.
 
     **Extra Svelte props:** `label`, `onclick`, `type`, `class`.
 
@@ -776,7 +775,7 @@ Overlay dialog triggered by an entry point component.
     ```svelte
     <Modal id="confirmation-modal" bind:open={showConfirm}>
       {#snippet entryPoint()}
-        <Button id="open-modal-btn" label="Delete" action={{ name: 'open-modal-btn' }}
+        <Button id="open-modal-btn" label="Delete"
           onclick={() => (showConfirm = true)} />
       {/snippet}
       {#snippet content()}
@@ -892,7 +891,7 @@ Tabbed interface for organizing content into switchable panels.
 Shared by every component, in Svelte and in JSON:
 
 - `id` — unique within the surface. It is what the agent targets, what
-  `action.name` must match, and (for value-bearing components) the data-model
+  `action.name` defaults to, and (for value-bearing components) the data-model
   key their value binds to. Omit it and the library mints `text-3`,
   `button-1`, … — fine for decoration, never for anything the agent may act on.
   Use hyphens throughout; mixing `save-button` with `save_button` makes agents

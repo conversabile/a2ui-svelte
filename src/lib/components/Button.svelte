@@ -9,7 +9,6 @@
 		id?: string;
 		primary?: boolean;
 		label?: string;
-		action?: { name: string };
 		onclick?: () => void | Promise<void>;
 		type?: 'button' | 'submit' | 'reset';
 		accessibility?: { label?: string; role?: string };
@@ -22,7 +21,6 @@
 		id,
 		primary = false,
 		label,
-		action,
 		onclick,
 		type = 'button',
 		accessibility,
@@ -32,9 +30,7 @@
 
 	// Pre-resolve the component id so the synthetic label child can reference it.
 	const ctx = getSurfaceContext();
-	const _componentId: string | undefined = ctx
-		? (id ?? action?.name ?? ctx.generateId('button'))
-		: undefined;
+	const _componentId: string | undefined = ctx ? (id ?? ctx.generateId('button')) : undefined;
 	const labelId = label && _componentId ? `${_componentId}-label` : undefined;
 
 	const handle = defineA2uiComponent<{
@@ -44,14 +40,19 @@
 	}>({
 		type: 'Button',
 		id: _componentId,
-		a2ui: () => ({
+		// `action.name` IS the component id — the spec property is synthesised,
+		// never authored, so the name the agent reads and the id it targets
+		// cannot drift (CLAUDE.md Rule 3).
+		a2ui: (componentId) => ({
 			primary,
-			action,
+			...(componentId ? { action: { name: componentId } } : {}),
 			...(labelId ? { child: labelId } : {}),
 			...(accessibility ? { accessibility } : {}),
 			...(weight != null ? { weight } : {})
 		}),
-		action: action ? { type: 'click', handler: () => onclick?.() } : undefined
+		// Registered unconditionally: a Button is clickable because it is a
+		// Button, not because the author remembered to declare an action.
+		action: { type: 'click', handler: () => onclick?.() }
 	});
 
 	// Per A2UI spec, Button has a single `child` (its label Text node).

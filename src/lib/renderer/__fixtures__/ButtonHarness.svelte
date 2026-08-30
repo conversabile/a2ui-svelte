@@ -2,4 +2,4 @@
 	import Button from '../../components/Button.svelte';
 </script>
 
-<Button id="save-btn" label="Save" action={{ name: 'save' }} onclick={() => {}} />
+<Button id="save-btn" label="Save" onclick={() => {}} />

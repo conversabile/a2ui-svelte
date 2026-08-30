@@ -75,7 +75,6 @@ the same surface, with all defaults enabled:
   <Card><Column>
     <TextField id="name" label="Name" bind:value={name} />
     <Button id="save" primary label="Save"
-            action={{ name: 'save' }}
             onclick={() => alert(`Hi ${name}!`)} />
   </Column></Card>
 </StaticSurface>
@@ -297,7 +296,7 @@ Then register it: `extendCatalog(DEFAULT_CATALOG, { RatingStars })`.
 <A2UIRepresentation>
   <TextField bind:this={inputNode} id="input" fieldName="value" bind:value />
   <Button bind:this={saveNode} id="save" primary label="Save"
-          action={{ name: 'save' }} onclick={() => console.log(value)} />
+          onclick={() => console.log(value)} />
 </A2UIRepresentation>
 
 <div class="my-look">

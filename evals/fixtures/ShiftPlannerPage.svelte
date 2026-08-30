@@ -140,7 +140,7 @@
 		<Row>
 			<TextField id="add-staff-name" label="Name" bind:value={newName} />
 			<TextField id="add-staff-role" label="Role" bind:value={newRole} />
-			<Button id="add-staff-btn" label="Add staff" action={{ name: 'add-staff-btn' }} onclick={addStaff} />
+			<Button id="add-staff-btn" label="Add staff" onclick={addStaff} />
 		</Row>
 
 		<Divider id="actions-divider" />
@@ -148,7 +148,6 @@
 			id="save-week-btn"
 			primary
 			label="Save week"
-			action={{ name: 'save-week-btn' }}
 			onclick={() => {
 				lastSavedAt = new Date().toISOString();
 			}}

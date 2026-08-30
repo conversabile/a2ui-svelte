@@ -45,8 +45,7 @@ JSON serialiser. Everything declared inside it is part of one A2UI tree.
     <Column>
       <TextField id="name"  label="Name"  bind:value={name} />
       <TextField id="email" label="Email" bind:value={email} />
-      <Button id="place-order" primary label="Place order"
-              action={{ name: 'place-order' }} onclick={placeOrder} />
+      <Button id="place-order" primary label="Place order" onclick={placeOrder} />
     </Column>
   </Card>
 </StaticSurface>

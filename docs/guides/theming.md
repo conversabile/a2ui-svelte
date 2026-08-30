@@ -132,16 +132,21 @@ replacement Svelte component and register it through `extendCatalog`.
     id?: string;
     primary?: boolean;
     label?: string;
-    action?: { name: string };
     onclick?: () => void;
   }
-  let { children, id, primary = false, label, action, onclick }: Props = $props();
+  let { children, id, primary = false, label, onclick }: Props = $props();
 
   const handle = defineA2uiComponent({
     type: 'Button',
-    id: id ?? action?.name,
-    a2ui: () => ({ primary, action }),
-    action: action ? { type: 'click', handler: () => onclick?.() } : undefined
+    id,
+    // Synthesise the spec's `action` from the resolved id — never take it as
+    // a prop, so the name the agent reads and the id it targets cannot drift.
+    a2ui: (componentId) => ({
+      primary,
+      ...(componentId ? { action: { name: componentId } } : {})
+    }),
+    // Always registered — a Button is clickable because it is a Button.
+    action: { type: 'click', handler: () => onclick?.() }
   });
 
   export const dataAttr = handle.dataAttr;

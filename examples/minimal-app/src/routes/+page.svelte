@@ -212,7 +212,6 @@
 						<Button
 							id="open-info"
 							label="Open Info"
-							action={{ name: 'open-info' }}
 							onclick={() => {
 								modalOpen = true;
 							}}
@@ -230,7 +229,6 @@
 								id="modal-confirm"
 								label="Got it"
 								primary
-								action={{ name: 'modal-confirm' }}
 								onclick={() => {
 									modalOpen = false;
 									addLog('Modal confirmed');
@@ -244,7 +242,6 @@
 					id="submit"
 					primary
 					label="Submit"
-					action={{ name: 'submit' }}
 					onclick={() =>
 						addLog(
 							`Submitted — name="${name}" budget="${budget}" rating=${rating} role=${role.join(',')}`
