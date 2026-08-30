@@ -10,9 +10,11 @@
  * and `data-a2ui-id="{id}"` on the target component's root.
  */
 
+import { escapeAttrValue } from './dom';
+
 export function revealElements(elementIds: string[]): void {
 	for (const id of elementIds) {
-		const el = document.querySelector<HTMLElement>(`[data-a2ui-id="${CSS.escape(id)}"]`);
+		const el = document.querySelector<HTMLElement>(`[data-a2ui-id="${escapeAttrValue(id)}"]`);
 		if (!el) continue;
 
 		let cursor: HTMLElement | null = el;

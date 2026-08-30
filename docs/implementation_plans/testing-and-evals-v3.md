@@ -1,6 +1,7 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
-**Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2 and WP3 done.
+**Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3 and WP4
+done.
 See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
@@ -139,6 +140,15 @@ dies three lines later on an unrelated assertion. `surface(id)` (WP7) hands you
 the tree and data model the agent sees. (`@testing-library/user-event` is the
 user's own devDependency — and ours too, from WP9b, so these snippets run
 verbatim in this repo.)
+
+**The environment — nothing to set up (WP4).** These tests run under jsdom
+(`environment: 'jsdom'`), which has no layout engine and therefore no
+`CSS.escape` and no `Element.prototype.scrollIntoView` — both of which the glow
+and auto-reveal helpers call on every agent action. The library guards them
+internally ([core/dom.ts](../../src/lib/core/dom.ts)), so a consumer stubs
+**nothing**. Say this in the guide as the negative instruction it is: anyone who
+hits the pre-WP4 crash in an old version, or copies a setup file from elsewhere,
+needs to know the stub is ours to own, not theirs.
 
 **Covered:**
 
@@ -564,7 +574,7 @@ comment either way.
 
 ---
 
-### WP4 — Guard the jsdom gaps in the renderer
+### WP4 — Guard the jsdom gaps in the renderer — DONE
 
 **The bug.** Unguarded browser APIs crash any component test the moment the
 agent points at or updates an element:
@@ -1081,7 +1091,8 @@ the new documents.
 - **`docs/guides/testing.md`** — new (the staged draft is superseded). §1.1 →
   §1.2 → §1.3 of this plan, in that order, with runnable snippets. State plainly
   that the library ships no test framework and show the two-line sugar. Include
-  the "what is not worth asserting" list. State the §0 placement rule where a
+  the "what is not worth asserting" list. Carry §1.1's environment note —
+  jsdom, and the fact that we guard its gaps so the reader stubs nothing. State the §0 placement rule where a
   reader meets the two import paths for the first time — `./testing` is
   useless-or-harmful in an app, everything else is framework — and show the
   `no-restricted-imports` rule that enforces it.
@@ -1223,3 +1234,15 @@ text, what the next WP must know. The diff holds everything else.)_
   Documented in both files; not "fixed" by guesswork.
 - New `live-transport.test.ts` (mocks `@google/genai`, drives `onmessage`).
   `pnpm test` 247 / 1 skipped; `pnpm check` 0 errors. WP6 is unblocked.
+
+### WP4 — DONE (2026-08-30, branch `develop`)
+
+- New internal `src/lib/core/dom.ts` → `escapeAttrValue()`: `CSS.escape` when
+  present, else escape `\` and `"` (the two chars that break out of a quoted
+  attribute value). Used by `highlight.ts` + `reveal.ts`; not exported from
+  `./core` — it's a guard, not API. `scrollIntoView?.()` with a why-comment.
+- Closure: deleted `stubJsdomGaps` (evals/harness) and the four `beforeAll` CSS
+  stubs in the component/surface tests — the guards make them dead code.
+- `dom.test.ts` first asserts jsdom really lacks both APIs, so the suite can
+  never silently stop testing the gap. Verified red without the guards (5/7).
+- `pnpm test` 254 / 1 skipped; `pnpm check` 0 errors. WP5 is next in Phase 1.

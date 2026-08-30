@@ -8,6 +8,8 @@
  * Components must set `data-a2ui-id={_componentId}` on their root DOM element.
  */
 
+import { escapeAttrValue } from './dom';
+
 const GLOW_DURATION_MS = 1000;
 const SCROLL_SETTLE_MS = 400;
 const SCROLL_GAP_MS = 1000; // pause after glowing before scrolling to the next element
@@ -25,7 +27,7 @@ export function isHighlightEnabled(): boolean {
 }
 
 function findElement(elementId: string): HTMLElement | null {
-	return document.querySelector<HTMLElement>(`[data-a2ui-id="${CSS.escape(elementId)}"]`);
+	return document.querySelector<HTMLElement>(`[data-a2ui-id="${escapeAttrValue(elementId)}"]`);
 }
 
 function isInViewport(el: HTMLElement): boolean {
@@ -99,7 +101,8 @@ async function _highlightAsync(elementIds: string[]): Promise<void> {
 		}
 		pauseBeforeScroll = true; // always pause before subsequent scrolls
 
-		entry.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		// Optional call: non-browser DOMs (jsdom) don't implement scrollIntoView.
+		entry.el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
 		await new Promise((r) => setTimeout(r, SCROLL_SETTLE_MS));
 
 		// Glow all pending elements that are now in the viewport

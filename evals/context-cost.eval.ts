@@ -22,7 +22,7 @@ import { render, cleanup } from '@testing-library/svelte';
 import { toolRegistry } from '../src/lib/core/registries/tool-registry';
 import { buildSystemPrompt } from '../src/lib/agent/prompt-builder';
 import type { ExtensionOptions } from '../src/lib/core/extensions';
-import { clearRegistries, stubJsdomGaps, estTokens } from './harness';
+import { clearRegistries, estTokens } from './harness';
 import ShiftPlannerPage from './fixtures/ShiftPlannerPage.svelte';
 
 interface SurfaceHandle {
@@ -126,7 +126,6 @@ let scaledPromptChars: Array<{ staff: number; chars: number }> = [];
 
 describe('context-cost measurement (hermetic)', () => {
 	beforeEach(() => {
-		stubJsdomGaps();
 		clearRegistries();
 	});
 	afterEach(() => cleanup());

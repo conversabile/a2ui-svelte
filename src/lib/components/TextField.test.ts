@@ -1,18 +1,9 @@
 import { render } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { actionRegistry } from '../core/registries/action-registry';
 import { toolRegistry } from '../core/registries/tool-registry';
 import TextFieldWritabilityHarness from './__fixtures__/TextFieldWritabilityHarness.svelte';
-
-// jsdom has no `CSS` — the reveal/highlight helpers the update tool runs
-// through call `CSS.escape(id)`. Passthrough stub; the fixture ids are
-// CSS-safe so escaping is a no-op anyway.
-beforeAll(() => {
-	if (typeof (globalThis as any).CSS === 'undefined') {
-		(globalThis as any).CSS = { escape: (s: string) => s };
-	}
-});
 
 interface HarnessApi {
 	getDataModel: () => Record<string, unknown>;

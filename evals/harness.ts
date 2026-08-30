@@ -111,15 +111,6 @@ export function clearRegistries(): void {
 	for (const id of actionRegistry.listActions()) actionRegistry.unregister(id);
 }
 
-/** jsdom lacks `CSS.escape` (used by the highlight/reveal helpers). */
-export function stubJsdomGaps(): void {
-	const g = globalThis as Record<string, unknown>;
-	if (typeof g.CSS === 'undefined') g.CSS = { escape: (s: string) => s };
-	if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
-		Element.prototype.scrollIntoView = () => {};
-	}
-}
-
 type EventName = keyof AgentTransportEventMap;
 
 /**

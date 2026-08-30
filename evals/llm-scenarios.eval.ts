@@ -30,7 +30,6 @@ import {
 	type EvalProfile,
 	selectedProfiles,
 	clearRegistries,
-	stubJsdomGaps,
 	makeEvalTransport,
 	RecordingTransport,
 	sendAndWait
@@ -136,7 +135,6 @@ const norm = (s: string | undefined) => (s ?? '').trim().toLowerCase();
 
 describeLive('LLM evals — static shift planner', () => {
 	beforeEach(() => {
-		stubJsdomGaps();
 		clearRegistries();
 	});
 	afterEach(() => cleanup());
@@ -250,7 +248,6 @@ describeLive('LLM evals — static shift planner', () => {
 
 describeLive('LLM evals — dynamic surface', () => {
 	beforeEach(() => {
-		stubJsdomGaps();
 		clearRegistries();
 		a2uiState.deleteSurface('ai-canvas');
 	});

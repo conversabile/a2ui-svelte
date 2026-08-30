@@ -1,5 +1,5 @@
 import { render } from '@testing-library/svelte';
-import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import StaticSurface from './StaticSurface.svelte';
 import { toolRegistry } from '../core/registries/tool-registry';
 import { actionRegistry } from '../core/registries/action-registry';
@@ -7,16 +7,6 @@ import { STRICT, ALL_EXTRAS } from '../core/extensions';
 import type { SurfaceFeedback } from './surface-feedback';
 import ButtonHarness from './__fixtures__/ButtonHarness.svelte';
 import DiffHarness from './__fixtures__/DiffHarness.svelte';
-
-// jsdom doesn't provide `CSS` — the reveal / highlight helpers in core
-// use `CSS.escape(id)` to safely interpolate component IDs into a CSS
-// selector. Stub it with a passthrough for the test environment; the
-// fixture IDs are CSS-safe so escaping is a no-op anyway.
-beforeAll(() => {
-	if (typeof (globalThis as any).CSS === 'undefined') {
-		(globalThis as any).CSS = { escape: (s: string) => s };
-	}
-});
 
 function clearRegistries() {
 	for (const t of toolRegistry.getDeclarations()) toolRegistry.unregister(t.name);
