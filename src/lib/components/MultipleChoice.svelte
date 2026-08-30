@@ -94,7 +94,7 @@
 				selections = parseSelections(next);
 				await onchange?.(selections);
 				return {
-					field: fieldName ?? id ?? '',
+					field: fieldName ?? handle.componentId ?? '',
 					message: `"${label ?? 'Choice'}" set to ${selections.join(', ') || '(none)'}.`
 				};
 			}

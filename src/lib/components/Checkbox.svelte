@@ -59,7 +59,10 @@
 						: Boolean(next);
 				checked = asBool;
 				await onchange?.(checked);
-				return { field: fieldName ?? id ?? '', message: `"${label}" set to ${checked}.` };
+				return {
+					field: fieldName ?? handle.componentId ?? '',
+					message: `"${label}" set to ${checked}.`
+				};
 			}
 		}
 	});

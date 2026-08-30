@@ -74,7 +74,7 @@
 				value = next;
 				await onchange?.(value);
 				return {
-					field: fieldName ?? id ?? '',
+					field: fieldName ?? handle.componentId ?? '',
 					message: `"${label ?? 'Date/time'}" set to ${value}.`
 				};
 			}

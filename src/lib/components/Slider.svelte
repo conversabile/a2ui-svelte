@@ -63,7 +63,10 @@
 				const asNumber = typeof next === 'number' ? next : parseFloat(next);
 				if (!Number.isNaN(asNumber)) value = asNumber;
 				await onchange?.(value);
-				return { field: fieldName ?? id ?? '', message: `"${label ?? 'Slider'}" set to ${value}.` };
+				return {
+					field: fieldName ?? handle.componentId ?? '',
+					message: `"${label ?? 'Slider'}" set to ${value}.`
+				};
 			}
 		}
 	});

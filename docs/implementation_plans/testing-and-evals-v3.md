@@ -1,7 +1,7 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
-**Status:** in progress — WP0 done (changeset stashed), WP1 done; WP1b opened
-from WP1's findings. See §5.
+**Status:** in progress — WP0 done (changeset stashed), WP1 and WP1b done.
+See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
 `src/lib/testing/` changeset (see WP0).
@@ -424,7 +424,7 @@ drop `fieldName={id}` from any fixture/example/skill where the two are equal.
 
 ---
 
-### WP1b — The data-model key has one spelling everywhere
+### WP1b — The data-model key has one spelling everywhere — DONE
 
 **Spotted during WP1.** Two leftovers of the defect WP1 fixed in TextField.
 
@@ -1163,59 +1163,33 @@ add conversation-level tests; WP8 adds Playwright.
 
 ## 5. Progress log
 
-_(append per WP: date, branch, what landed, anything the next WP should know)_
+_(append per WP, max ~8 lines: what landed, decisions that contradict the WP
+text, what the next WP must know. The diff holds everything else.)_
 
 ### WP1 — DONE (2026-08-29, branch `develop`)
 
-**What landed:**
-- [TextField.svelte](../../src/lib/components/TextField.svelte#L113) registers
-  its `update` action **unconditionally**; the result payload's `field` reports
-  `fieldName ?? handle.componentId ?? ''`, i.e. the actual data-model key. An
-  id-only TextField is now writable, and so is an `AutocompleteField` with only
-  an `id` (it delegates to a nested TextField).
-- New co-located [TextField.test.ts](../../src/lib/components/TextField.test.ts)
-  + [__fixtures__/TextFieldWritabilityHarness.svelte](../../src/lib/components/__fixtures__/TextFieldWritabilityHarness.svelte)
-  (first test in `src/lib/components/`): the two-field case, a fill through
-  `toolRegistry.execute('update_text_field', …)` landing in both the bound
-  `$state` and the data model, the `fieldName`-keyed variant, and id/action
-  parity for the surface. Three of the four went red before the fix.
-- `fieldName={id}` dropped where the two were equal: the three
-  `src/lib/authoring/__fixtures__/` harnesses, `evals/fixtures/ShiftPlannerPage.svelte`
-  (both the per-day cells and the add-staff row), `examples/minimal-app/src/lib/StarRating.svelte`,
-  `src/lib/skills/build-a2ui-page.md`, `README.md`, `docs/guides/composite-components.md`.
-  The call sites where they legitimately differ were left alone.
-- [StarRating.svelte](../../examples/minimal-app/src/lib/StarRating.svelte)
-  forwards its `id` to the inner `MultipleChoice` instead of hardcoding
-  `id="rating"` — the page passes `id="demo-rating"` and the agent was seeing
-  `rating`. Example-app only, so it rides in WP1's commit rather than its own.
-- Docs: [components.md](../../docs/reference/components.md) gained a
-  "`fieldName` — a Svelte prop, not a JSON property" note under Common
-  Properties (defaults to the id; write it only for a shared data key);
-  [authoring-components.md](../../docs/guides/authoring-components.md) §`action`
-  now states the register-unconditionally rule and why.
+- TextField registers `update` unconditionally; result `field` reports
+  `fieldName ?? handle.componentId ?? ''`. Id-only fields (and
+  `AutocompleteField`) are writable. New `TextField.test.ts` + harness fixture.
+- `fieldName={id}` dropped where equal, across fixtures/examples/skills/docs;
+  the register-unconditionally rule written into `authoring-components.md`
+  §`action`.
+- Deviation: `handle.componentId`, not the siblings' `id` — with neither prop
+  set `id` is `undefined` while the data-model key is the generated id. Fixed
+  for the siblings in WP1b.
+- Referencing `handle` inside its own handler needs an explicit return
+  annotation (TS circular initializer).
+- **WP9b must re-land** CLAUDE.md's Rule 8 `./testing` text — WP0's
+  `git stash push --staged` reverted it.
 
-**Decisions / deviations from the WP text:**
-- The result `field` uses `fieldName ?? handle.componentId ?? ''`, **not** the
-  siblings' `fieldName ?? id ?? ''`. With neither prop set, `id` is `undefined`
-  while the data-model key is the auto-generated component id — the siblings
-  report `field: ''` there, which is the same "two spellings of one identifier"
-  defect this WP removes. Checkbox / Slider / DateTimeInput / MultipleChoice
-  still carry it (see below).
-- Referencing `handle` from inside the handler makes TS see a circular
-  initializer, so the handler carries an explicit `: unknown` return annotation
-  (the siblings annotate `Promise<unknown>` for the same reason).
+### WP1b — DONE (2026-08-30, branch `develop`)
 
-**Verification:** `pnpm test` 231 (230 passed, 1 skipped, +4 new);
-`pnpm check` 0 errors, 36 warnings (all pre-existing `state_referenced_locally`
-— one fewer than before, the removed ternary); `pnpm eval` hermetic
-context-cost unchanged; `svelte-check` on `examples/minimal-app` 0 errors.
-
-**For the next WPs:**
-- **CLAUDE.md** carried WP0 leftovers (`git stash push --staged` took only the
-  staged half). The `./testing` Rule 8 text was reverted — it described an
-  export that does not exist yet, so **WP9b must re-land it** with the subpath.
-  The "be concise" rule stayed, and a "be opinionated; surface what you find"
-  rule was added beside it.
-- Two findings from this WP became **WP1b**: the `field: fieldName ?? id ?? ''`
-  fallback in Checkbox / Slider / DateTimeInput / MultipleChoice, and
-  `build-custom-component.md` teaching conditional `data` with an inlined value.
+- Checkbox, Slider, DateTimeInput, MultipleChoice and **Tabs** (not in the WP
+  text, same defect: `field: id ?? 'tabs'`) report the resolved data-model key.
+- `build-custom-component.md`: unconditional `data` + action, path-bound under
+  `fieldName ?? componentId`; dropped the `fieldName` JSON property (it
+  duplicated the `path`).
+- New `value-components.test.ts` + harness. It reads each component's exported
+  `componentId` via `bind:this` — auto-ids are a per-surface counter, so
+  hardcoding `slider-2` makes tests order-dependent. Reuse that.
+- `pnpm test` 236 passed / 1 skipped; `pnpm check` 0 errors.

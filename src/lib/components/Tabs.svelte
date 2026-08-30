@@ -102,13 +102,13 @@
 				const idx = resolveTabIndex(String(next));
 				if (idx < 0) {
 					return {
-						field: id ?? 'tabs',
+						field: handle.componentId ?? '',
 						message: `No tab matching "${next}". Available tabs: ${resolvedTabs.map((t) => t.title).join(', ')}.`
 					};
 				}
 				activeIndex = idx;
 				return {
-					field: id ?? 'tabs',
+					field: handle.componentId ?? '',
 					message: `Switched to the "${resolvedTabs[idx].title}" tab.`
 				};
 			}

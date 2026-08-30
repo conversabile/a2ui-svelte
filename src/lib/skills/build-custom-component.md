@@ -51,24 +51,27 @@ registration, and `onDestroy` cleanup.
 
   let { id, value = $bindable(0), max = 5, fieldName, onchange }: Props = $props();
 
-  const handle = defineA2uiComponent<{
-    value: { literalNumber: number };
-    max: { literalNumber: number };
-    fieldName?: string;
-  }>({
+  const handle = defineA2uiComponent<{ value: number; max: number }>({
     type: 'RatingStars',
-    id,
-    a2ui: () => ({
-      value: { literalNumber: value },
-      max: { literalNumber: max },
-      ...(fieldName ? { fieldName } : {})
-    }),
-    data: fieldName ? { key: fieldName, value: () => value } : undefined,
+    id: id ?? fieldName,
+    // A value-bearing component's data-model key is `fieldName ?? componentId`:
+    // path-bind to it, register the data source under it, and report it back in
+    // the action result. The literal is only the no-surface fallback.
+    a2ui: (componentId) => {
+      const bindingKey = fieldName ?? componentId;
+      return {
+        value: bindingKey ? { path: `/${bindingKey}` } : { literalNumber: value },
+        max: { literalNumber: max }
+      };
+    },
+    data: { key: fieldName, value: () => value },
     action: {
       type: 'update',
-      handler: (v: string) => {
+      handler: async (v: string): Promise<unknown> => {
         value = Number(v);
-        onchange?.(value);
+        await onchange?.(value);
+        const key = fieldName ?? handle.componentId ?? '';
+        return { field: key, message: `"${key}" set to ${value}.` };
       }
     }
   });
@@ -102,12 +105,17 @@ the agent sees. Wrap literal values with the BoundValue envelope
 ```json
 {
   "RatingStars": {
-    "value": { "literalNumber": 3 },
-    "max":   { "literalNumber": 5 },
-    "fieldName": "rating"
+    "value": { "path": "/rating" },
+    "max":   { "literalNumber": 5 }
   }
 }
 ```
+
+`fieldName` is a Svelte prop, not a JSON property: it names the **data-model
+key**, and the tree carries only the `path` that points at it. Keep `data`,
+`action` and the `path` unconditional — an input the agent can read must also
+be writable, and keeping the value in the data model (not inline in the tree)
+is what keeps `'sync'`-mode delivery on the cheap delta path.
 
 ### 4. Register with the consumer's catalog
 
