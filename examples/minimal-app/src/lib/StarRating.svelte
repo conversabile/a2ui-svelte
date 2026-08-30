@@ -36,12 +36,13 @@
   Inside <A2UIRepresentation> the MultipleChoice registers with the surface
   (so the agent can target it) but renders nothing. The agent sees a plain
   5-option MultipleChoice; the user sees the custom star row below.
+  Forward this component's `id` so the agent targets the id the page
+  declared — hardcoding one here would make two StarRatings collide.
 -->
 <A2UIRepresentation>
 	<MultipleChoice
 		bind:this={mcNode}
-		id="rating"
-		fieldName="rating"
+		{id}
 		{label}
 		{options}
 		bind:selections

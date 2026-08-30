@@ -73,7 +73,7 @@ the same surface, with all defaults enabled:
 
 <StaticSurface bind:this={surface} surfaceId="hello">
   <Card><Column>
-    <TextField id="name" fieldName="name" label="Name" bind:value={name} />
+    <TextField id="name" label="Name" bind:value={name} />
     <Button id="save" primary label="Save"
             action={{ name: 'save' }}
             onclick={() => alert(`Hi ${name}!`)} />

@@ -14,7 +14,12 @@
 		 * dedicated `DateTimeInput` component (`enableDate=false`).
 		 */
 		textFieldType?: 'shortText' | 'longText' | 'number' | 'date' | 'obscured';
-		/** Field name used for data binding and action registration */
+		/**
+		 * Data-model key for this field's value. Defaults to the component
+		 * `id`; set it only when several components edit the SAME value (one
+		 * key, two ids). `id` names the component the agent targets;
+		 * `fieldName` names the value it writes.
+		 */
 		fieldName?: string;
 		onchange?: (value: string) => void;
 		placeholder?: string;
@@ -107,16 +112,18 @@
 			};
 		},
 		data: { key: fieldName, value: () => value },
-		action: fieldName
-			? {
-					type: 'update',
-					handler: (newValue: string) => {
-						value = newValue;
-						onchange?.(value);
-						return { field: fieldName, message: `Field "${label || fieldName}" updated.` };
-					}
-				}
-			: undefined
+		// Register unconditionally: the action is keyed by the component id, so
+		// a field without an explicit `fieldName` is writable too — anything the
+		// agent can read in the tree it must be able to write.
+		action: {
+			type: 'update',
+			handler: (newValue: string): unknown => {
+				value = newValue;
+				onchange?.(value);
+				const key = fieldName ?? handle.componentId ?? '';
+				return { field: key, message: `Field "${label || key}" updated.` };
+			}
+		}
 	});
 
 	export const dataAttr = handle.dataAttr;

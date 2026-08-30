@@ -4,7 +4,7 @@
 </script>
 
 <A2UIRepresentation>
-	<TextField id="hidden-field" fieldName="hidden-field" label="Hidden" />
+	<TextField id="hidden-field" label="Hidden" />
 </A2UIRepresentation>
 
 <div class="bespoke-ui">user-facing markup goes here</div>

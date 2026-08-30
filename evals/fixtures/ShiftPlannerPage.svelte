@@ -128,7 +128,6 @@
 				{#each DAYS as day (day)}
 					<TextField
 						id={`shift-${member.slug}-${day}`}
-						fieldName={`shift-${member.slug}-${day}`}
 						label={`${member.name} ${DAY_LABELS[day]}`}
 						bind:value={member.shifts[day]}
 					/>
@@ -139,8 +138,8 @@
 		<Divider id="form-divider" />
 		<Text id="add-staff-title" text="Add staff member" usageHint="h3" />
 		<Row>
-			<TextField id="add-staff-name" fieldName="add-staff-name" label="Name" bind:value={newName} />
-			<TextField id="add-staff-role" fieldName="add-staff-role" label="Role" bind:value={newRole} />
+			<TextField id="add-staff-name" label="Name" bind:value={newName} />
+			<TextField id="add-staff-role" label="Role" bind:value={newRole} />
 			<Button id="add-staff-btn" label="Add staff" action={{ name: 'add-staff-btn' }} onclick={addStaff} />
 		</Row>
 

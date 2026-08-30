@@ -231,6 +231,15 @@ Commit messages follow **Conventional Commits** (`feat:`, `fix:`, `refactor:`,
 `perf:`, …) because `standard-version` generates `CHANGELOG.md` and bumps the
 version from them — so when you propose a commit message, use the right type.
 
+**Be concise in docs, guides, plans and this file.** State the rule and the one
+reason it exists; skip the worked argument. An essay per concept is how these
+files become an unmaintainable, context-overflowing mess.
+
+**Be opinionated; surface what you find.** If something doesn't add up, stop and
+say so. Report a bug or refactor you spot outside the current task instead of
+silently fixing or working around it — this library is built for the long term,
+and a hack that keeps things green costs more than the bug it hides.
+
 Keep the library's own **skills** ([src/lib/skills/](src/lib/skills/)) in sync
 with the code: if you change how a page, component, composite, agent wiring, or
 theming is done, update the matching skill — it's what teaches consuming IDEs.

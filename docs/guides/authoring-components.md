@@ -110,6 +110,13 @@ strings). Inside the handler, parse to your real type:
 action: { type: 'update', handler: (v) => { value = Number(v); } }
 ```
 
+Register it **unconditionally**, exactly like `data` — the registry keys the
+action by the component id, so an input with no `fieldName` stays writable.
+Registering only `if (fieldName)` leaves the component in the surface JSON
+(the agent sees it) with no action behind it (`update_text_field` throws) —
+readable but not writable, which breaks screen/tree parity from the agent's
+side. Report the data-model key back in the result: `fieldName ?? componentId`.
+
 ### `isContainer`
 
 Set to `true` for `Card`, `Column`, `Row`, `List`, `Tabs`. The helper

@@ -166,8 +166,7 @@ options; the user sees five clickable star icons.
 </script>
 
 <A2UIRepresentation>
-  <MultipleChoice bind:this={mcNode} id="rating" fieldName="rating"
-                  {options} bind:value />
+  <MultipleChoice bind:this={mcNode} id="rating" {options} bind:value />
 </A2UIRepresentation>
 
 <div class="rating-picker" {id} {...mcNode?.dataAttr}>

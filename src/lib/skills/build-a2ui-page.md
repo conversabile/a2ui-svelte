@@ -43,8 +43,8 @@ JSON serialiser. Everything declared inside it is part of one A2UI tree.
 <StaticSurface bind:this={surfaceRef} surfaceId="checkout-form">
   <Card>
     <Column>
-      <TextField id="name"  fieldName="name"  label="Name"  bind:value={name} />
-      <TextField id="email" fieldName="email" label="Email" bind:value={email} />
+      <TextField id="name"  label="Name"  bind:value={name} />
+      <TextField id="email" label="Email" bind:value={email} />
       <Button id="place-order" primary label="Place order"
               action={{ name: 'place-order' }} onclick={placeOrder} />
     </Column>

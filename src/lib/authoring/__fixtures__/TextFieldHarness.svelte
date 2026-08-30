@@ -2,4 +2,4 @@
 	import TextField from '../../components/TextField.svelte';
 </script>
 
-<TextField id="username" fieldName="username" label="Username" />
+<TextField id="username" label="Username" />

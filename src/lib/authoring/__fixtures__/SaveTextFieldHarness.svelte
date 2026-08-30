@@ -24,7 +24,6 @@
 	<TextField
 		bind:this={inputNode}
 		id="save-input"
-		fieldName="save-input"
 		bind:value
 		label="Name"
 	/>
