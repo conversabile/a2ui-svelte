@@ -10,10 +10,34 @@ public API in three pages.
 pnpm install
 cp examples/minimal-app/.env.template examples/minimal-app/.env
 # edit .env — add at least one real provider key (placeholders stay disabled)
+pnpm package                    # REQUIRED — see "Build the library first" below
 pnpm --filter minimal-app dev
 ```
 
 Open http://localhost:5173.
+
+## Build the library first (or you run stale code)
+
+This app resolves `a2ui-svelte` through a workspace symlink to the repo
+root, and the root `exports` map points at **`dist/`, not `src/lib/`**.
+Editing the library changes nothing here until `dist/` is rebuilt.
+
+```bash
+pnpm package          # rebuild dist/ — after every library change
+pnpm package:watch    # or leave this running in a second terminal
+```
+
+Also run the production build before trusting a change — it is the only
+pass that walks the whole static graph, so it alone catches Node-only
+code pulled into the browser bundle (`dev` transforms lazily and stays
+silent):
+
+```bash
+pnpm package && pnpm --filter minimal-app build
+```
+
+If the dev server serves impossibly old code after a rebuild, clear
+Vite's dep cache: `rm -rf examples/minimal-app/node_modules/.vite`.
 
 `.env.template` lists every provider key the app understands. You only
 need one — the **Agent model** picker enables a model exactly when its

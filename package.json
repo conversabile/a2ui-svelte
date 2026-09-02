@@ -13,6 +13,7 @@
 	},
 	"scripts": {
 		"package": "svelte-kit sync && svelte-package && publint",
+		"package:watch": "svelte-kit sync && svelte-package --watch",
 		"prepublishOnly": "npm run package",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -94,7 +95,7 @@
 		"svelte": "^5.0.0"
 	},
 	"dependencies": {
-		"@anthropic-ai/sdk": "^0.103.0",
+		"@anthropic-ai/sdk": "^0.123.0",
 		"@capacitor/core": "^8.1.0",
 		"@google/genai": "^1.41.0",
 		"capacitor-voice-recorder": "^7.0.6",

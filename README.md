@@ -202,8 +202,18 @@ its [README](examples/minimal-app/README.md).
 pnpm install
 cp examples/minimal-app/.env.template examples/minimal-app/.env
 # edit .env — add at least one real provider key
+pnpm package                    # REQUIRED: the app imports dist/, not src/
 pnpm --filter minimal-app dev
 ```
+
+> **The example app never reads `src/lib/`.** It resolves `a2ui-svelte`
+> through a workspace symlink to the repo root, whose `exports` map points
+> at **`dist/`** — so a stale `dist/` means you are running old library
+> code. Run `pnpm package` after every library change, or keep
+> `pnpm package:watch` running in a second terminal while you iterate.
+> `pnpm --filter minimal-app build` (a production rollup pass) is also the
+> only check that catches Node-only code reaching the browser bundle —
+> `dev` transforms lazily and won't.
 
 ## A2UI v0.8 compatibility
 

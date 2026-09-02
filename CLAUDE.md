@@ -266,7 +266,9 @@ theming is done, update the matching skill — it's what teaches consuming IDEs.
 | `pnpm check` | `svelte-check` type/diagnostic pass |
 | `pnpm lint` / `pnpm format` | ESLint / Prettier |
 | `pnpm package` | Build the publishable `dist/` (`svelte-package` + `publint`) |
-| `pnpm --filter minimal-app dev` | Run the example consumer app (copy `examples/minimal-app/.env.template` → `.env`, add ≥1 provider key) |
+| `pnpm package:watch` | Same, rebuilding `dist/` on change — leave running while iterating on the example app |
+| `pnpm --filter minimal-app dev` | Run the example consumer app (copy `examples/minimal-app/.env.template` → `.env`, add ≥1 provider key). **Run `pnpm package` first, every time** — the app imports `dist/`, not `src/lib/`, so a stale `dist/` runs old library code |
+| `pnpm --filter minimal-app build` | Production rollup pass over the example app — the only check that catches Node-only code reaching the browser bundle (`dev` transforms lazily and won't) |
 
 ---
 
