@@ -375,9 +375,11 @@
 		});
 	}
 
-	// Clean up ActionRegistry entries for this surface on destroy
+	// Clean up this surface's registry entries on destroy: its actions, and the
+	// tools above — whose closures would otherwise keep driving a dead surface.
 	onDestroy(() => {
 		actionRegistry.unregisterBySurface(surfaceId);
+		registry.dispose();
 	});
 
 	// Expose properties for GeminiLive (or other controllers)

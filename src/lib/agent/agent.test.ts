@@ -116,12 +116,6 @@ class MockAgentTransport implements AgentTransport {
 }
 
 describe("Agent with a neutral mock transport", () => {
-  beforeEach(() => {
-    // Tests share toolRegistry; clear between cases.
-    for (const t of toolRegistry.getDeclarations())
-      toolRegistry.unregister(t.name);
-  });
-
   it("connects, dispatches a tool call, and replies with the result", async () => {
     toolRegistry.register({
       name: "add_one",
@@ -1545,8 +1539,6 @@ class MockAudioTransport extends MockAgentTransport {
 
 describe("Agent audio surface (capability-gated)", () => {
   beforeEach(() => {
-    for (const t of toolRegistry.getDeclarations())
-      toolRegistry.unregister(t.name);
     recorderHolder.last = null;
     playerHolder.last = null;
   });

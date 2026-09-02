@@ -20,18 +20,47 @@ export interface ToolDefinition {
 }
 
 class ToolRegistry {
-	private tools: Map<string, ToolDefinition> = new Map();
+	/**
+	 * Providers per tool name, in registration order — the LAST one is live.
+	 * Two mounted surfaces each register their own `click_button`; unmounting
+	 * one must leave the other's still declared, so a name keeps a stack of
+	 * providers rather than a single value.
+	 */
+	private tools: Map<string, ToolDefinition[]> = new Map();
 
-	/** Register a tool. Overwrites any existing tool with the same name. */
+	/** Register a tool. It becomes the live provider for its name. */
 	register(tool: ToolDefinition) {
-		console.log(`[ToolRegistry] Registered tool: ${tool.name}`);
-		this.tools.set(tool.name, tool);
+		const stack = this.tools.get(tool.name);
+		if (!stack) {
+			this.tools.set(tool.name, [tool]);
+			return;
+		}
+		const existing = stack.indexOf(tool);
+		if (existing !== -1) stack.splice(existing, 1);
+		stack.push(tool);
 	}
 
-	/** Remove a tool by name. */
-	unregister(name: string) {
-		console.log(`[ToolRegistry] Unregistered tool: ${name}`);
-		this.tools.delete(name);
+	/**
+	 * Remove a tool. Given a `tool`, removes only that provider — whichever
+	 * provider registered before it becomes live again; without one, removes
+	 * every provider of the name.
+	 */
+	unregister(name: string, tool?: ToolDefinition) {
+		if (!tool) {
+			this.tools.delete(name);
+			return;
+		}
+		const stack = this.tools.get(name);
+		if (!stack) return;
+		const idx = stack.indexOf(tool);
+		if (idx !== -1) stack.splice(idx, 1);
+		if (stack.length === 0) this.tools.delete(name);
+	}
+
+	/** The live provider for a name — the most recently registered one. */
+	private current(name: string): ToolDefinition | undefined {
+		const stack = this.tools.get(name);
+		return stack?.[stack.length - 1];
 	}
 
 	/**
@@ -39,11 +68,10 @@ class ToolRegistry {
 	 * `config.tools[0].functionDeclarations`.
 	 */
 	getDeclarations(): Array<{ name: string; description: string; parameters: Record<string, any> }> {
-		return Array.from(this.tools.values()).map((t) => ({
-			name: t.name,
-			description: t.description,
-			parameters: t.parameters
-		}));
+		return Array.from(this.tools.keys()).map((name) => {
+			const t = this.current(name)!;
+			return { name: t.name, description: t.description, parameters: t.parameters };
+		});
 	}
 
 	/**
@@ -51,7 +79,7 @@ class ToolRegistry {
 	 * Throws if the tool is not found.
 	 */
 	async execute(name: string, args: Record<string, any> = {}): Promise<Record<string, any>> {
-		const tool = this.tools.get(name);
+		const tool = this.current(name);
 		if (!tool) {
 			console.error(`[ToolRegistry] Tool not found: ${name}`);
 			return { error: `Tool "${name}" is not registered` };

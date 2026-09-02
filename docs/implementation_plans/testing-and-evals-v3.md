@@ -1,7 +1,8 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
-**Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3 and WP4
-done.
+**Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3, WP4
+and WP5 done; **WP5b and WP5c open** (WP5's fix is provisional — see its log
+entry).
 See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
@@ -361,9 +362,14 @@ text.
 - **One WP = one closed conventional commit.** Each WP's commit contains its
   code, its tests, **and every doc/skill/example its change invalidates** — so
   the tree is consistent at every commit and `standard-version` renders a
-  changelog where each entry is a finished thing. Breaking WPs (WP2, WP9c) use
+  changelog where each entry is a finished thing. Breaking WPs (WP2, WP5b, WP9c) use
   the `!` marker **and** a `BREAKING CHANGE:` footer describing the migration.
   WP12 holds only the *new* documents, not fixes to existing ones.
+- **A WP is a hypothesis, not a licence.** If a WP's premise looks wrong — or it
+  patches around something with a cleaner fix one level down — say so **before
+  writing the code**, not as a note under the finished diff. WP5 is the cautionary
+  case: it was built as specified, and only afterwards was the collision it works
+  around (WP5c) named.
 - **Be terse.** §5 entries: 8 lines, hard cap. Docs and comments: state the rule
   and the one reason it exists. One line per fact; the diff holds the rest.
 - **Do not run `pnpm lint` / `pnpm format`** — no config in the repo; Prettier
@@ -597,7 +603,7 @@ quote and a backslash pins the escaping.
 
 ---
 
-### WP5 — Unregister tools when a surface unmounts
+### WP5 — Unregister tools when a surface unmounts — DONE
 
 **The bug.** [StaticSurface.svelte:379-381](../../src/lib/renderer/StaticSurface.svelte#L379-L381)
 unregisters the surface's *actions* on destroy but never its **tools**
@@ -634,6 +640,140 @@ to B; unmount B → registry empty. Plus a single mount/unmount round trip.
 suite stays green without them — that is the proof the fix works.
 
 **Commit:** `fix(renderer): unregister surface tools on unmount`
+
+---
+
+### WP5b — Extensions become global
+
+**Depends on:** nothing (WP5c depends on it).
+
+**The bug WP5 worked around.** Every `<StaticSurface>` registers its own
+`click_button` / `update_text_field` under the same global name, so with two
+surfaces mounted the last one registered answers for both. It only works by
+accident: the tools resolve elements through the **global** `actionRegistry`, so
+any element is reachable whichever copy runs. What is wrong is the reply the
+model gets — `updatedSurface`, `updatedContext` and the changed-only baseline are
+built from the one surface that happened to win the name, so a click in surface A
+is answered with surface B's state.
+
+WP5 made unmounting this arrangement safe (a provider stack per name). It did
+not question whether the collision should exist. It should not.
+
+**Root cause: the extensions are per-surface.** An extension describes the
+protocol this library speaks, not a region of the page, and half of them name a
+**global** tool — two surfaces cannot disagree about whether a tool name exists.
+The code already admits this: [`buildStaticSurfacesSection`](../../src/lib/agent/prompt-builder.ts#L100-L114)
+flattens each per-surface record back into one yes/no ("at least one surface…"),
+with a special rule for mixed echo modes. The one extension with a plausible
+per-surface reading, `surfaceWatch`, is redundant: an unchanged surface produces
+no diff and costs no tokens, and a surface the agent should ignore entirely is
+simply left out of `definition.surfaces()`.
+
+**One word.** They are **extensions**: each field is *an extension*, the record
+is *the extensions*. "Flag" and "option" leave the code, the docs and the guides.
+`ExtensionOptions` → `Extensions`.
+
+**One clearer extension.** `toolResultExtras: boolean | 'diff'` →
+`toolResultSurfaceEcho: 'none' | 'full' | 'changed'`. The old name described the
+plumbing (extra fields under a namespace); the decision is how much of the
+surface a tool result echoes back. `'none'` keeps `STRICT` reading as
+everything-off, and `'changed'` is honest where `'diff'` was not — a structural
+change still sends the whole tree.
+
+**One place to set them,** since the record now describes the app:
+
+```ts
+// core/extensions.ts
+export function configureExtensions(e: Partial<Extensions>): void; // once, at startup
+export function getExtensions(): Extensions;                       // read anywhere
+```
+
+```svelte
+<!-- consuming app: src/routes/+layout.svelte -->
+<script>
+	import { configureExtensions } from 'a2ui-svelte/core';
+	configureExtensions({ toolResultSurfaceEcho: 'changed' }); // or configureExtensions(STRICT)
+</script>
+```
+
+Default with no call: `ALL_EXTRAS`, as today. `STRICT` / `ALL_EXTRAS` stay.
+
+**Then delete** — all of it dead because one record has one value: the `options`
+prop on `<StaticSurface>` / `<DynamicSurface>`, `A2UI_EXTENSIONS_CONTEXT_KEY`,
+`resolveExtensionOptions`, the `extensions` each surface exports, the
+`extensions` field on the agent's surface handles, and the "at least one
+surface…" collapsing in the prompt-builder (four direct reads instead).
+
+**SSR.** The record is module-level, so on the server it is shared by every
+request. That is correct — it describes the app, not the user — but it must be
+set at startup, not per request.
+
+**Breaking (Rule 8), deliberate:** the `options` prop, the context key, the
+`ExtensionOptions` type name, and the `toolResultExtras` name and values all go.
+Note them in the changelog.
+
+**Tests.** `configureExtensions(STRICT)` ⇒ tool results are `{ results }` only
+and no extension tool is declared; `'changed'` ⇒ an unchanged surface returns
+`{ results }`, a structural change returns the full tree. Rewrite
+`StaticSurface.extensions.test.ts`, which sets the extensions through the
+`options` prop.
+
+**Document in this commit:** [extensions.md](../guides/extensions.md) — extensions
+are app-wide and set once with `configureExtensions`; `toolResultSurfaceEcho`'s
+three values; the migration off `options` / the context key. Plus the matching
+skill in [src/lib/skills/](../../src/lib/skills/).
+
+**Commit:** `refactor(core)!: make extensions global and rename toolResultExtras`
+(with a `BREAKING CHANGE:` footer listing the migration).
+
+---
+
+### WP5c — Register the generic tools once, not per surface
+
+**Depends on:** WP5b (which removes the per-surface record this WP would
+otherwise have to look up), and WP5 (whose machinery it deletes).
+
+**The remaining half of the bug.** WP5b settles who decides what a tool does;
+this WP settles who runs it. One name, one copy, and the reply built from the
+surface the target element belongs to.
+
+**The fix.** Register the generic tools **once**, globally, not per surface: the
+tool resolves `element_id` to its owning surface and builds its reply from *that*
+surface's feedback. Per-surface state (`echoBaseline`, `effectiveFeedback`) moves
+behind a surface lookup keyed by element id; `resolvedExtensions` needs no lookup
+— after WP5b there is one record for the whole app.
+
+**Registered ≠ declared.** Two questions, two answers:
+
+- **Registered in `toolRegistry`.** `click_button` / `update_text_field`
+  unconditionally — they are the v0.8 tools, and `toolRegistry.execute(name,
+  args)` is the entry point any external spec-compliant agent would come through
+  (nothing carries calls into it yet; that transport is the consumer's). They
+  must not vanish because an extension is on. `click_buttons` /
+  `update_text_fields` / `point_to_elements` register iff their extension is on
+  — now one app-wide answer, so no call can land on a surface that disagrees.
+- **Declared to our own model** (`Agent.#assembleToolDeclarations`). With
+  `batchTools` on, declare the batched pair *instead of* the singular pair, not
+  alongside it: two tools for one job cost prompt tokens twice and make the model
+  loop item-by-item, while a batch of one is exactly a single call. Rule 3
+  stands — the batched tools replace the singular ones in the **prompt**, never
+  in the registry.
+
+**Then delete:** the provider stack in `ToolRegistry` (back to one tool per
+name), `SurfaceRegistry.dispose()`'s per-provider removal, and the
+`StaticSurface.lifecycle.test.ts` cases about shadowing order.
+
+**Tests.** Mount A and B; a click on B's element returns B's `updatedSurface` and
+B's baseline, and unmounting A changes nothing about that. With `batchTools` on,
+the declarations contain `click_buttons` and not `click_button`, while
+`toolRegistry.execute('click_button', …)` still drives the surface.
+
+**Commit:** `refactor(renderer): register the generic tools once, not per surface`
+
+**Document in this commit:** [extensions.md](../guides/extensions.md) —
+`batchTools` swaps the prompt's tools and never removes the spec ones; and
+[agent-integration.md](../guides/agent-integration.md) — `toolRegistry.execute`
+is the entry point for an external spec-compliant agent.
 
 ---
 
@@ -937,8 +1077,8 @@ more useful than the bare `'not_found'` token. `'pointed'` carried nothing
 **Why not `success: true`** (the shape originally proposed):
 
 - **Redundant on the hottest token path.** Tool results echo back on every call
-  and are a top quota cost — the reason `toolResultExtras: 'diff'` exists at
-  all. A boolean *beside* `status` pays for the same bit twice, per element, per
+  and are a top quota cost — the reason `toolResultSurfaceEcho: 'changed'` exists
+  at all. A boolean *beside* `status` pays for the same bit twice, per element, per
   call. A boolean *instead of* `status` throws away the natural home of the
   `error` string.
 - **It churns the model contract to express the same two states.** `'success' |
@@ -1120,6 +1260,7 @@ the new documents.
 ```
 WP0       stash the staged changeset (user runs git) — everything assumes HEAD
 Phase 1   WP1  WP1b  WP2  WP3  WP4  WP5   independent, parallel, separate fix: commits
+                              WP5b → WP5c (needs WP5; deletes most of it)
                      ↓
 Phase 2   WP6 (needs WP3)   WP7   WP8 (needs WP7)   WP9   WP9b   WP9c (simplifies WP9b)
                      ↓
@@ -1246,3 +1387,24 @@ text, what the next WP must know. The diff holds everything else.)_
 - `dom.test.ts` first asserts jsdom really lacks both APIs, so the suite can
   never silently stop testing the gap. Verified red without the guards (5/7).
 - `pnpm test` 254 / 1 skipped; `pnpm check` 0 errors. WP5 is next in Phase 1.
+
+### WP5 — DONE (2026-08-30, branch `develop`)
+
+- `ToolRegistry` keys a **stack of providers** per name (last = live), so the
+  ordering hazard is solved in both directions: `unregister(name, tool)` removes
+  one provider and the previous one becomes live again; `unregister(name)` keeps
+  its old "drop the name" meaning. Refcounting was rejected — it leaves a dead
+  closure live when the *shadowing* surface unmounts first.
+- `SurfaceRegistry.dispose()` tracks definitions, not names; called from
+  `StaticSurface`'s existing `onDestroy`. `<DynamicSurface>` registers no tools.
+- The WP's "existing debug flag" does not exist — no logging flag anywhere in
+  core. Deleted the two register/unregister `console.log`s instead (churn noise;
+  `getDeclarations()` and `agent.debug` already answer "what's registered").
+- Closure: deleted the manual resets in all four named test files; suite green
+  without them. Verified red without `dispose()` (3/4 lifecycle cases).
+  `evals/harness.ts:clearRegistries` left for WP11.
+- **Provisional.** The stack only exists because every surface registers the same
+  tool name — a collision that should not exist. Raised only after the diff was
+  written, which is the process failure the new §2 constraint now forbids.
+  WP5c is the real fix and deletes most of this.
+- `pnpm test` 263 / 1 skipped; `pnpm check` 0 errors.

@@ -30,7 +30,6 @@ function registerClickButton(): void {
 
 describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 	beforeEach(() => {
-		for (const t of toolRegistry.getDeclarations()) toolRegistry.unregister(t.name);
 		actionRegistry.unregisterBySurface('main');
 	});
 	afterEach(() => {

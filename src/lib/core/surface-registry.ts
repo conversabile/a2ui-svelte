@@ -14,8 +14,8 @@ export class SurfaceRegistry {
     private components: Array<{ id: string; component: Record<string, any> }> = [];
     private childrenByParent: Map<string, string[]> = new Map();
     private counter = 0;
-    /** Tool names registered by components in this surface */
-    private registeredToolNames: string[] = [];
+    /** Tools registered by components in this surface, for `dispose()` */
+    private registeredTools: ToolDefinition[] = [];
     private dataSources: Map<string, () => any> = new Map();
 
     constructor(surfaceId: string) {
@@ -82,7 +82,18 @@ export class SurfaceRegistry {
      */
     registerTool(tool: ToolDefinition) {
         toolRegistry.register(tool);
-        this.registeredToolNames.push(tool.name);
+        this.registeredTools.push(tool);
+    }
+
+    /**
+     * Unregister every tool this surface installed. Called when the surface
+     * unmounts, so a dead surface's tool closures stop being declared to the
+     * agent. Removal is per-provider: another mounted surface that registered
+     * the same tool name keeps its own.
+     */
+    dispose() {
+        for (const tool of this.registeredTools) toolRegistry.unregister(tool.name, tool);
+        this.registeredTools = [];
     }
 
     /**
@@ -90,7 +101,8 @@ export class SurfaceRegistry {
      * registered by components in this surface.
      */
     getTools(): Array<{ name: string; description: string; parameters: Record<string, any> }> {
-        return toolRegistry.getDeclarations().filter((d) => this.registeredToolNames.includes(d.name));
+        const names = new Set(this.registeredTools.map((t) => t.name));
+        return toolRegistry.getDeclarations().filter((d) => names.has(d.name));
     }
 
     /**

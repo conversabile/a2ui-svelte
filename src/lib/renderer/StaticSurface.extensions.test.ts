@@ -1,20 +1,13 @@
 import { render } from '@testing-library/svelte';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import StaticSurface from './StaticSurface.svelte';
 import { toolRegistry } from '../core/registries/tool-registry';
-import { actionRegistry } from '../core/registries/action-registry';
 import { STRICT, ALL_EXTRAS } from '../core/extensions';
 import type { SurfaceFeedback } from './surface-feedback';
 import ButtonHarness from './__fixtures__/ButtonHarness.svelte';
 import DiffHarness from './__fixtures__/DiffHarness.svelte';
 
-function clearRegistries() {
-	for (const t of toolRegistry.getDeclarations()) toolRegistry.unregister(t.name);
-	for (const id of actionRegistry.listActions()) actionRegistry.unregister(id);
-}
-
 describe('StaticSurface — B3: tool registration shape', () => {
-	beforeEach(clearRegistries);
 
 	it('always registers spec-canonical single-element click_button / update_text_field', () => {
 		render(StaticSurface, {
@@ -101,8 +94,6 @@ describe('StaticSurface — B3: tool registration shape', () => {
 });
 
 describe('StaticSurface — B4: tool-result envelope shape', () => {
-	beforeEach(clearRegistries);
-
 	it('default (ALL_EXTRAS): wraps extras under extensions["a2ui-svelte"], not at the top level', async () => {
 		render(StaticSurface, {
 			surfaceId: 'extras-default',
@@ -155,8 +146,6 @@ describe('StaticSurface — B4: tool-result envelope shape', () => {
 });
 
 describe("StaticSurface — 'diff' tool-result mode (changed-only envelope)", () => {
-	beforeEach(clearRegistries);
-
 	/**
 	 * Mount the DiffHarness with `toolResultExtras: 'diff'` and a feedback
 	 * provider wired to the surface's own JSON (the lazy holder lets the
@@ -261,8 +250,6 @@ describe("StaticSurface — 'diff' tool-result mode (changed-only envelope)", ()
 });
 
 describe('StaticSurface — on-demand pointer tool (point_to_elements)', () => {
-	beforeEach(clearRegistries);
-
 	it('registers point_to_elements by default (ALL_EXTRAS)', () => {
 		render(StaticSurface, {
 			surfaceId: 'ptr-default',

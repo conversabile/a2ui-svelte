@@ -242,6 +242,15 @@ say so. Report a bug or refactor you spot outside the current task instead of
 silently fixing or working around it — this library is built for the long term,
 and a hack that keeps things green costs more than the bug it hides.
 
+**Doubts come before the diff, not after it.** If a task's premise looks wrong,
+or the thing you're about to build only exists to work around a problem that has
+a cleaner fix one level down, **stop and ask before writing the code** — even
+when the task is a work package in an approved plan. A plan is a hypothesis, not
+a licence. Raising it afterwards as a note under finished work is not surfacing
+it: by then the diff is written, its shape frames the discussion, and the burden
+of noticing has been handed to the reader. Lead with the doubt, in its own
+message, before the work.
+
 Keep the library's own **skills** ([src/lib/skills/](src/lib/skills/)) in sync
 with the code: if you change how a page, component, composite, agent wiring, or
 theming is done, update the matching skill — it's what teaches consuming IDEs.

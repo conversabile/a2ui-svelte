@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import AgentShell from './AgentShell.svelte';
 import { Agent } from './agent.svelte';
@@ -9,7 +9,6 @@ import type {
 	AgentTransportEventMap,
 	TransportCapabilities
 } from './transport';
-import { toolRegistry } from '../core/registries/tool-registry';
 
 // ScriptedTransport defers its emits to a microtask; a macrotask hop settles it.
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -61,10 +60,6 @@ async function sendMessage(container: HTMLElement, text: string) {
 }
 
 describe('AgentShell', () => {
-	beforeEach(() => {
-		for (const t of toolRegistry.getDeclarations()) toolRegistry.unregister(t.name);
-	});
-
 	it('typing a message sends it and renders both the user turn and the model reply', async () => {
 		const agent = makeAgent([{ on: 'hello', text: 'Hi there.' }]);
 		const { container, findByText } = render(AgentShell, { agent });
