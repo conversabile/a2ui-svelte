@@ -1,8 +1,7 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
-**Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3, WP4
-and WP5 done; **WP5b and WP5c open** (WP5's fix is provisional — see its log
-entry).
+**Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3, WP4,
+WP5 and WP5b done; **WP5c open** (WP5's fix is provisional — see its log entry).
 See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
@@ -643,7 +642,7 @@ suite stays green without them — that is the proof the fix works.
 
 ---
 
-### WP5b — Extensions become global
+### WP5b — Extensions become global — DONE
 
 **Depends on:** nothing (WP5c depends on it).
 
@@ -1408,3 +1407,17 @@ text, what the next WP must know. The diff holds everything else.)_
   written, which is the process failure the new §2 constraint now forbids.
   WP5c is the real fix and deletes most of this.
 - `pnpm test` 263 / 1 skipped; `pnpm check` 0 errors.
+
+### WP5b — DONE (2026-09-02, branch `develop`)
+
+- One module-level record: `configureExtensions(partial)` / `getExtensions()`.
+  The partial merges over `ALL_EXTRAS`, not the current record — an absolute
+  set, so `configureExtensions({})` is the reset every test's `afterEach` uses.
+- `toolResultExtras` → `toolResultSurfaceEcho: 'none' | 'full' | 'changed'`.
+  Deleted: the `options` prop, the context key, `resolveExtensionOptions`,
+  `extensions` on the surface exports / `AgentSurface` / `PromptSurface`, and
+  the prompt-builder's "at least one surface…" collapsing (4 direct reads).
+- Registration reads the record at mount, `buildToolResult` per call — so it
+  must be set before any surface mounts. `#watchedSurfaces()` is all-or-nothing.
+- Verified red with a no-op `configureExtensions` (18 failures). `pnpm test`
+  264 / 1 skipped; `pnpm check` 0 errors; `pnpm eval` unchanged (179k → 63k).

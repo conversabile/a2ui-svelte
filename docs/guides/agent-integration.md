@@ -282,8 +282,8 @@ the model — the system prompt's surface blocks and the `SURFACE_UPDATED` sync
 payloads — instead of pretty-printing it. Same JSON, same spec compliance;
 on the eval fixture it shrinks the prompt by ~30%, and the saving recurs on
 **every** turn of the session. Default `false` (pretty) for backwards
-compatibility. Pair it with `toolResultExtras: 'diff'` (below) for the full
-context-economy setup.
+compatibility. Pair it with `toolResultSurfaceEcho: 'changed'` (below) for the
+full context-economy setup.
 
 ### Reactive state
 
@@ -329,8 +329,8 @@ and it has two amplifiers:
    inflates the byte size by ~60% over compact. A grid with a few hundred inputs
    (a week × N staff × shift slots × start/end) can be **100–200 KB ≈ 50k+
    tokens** on its own, re-counted on every turn of the session.
-2. **Every tool result echoes the full surface back.** With the
-   `toolResultExtras` extension on (the default), each `click_button` /
+2. **Every tool result echoes the full surface back.** With
+   `toolResultSurfaceEcho: 'full'` (the default), each `click_button` /
    `update_text_field` result carries `updatedSurface` = the whole surface JSON
    again (see [`SurfaceFeedback`](#surfacefeedback-context)). One batched edit
    ⇒ one more full-surface copy injected into context.
@@ -411,10 +411,11 @@ The two amplifiers above have matching, A2UI-compliant mitigations:
 1. **`compactSurfaceJson: true`** on the `AgentDefinition` — single-line
    surface JSON in the prompt and sync payloads (~30% smaller prompt on the
    eval fixture; see [`Agent` construction](#compactsurfacejson)).
-2. **`toolResultExtras: 'diff'`** on the surface — tool results echo **only
-   what changed**: a tiny `updatedDataModel` delta for value edits, the full
-   `updatedSurface` only when the component structure actually changed. See
-   the [extensions guide](extensions.md#changed-only-tool-results-toolresultextras-diff).
+2. **`configureExtensions({ toolResultSurfaceEcho: 'changed' })`** — tool
+   results echo **only what changed**: a tiny `updatedDataModel` delta for
+   value edits, the full `updatedSurface` only when the component structure
+   actually changed. See the
+   [extensions guide](extensions.md#changed-only-tool-results-toolresultsurfaceecho-changed).
 
 On the eval suite's 6-row shift planner, a realistic 7-call task bills
 ~179k input tokens across the request/response loop with the defaults and
@@ -423,8 +424,8 @@ On the eval suite's 6-row shift planner, a realistic 7-call task bills
 hermetically and runs live LLM A/B scenarios so you can verify the agent
 stays stable before flipping the flags in your app.
 
-If even the structural echo is too much, `toolResultExtras: false` (STRICT)
-removes it entirely — but then nothing tells the model about components that
+If even the structural echo is too much, `toolResultSurfaceEcho: 'none'`
+(STRICT) removes it entirely — but then nothing tells the model about components that
 appear as a result of its own actions; on transports without `surfaceWatch`
 delivery (request/response text) the model is blind to structure changes
 until the next user turn. Splitting a huge grid into smaller per-day /
@@ -503,85 +504,68 @@ setContext<SurfaceFeedback>(SURFACE_FEEDBACK_KEY, surfaceFeedback);
 The `JSON.parse(JSON.stringify(...))` clone is required: Svelte 5
 reactive proxies don't survive the live API serialiser.
 
-## Extension flags (`ExtensionOptions`)
+## Extensions (`Extensions`)
 
 The library is 100% A2UI v0.8 compliant on its **default** surface
 wire, plus a handful of non-spec behaviours that are useful in
-practice (surface-change polling, batched click/update tools, a
-richer tool-result envelope). Every non-spec behaviour ships behind a
-single per-surface flag in `ExtensionOptions` and emits its data
-under the `extensions: { 'a2ui-svelte': ... }` envelope, so a
+practice (surface-change watching, batched click/update tools, a
+richer tool-result envelope, a pointer tool). Every non-spec behaviour
+ships behind one field of the app-wide `Extensions` record and emits
+its data under the `extensions: { 'a2ui-svelte': ... }` envelope, so a
 spec-compliant 3P consumer just drops what it doesn't recognise.
 
-**Extensions are properties of surfaces, not of the `Agent`.** Each
-`<StaticSurface>` resolves its own flag record. The `Agent` reads
-`surface.extensions` from each handle it sees and decides what to do
-on a per-surface basis — it never carries a top-level extension
-toggle of its own. (Cadence knobs like polling interval are exposed
-separately in the agent definition; they're not feature flags.)
+**Extensions describe the app, not a surface and not the `Agent`.**
+There is one record for the whole app, set once at startup with
+`configureExtensions` — half the extensions name a *global* tool, so two
+surfaces cannot disagree about whether a tool name exists. (Cadence knobs
+like polling interval are exposed separately in the agent definition;
+they're not extensions.)
 
-### The three flags
+### The four extensions
 
-| Flag                | Default | What it does                                                                                                                                                                                                                            |
-|---------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `surfaceWatch`      | `true`  | The `Agent` keeps the model aware of user-driven changes to this surface. *How* the change is delivered is governed by `surfaceWatchTuning.mode` — a silent, idle-timed data-model sync (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`). See "Surface-change delivery" below. The payload is wrapped under `extensions['a2ui-svelte']`. |
-| `batchTools`        | `true`  | The surface registers batched variants `click_buttons({clicks: […]})` and `update_text_fields({updates: […]})` alongside the spec-canonical single-element `click_button` / `update_text_field`. The agent prompt is taught to prefer batching when many ops fall together. |
-| `toolResultExtras`  | `true`  | The result of every click / update call carries a post-action snapshot (`updatedSurface`, `updatedContext`, `availableElementIds`) under `extensions['a2ui-svelte']`. With this off, results are just `{ results: [...] }` and a spec-strict client gets exactly what the spec promises. |
+| Extension               | Default  | What it does                                                                                                                                                                                                                            |
+|-------------------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `surfaceWatch`          | `true`   | The `Agent` keeps the model aware of user-driven changes to the mounted surfaces. *How* the change is delivered is governed by `surfaceWatchTuning.mode` — a silent, idle-timed data-model sync (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`). See "Surface-change delivery" below. The payload is wrapped under `extensions['a2ui-svelte']`. |
+| `batchTools`            | `true`   | Registers batched variants `click_buttons({clicks: […]})` and `update_text_fields({updates: […]})` alongside the spec-canonical single-element `click_button` / `update_text_field`. The agent prompt is taught to prefer batching when many ops fall together. |
+| `toolResultSurfaceEcho` | `'full'` | How much of the post-action surface a click / update result echoes back under `extensions['a2ui-svelte']`. `'full'` — the whole snapshot (`updatedSurface`, `updatedContext`, `availableElementIds`). `'changed'` — only what the action changed. `'none'` — results are just `{ results: [...] }`, exactly what the spec promises. |
+| `pointerTool`           | `true`   | Registers `point_to_elements({element_ids})`, a non-spec gesture that scrolls components into view and glows them so the agent can point at on-screen data without changing it. |
 
-Each flag is independent — toggle any subset. `STRICT` is the
-all-off preset; `ALL_EXTRAS` is the all-on default. Both presets are
-exported from `a2ui-svelte/core`.
+`STRICT` is the all-off preset; `ALL_EXTRAS` is the all-on default.
+Both are exported from `a2ui-svelte/core`.
 
-### Resolution order
-
-A `<StaticSurface>` resolves its flags from, in order:
-
-1. its `options={...}` prop;
-2. the Svelte context set under `A2UI_EXTENSIONS_CONTEXT_KEY` at the
-   integration root (host-wide default);
-3. the `ALL_EXTRAS` preset (every flag `true`).
-
-### Presets
-
-```ts
-import { ALL_EXTRAS, STRICT, A2UI_EXTENSIONS_CONTEXT_KEY } from 'a2ui-svelte/core';
-```
-
-- `ALL_EXTRAS` — every extension on. The library's default.
-- `STRICT` — every extension off. The wire is pure v0.8.
-
-### Common setups
-
-**Default.** Do nothing — `ALL_EXTRAS` is the default; the layout-level
-agent definition carries no extension flags.
-
-**Spec-strict host-wide:**
+### Setting them
 
 ```svelte
+<!-- src/routes/+layout.svelte — once, at startup -->
 <script lang="ts">
-  import { setContext } from 'svelte';
-  import { STRICT, A2UI_EXTENSIONS_CONTEXT_KEY } from 'a2ui-svelte/core';
-  setContext(A2UI_EXTENSIONS_CONTEXT_KEY, STRICT);
+  import { configureExtensions } from 'a2ui-svelte/core';
+  configureExtensions({ toolResultSurfaceEcho: 'changed' });
 </script>
 ```
 
-Every `<StaticSurface>` mounted in this subtree behaves spec-strictly
-unless it overrides via its own `options` prop.
+The partial is merged over `ALL_EXTRAS`, not over the current record — the
+call is an absolute set, so `configureExtensions({})` restores the defaults.
+Surfaces read the record when they register their tools, so call it before
+any surface mounts. `getExtensions()` reads it back anywhere.
 
-**Per-surface override:**
+On the server the record is module-level and shared by every request. That
+is correct — it describes the app, not the user — but it is one more reason
+to set it at startup rather than per request.
 
-```svelte
-<StaticSurface surfaceId="readonly-view" options={STRICT}>...</StaticSurface>
-<StaticSurface surfaceId="rich-editor"   options={{ batchTools: false }}>...</StaticSurface>
+**Spec-strict:**
+
+```ts
+import { configureExtensions, STRICT } from 'a2ui-svelte/core';
+configureExtensions(STRICT);
 ```
 
 ### Surface-change delivery (`surfaceWatchTuning`)
 
 When the user changes a watched surface (types into a field, navigates,
-edits through the HTML UI), the agent needs to learn about it. *Whether* a
-surface is watched is the per-surface `surfaceWatch` flag; *how* the change
-reaches the agent is a behaviour/cadence knob, so it lives in the agent
-definition, not in `ExtensionOptions`:
+edits through the HTML UI), the agent needs to learn about it. *Whether*
+surfaces are watched is the app-wide `surfaceWatch` extension; *how* the
+change reaches the agent is a behaviour/cadence knob, so it lives in the
+agent definition, not in `Extensions`:
 
 ```ts
 const assistant: AgentDefinition = {

@@ -102,8 +102,9 @@ One framework, three pieces — definition, transport, shell (see
 ### Extensions
 
 Non-spec behaviours (surface-change polling, batched tools, richer tool results,
-`point_to_elements` highlight, XML-tagged-text `userAction`) ship **behind a
-per-surface flag** and emit their data under `extensions: { 'a2ui-svelte': … }`
+`point_to_elements` highlight, XML-tagged-text `userAction`) ship **behind the
+app-wide `Extensions` record** (`configureExtensions`, once at startup) and emit
+their data under `extensions: { 'a2ui-svelte': … }`
 ([src/lib/core/extensions.ts](src/lib/core/extensions.ts)). Spec-strict consumers
 drop the namespace and still get exactly v0.8.
 
@@ -177,11 +178,12 @@ conversations and the shared-state guarantee.
 
 Every non-spec behaviour is **opt-in and namespaced**.
 
-- It must ride behind a per-surface flag and emit its data under
-  `extensions: { 'a2ui-svelte': … }` — never inline into spec-defined fields.
-- A spec-strict consumer (`options={STRICT}`, or host-wide via
-  `setContext(A2UI_EXTENSIONS_CONTEXT_KEY, STRICT)`) must still receive **exactly**
-  what v0.8 promises, byte-for-byte in the spec fields.
+- It must ride behind a field of the app-wide `Extensions` record and emit its
+  data under `extensions: { 'a2ui-svelte': … }` — never inline into spec-defined
+  fields. An extension describes the protocol the app speaks, not a region of
+  the page.
+- A spec-strict consumer (`configureExtensions(STRICT)`) must still receive
+  **exactly** what v0.8 promises, byte-for-byte in the spec fields.
 - Document any new extension in [docs/guides/extensions.md](docs/guides/extensions.md).
 
 ### 6. Transport Neutrality

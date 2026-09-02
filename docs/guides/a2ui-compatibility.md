@@ -78,8 +78,8 @@ spec-conformant:
 Library-specific extras (surface-change polling, batched tools, richer
 tool-result envelope, an on-demand `point_to_elements` highlight tool,
 XML-tagged `userAction` for voice live-APIs) ride under a namespaced
-`extensions: { 'a2ui-svelte': … }` envelope and can be turned off per
-surface. See the [extensions guide](extensions.md).
+`extensions: { 'a2ui-svelte': … }` envelope and can be turned off app-wide
+with `configureExtensions`. See the [extensions guide](extensions.md).
 
 ## Coming from the official renderers (`web_core`)?
 

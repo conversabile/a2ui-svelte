@@ -12,18 +12,12 @@
  * editing these defaults.
  */
 
-import type { ExtensionOptions } from "../core/extensions";
+import { getExtensions } from "../core/extensions";
 
-/**
- * Shape of a surface as seen by the prompt-builder. `extensions` is
- * optional — a surface without one is treated as `ALL_EXTRAS` (every flag
- * on), which matches the library's default. `<StaticSurface>` populates
- * this automatically from its resolved options prop.
- */
+/** Shape of a surface as seen by the prompt-builder. */
 export interface PromptSurface {
   id: string;
   getJson(): unknown;
-  extensions?: ExtensionOptions;
 }
 
 export interface PromptInputs {
@@ -85,33 +79,13 @@ export function staticSurfacesBlock(
 ): string {
   if (surfaces.length === 0) return "";
 
-  // Per-extension toggles are decided per-surface. The prompt-builder needs
-  // a yes/no per capability across the whole surface set:
-  //   - `batchToolsEnabled`: at least one surface registers the
-  //     `click_buttons` / `update_text_fields` batched variants.
-  //   - `toolResultExtrasEnabled`: at least one surface returns the extras
-  //     envelope on tool results.
-  //   - `surfaceWatchEnabled`: at least one surface opts into the
-  //     `<event>SURFACE_UPDATED</event>` polling notifications.
-  //
-  // Missing `extensions` records default to `ALL_EXTRAS` (every flag on),
-  // so legacy host code that hand-rolls a surface handle keeps its prompt
-  // shape unchanged.
-  const isOn = (s: PromptSurface, k: keyof ExtensionOptions) =>
-    s.extensions === undefined || s.extensions[k] !== false;
-  const batchToolsEnabled = surfaces.some((s) => isOn(s, "batchTools"));
-  // The envelope rule must describe what the surfaces actually return. When
-  // every extras-enabled surface uses 'diff', describe the changed-only
-  // envelope; any surface on `true` (incl. the missing-extensions default)
-  // keeps the full-echo description — a mixed set errs toward the richer
-  // shape so the model is never told to expect less than it gets.
-  const extrasModes = surfaces.map((s) =>
-    s.extensions === undefined ? true : s.extensions.toolResultExtras,
-  );
-  const toolResultExtrasEnabled = extrasModes.some((m) => m !== false);
-  const diffEnvelope = toolResultExtrasEnabled && !extrasModes.includes(true);
-  const surfaceWatchEnabled = surfaces.some((s) => isOn(s, "surfaceWatch"));
-  const pointerToolEnabled = surfaces.some((s) => isOn(s, "pointerTool"));
+  // The extensions are app-wide, so the prompt describes exactly what the
+  // tools do — no collapsing across surfaces.
+  const ext = getExtensions();
+  const batchToolsEnabled = ext.batchTools;
+  const surfaceEcho = ext.toolResultSurfaceEcho;
+  const surfaceWatchEnabled = ext.surfaceWatch;
+  const pointerToolEnabled = ext.pointerTool;
   const indent = opts.compactSurfaceJson ? undefined : 2;
 
   let out =
@@ -176,7 +150,7 @@ export function staticSurfacesBlock(
     ruleNo++;
   }
 
-  if (toolResultExtrasEnabled && diffEnvelope) {
+  if (surfaceEcho === "changed") {
     out +=
       `${ruleNo}. **TOOL-RESULT ENVELOPE (changed-only)**: Every \`click_button\` / \`update_text_field\` (and their batched variants) returns the spec-canonical \`results\` array, plus — under \`extensions["a2ui-svelte"]\` — ONLY what the action actually changed:\n` +
       '   - `updatedSurface`: present ONLY when the component STRUCTURE changed (a component appeared or disappeared, navigation). When present, replace your structural understanding with it. When absent, the structure you already know is still current.\n' +
@@ -184,7 +158,7 @@ export function staticSurfacesBlock(
       "   - `updatedContext` / `availableElementIds`: present only when they changed.\n" +
       "   If `extensions` is absent entirely, nothing changed beyond what `results` reports — do NOT re-read or re-request the surface; your current understanding is up to date.\n";
     ruleNo++;
-  } else if (toolResultExtrasEnabled) {
+  } else if (surfaceEcho === "full") {
     out +=
       `${ruleNo}. **TOOL-RESULT ENVELOPE**: Every \`click_button\` / \`update_text_field\` (and their batched variants) returns an envelope shaped like:\n` +
       "   ```\n" +

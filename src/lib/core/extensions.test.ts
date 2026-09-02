@@ -1,10 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
 	A2UI_EXTENSION_NAMESPACE,
 	ALL_EXTRAS,
 	STRICT,
+	configureExtensions,
+	getExtensions,
 	readExtension,
-	resolveExtensionOptions,
 	wrapExtension
 } from './extensions';
 
@@ -35,7 +36,7 @@ describe('extension presets', () => {
 		expect(STRICT).toEqual({
 			surfaceWatch: false,
 			batchTools: false,
-			toolResultExtras: false,
+			toolResultSurfaceEcho: 'none',
 			pointerTool: false
 		});
 	});
@@ -44,16 +45,30 @@ describe('extension presets', () => {
 		expect(ALL_EXTRAS).toEqual({
 			surfaceWatch: true,
 			batchTools: true,
-			toolResultExtras: true,
+			toolResultSurfaceEcho: 'full',
 			pointerTool: true
 		});
 	});
+});
 
-	it('resolveExtensionOptions defaults missing keys to ALL_EXTRAS', () => {
-		expect(resolveExtensionOptions(undefined)).toEqual(ALL_EXTRAS);
-		expect(resolveExtensionOptions({ surfaceWatch: false })).toEqual({
-			...ALL_EXTRAS,
-			surfaceWatch: false
-		});
+describe('the app-wide extension record', () => {
+	afterEach(() => configureExtensions({}));
+
+	it('is ALL_EXTRAS until configured', () => {
+		expect(getExtensions()).toEqual(ALL_EXTRAS);
+	});
+
+	it('merges a partial over ALL_EXTRAS', () => {
+		configureExtensions({ toolResultSurfaceEcho: 'changed' });
+		expect(getExtensions()).toEqual({ ...ALL_EXTRAS, toolResultSurfaceEcho: 'changed' });
+	});
+
+	it('is an absolute set, not an accumulation — {} restores the defaults', () => {
+		configureExtensions(STRICT);
+		expect(getExtensions()).toEqual(STRICT);
+		configureExtensions({ batchTools: false });
+		expect(getExtensions()).toEqual({ ...ALL_EXTRAS, batchTools: false });
+		configureExtensions({});
+		expect(getExtensions()).toEqual(ALL_EXTRAS);
 	});
 });

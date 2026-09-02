@@ -245,11 +245,10 @@ to the [v0.8 spec](https://a2ui.org/):
 A small number of non-spec behaviours useful in practice — surface-change
 polling, batched click/update tools, richer tool-result envelope, an
 on-demand `point_to_elements` highlight tool, XML-tagged-text `userAction`
-for voice live-APIs — ship behind a per-surface flag and emit their data
-under `extensions: { 'a2ui-svelte': … }`. Spec-strict consumers drop the
-namespace and still see exactly what v0.8 promises. Opt out per surface
-with `options={STRICT}` or host-wide via
-`setContext(A2UI_EXTENSIONS_CONTEXT_KEY, STRICT)`.
+for voice live-APIs — ship behind one app-wide extension record and emit
+their data under `extensions: { 'a2ui-svelte': … }`. Spec-strict consumers
+drop the namespace and still see exactly what v0.8 promises. Opt out at
+startup with `configureExtensions(STRICT)`.
 
 Full details: [compatibility](docs/guides/a2ui-compatibility.md) ·
 [extensions](docs/guides/extensions.md).

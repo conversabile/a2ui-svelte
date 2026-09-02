@@ -7,8 +7,9 @@
  * what every configuration would feed the model:
  *
  *  - prompt size, pretty vs compact JSON;
- *  - per-call tool-result size with the full echo (`toolResultExtras: true`),
- *    the changed-only echo (`'diff'`), and no echo (`false`);
+ *  - per-call tool-result size with the full surface echo
+ *    (`toolResultSurfaceEcho: 'full'`), the changed-only echo (`'changed'`),
+ *    and no echo (`'none'`);
  *  - the cumulative billed input across the agentic loop on a client-history
  *    (request/response) transport, where every tool result is re-sent on
  *    every subsequent request;
@@ -21,7 +22,7 @@ import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import { toolRegistry } from '../src/lib/core/registries/tool-registry';
 import { buildSystemPrompt } from '../src/lib/agent/prompt-builder';
-import type { ExtensionOptions } from '../src/lib/core/extensions';
+import { configureExtensions, type Extensions } from '../src/lib/core/extensions';
 import { clearRegistries, estTokens } from './harness';
 import ShiftPlannerPage from './fixtures/ShiftPlannerPage.svelte';
 
@@ -30,7 +31,6 @@ interface SurfaceHandle {
 	type: 'static';
 	getJson(): unknown;
 	getDataModel(): Record<string, unknown>;
-	extensions: ExtensionOptions;
 }
 
 interface PlannerExports {
@@ -43,8 +43,9 @@ const INSTRUCTIONS =
 	'You are the shift-planner assistant for a small restaurant team. ' +
 	'You operate the on-screen UI through the available tools. Be concise.';
 
-function mountPlanner(options: Partial<ExtensionOptions>, staffCount = 6) {
-	const { component } = render(ShiftPlannerPage, { staffCount, options });
+function mountPlanner(extensions: Partial<Extensions>, staffCount = 6) {
+	configureExtensions(extensions);
+	const { component } = render(ShiftPlannerPage, { staffCount });
 	const page = component as unknown as PlannerExports;
 	const surface = page.surface();
 	if (!surface) throw new Error('fixture surface did not mount');
@@ -150,14 +151,14 @@ describe('context-cost measurement (hermetic)', () => {
 		expect(scaledPromptChars[2].chars).toBeGreaterThan(scaledPromptChars[0].chars * 2);
 	});
 
-	for (const [mode, options] of [
-		['full-echo (true)', {}],
-		["changed-only ('diff')", { toolResultExtras: 'diff' as const }],
-		['no-echo (false)', { toolResultExtras: false as const }]
-	] as Array<[string, Partial<ExtensionOptions>]>) {
+	for (const [mode, extensions] of [
+		["full-echo ('full')", {}],
+		["changed-only ('changed')", { toolResultSurfaceEcho: 'changed' as const }],
+		["no-echo ('none')", { toolResultSurfaceEcho: 'none' as const }]
+	] as Array<[string, Partial<Extensions>]>) {
 		it(`measures tool-result sizes with ${mode}`, async () => {
-			const { page, surface } = mountPlanner(options);
-			const compact = mode !== 'full-echo (true)';
+			const { page, surface } = mountPlanner(extensions);
+			const compact = mode !== "full-echo ('full')";
 			const promptChars = buildPrompt(page, surface, compact).length;
 			const resultSizes = await runScriptedTask();
 			rows.push({
@@ -174,9 +175,9 @@ describe('context-cost measurement (hermetic)', () => {
 
 	it('sanity: the optimizations actually shrink the bill', () => {
 		const byMode = Object.fromEntries(rows.map((r) => [r.mode, r]));
-		const full = byMode['full-echo (true)'];
-		const diff = byMode["changed-only ('diff')"];
-		const bare = byMode['no-echo (false)'];
+		const full = byMode["full-echo ('full')"];
+		const diff = byMode["changed-only ('changed')"];
+		const bare = byMode["no-echo ('none')"];
 		expect(full && diff && bare).toBeTruthy();
 		// The diff echo only ships the full tree on the structural change (1 of
 		// 7 calls) — total result bytes must be far below the full echo's.

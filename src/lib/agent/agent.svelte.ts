@@ -2,11 +2,7 @@ import { processMessage } from '../core/processor';
 import { toolRegistry } from '../core/registries/tool-registry';
 import { actionRegistry } from '../core/registries/action-registry';
 import { userActionBus, type UserAction } from '../core/registries/event-bus';
-import {
-	A2UI_EXTENSION_NAMESPACE,
-	wrapExtension,
-	type ExtensionOptions
-} from '../core/extensions';
+import { A2UI_EXTENSION_NAMESPACE, wrapExtension, getExtensions } from '../core/extensions';
 import { stripDataModel, readDataModelFromJson } from '../core/surface-snapshot';
 import type {
 	AgentTransport,
@@ -55,22 +51,12 @@ export interface AgentSurface {
 	 * `data` object) — so pre-existing hand-rolled handles keep working.
 	 */
 	getDataModel?(): Record<string, unknown>;
-	/**
-	 * Per-surface extension flags (see `ExtensionOptions`). When omitted, the
-	 * agent treats the surface as `ALL_EXTRAS` (every extension enabled) so
-	 * pre-extension-era surface handles keep working unchanged.
-	 *
-	 * `<StaticSurface>` populates this automatically from its resolved
-	 * `options` prop; hosts that publish hand-rolled surface handles can pass
-	 * a record explicitly.
-	 */
-	extensions?: ExtensionOptions;
 }
 
 /**
  * How surface changes that the user makes (typing into a field, navigating,
  * editing through the HTML UI) are delivered to the agent. Both modes only
- * apply to surfaces that opted into the `surfaceWatch` extension.
+ * apply when the app-wide `surfaceWatch` extension is on.
  *
  * - `'sync'` (default): the agent stays **silently aware** via A2UI v0.9
  *   data-model synchronization. The unit of state is the surface's
@@ -106,9 +92,9 @@ export type SurfaceWatchMode = 'sync' | 'piggyback' | 'proactive';
 
 /**
  * Non-extension tuning for the surface-watch loop. These are cadence/behaviour
- * knobs — not feature flags — so they live on the agent rather than under
- * `ExtensionOptions`. Whether watching runs at all is decided per-surface via
- * `surface.extensions.surfaceWatch`.
+ * knobs — not extensions — so they live on the agent rather than in
+ * `Extensions`. Whether watching runs at all is the app-wide
+ * `surfaceWatch` extension.
  */
 export interface SurfaceWatchTuning {
 	/**
@@ -169,8 +155,8 @@ export interface AgentDefinition {
 	buildPrompt?: (inputs: PromptInputs) => string;
 	/**
 	 * Cadence tuning for the surface-watch polling loop. Whether the loop
-	 * runs is decided per-surface via `surface.extensions.surfaceWatch`;
-	 * these knobs only control timing.
+	 * runs is the app-wide `surfaceWatch` extension; these knobs only
+	 * control timing.
 	 */
 	surfaceWatchTuning?: SurfaceWatchTuning;
 	/**
@@ -850,7 +836,7 @@ export class Agent {
 				result = { status: 'error', error: (e as Error).message ?? 'Unknown tool error' };
 			}
 			try {
-				// Tool results are a top quota cost: with the `toolResultExtras`
+				// Tool results are a top quota cost: with the surface-echo
 				// extension the result echoes the FULL serialized surface back to
 				// the model on every call. Size it so that's visible.
 				this.rec('tool-result', result, call.name);
@@ -905,18 +891,18 @@ export class Agent {
 	}
 
 	/**
-	 * Surfaces that have opted into the `surfaceWatch` extension. A surface
-	 * with no `extensions` field is treated as `ALL_EXTRAS` (opted in), so
-	 * pre-extension-era handles keep their old polling behaviour.
+	 * The surfaces the watch loop delivers changes for — every mounted surface
+	 * when the app-wide `surfaceWatch` extension is on, none under STRICT.
 	 *
 	 * Both static and dynamic surfaces are watched: a dynamic surface's
 	 * serialized JSON includes its data model, so polling lets the agent
 	 * notice user input written into a path-bound field (e.g. a TextField
-	 * the agent rendered, then the user typed into). STRICT surfaces opt out
-	 * via `surfaceWatch === false`.
+	 * the agent rendered, then the user typed into). To exclude one surface,
+	 * leave it out of `definition.surfaces()`.
 	 */
 	#watchedSurfaces(): AgentSurface[] {
-		return this.#def.surfaces().filter((s) => s && s.extensions?.surfaceWatch !== false);
+		if (!getExtensions().surfaceWatch) return [];
+		return this.#def.surfaces().filter((s) => s);
 	}
 
 	#getSurfaceSnapshot(): string {

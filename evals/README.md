@@ -10,11 +10,12 @@ resulting UI state.
 
 A2UI's JSON representation is verbose, and the library's historical defaults
 amplify it: the whole serialized surface rides in the system prompt
-(pretty-printed), and — with `toolResultExtras: true` — every tool result
-echoes the full surface again. On dense surfaces this exhausts provider quotas
-and slows dynamic generation. The evals quantify that cost and answer the
-follow-up question: **do the context optimizations
-(`toolResultExtras: 'diff'`, `compactSurfaceJson`) make the agent unstable?**
+(pretty-printed), and — with `toolResultSurfaceEcho: 'full'` — every tool
+result echoes the full surface again. On dense surfaces this exhausts provider
+quotas and slows dynamic generation. The evals quantify that cost and answer
+the follow-up question: **do the context optimizations
+(`toolResultSurfaceEcho: 'changed'`, `compactSurfaceJson`) make the agent
+unstable?**
 
 ## Running
 
@@ -81,11 +82,11 @@ speed.
 
 Each LLM scenario runs once per **profile**:
 
-| Profile     | Surface options               | Agent options              |
-|-------------|-------------------------------|----------------------------|
-| `baseline`  | defaults (full surface echo)  | pretty JSON                |
-| `optimized` | `toolResultExtras: 'diff'`    | `compactSurfaceJson: true` |
-| `bare`      | `toolResultExtras: false`     | `compactSurfaceJson: true` |
+| Profile     | Extensions                             | Agent options              |
+|-------------|----------------------------------------|----------------------------|
+| `baseline`  | defaults (full surface echo)           | pretty JSON                |
+| `optimized` | `toolResultSurfaceEcho: 'changed'`     | `compactSurfaceJson: true` |
+| `bare`      | `toolResultSurfaceEcho: 'none'`        | `compactSurfaceJson: true` |
 
 ## Files
 

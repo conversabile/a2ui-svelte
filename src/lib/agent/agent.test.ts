@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { flushSync } from "svelte";
 import { Agent, type AgentSurface } from "./agent.svelte";
 import type {
@@ -9,7 +9,7 @@ import type {
 } from "./transport";
 import { toolRegistry } from "../core/registries/tool-registry";
 import { userActionBus, type UserAction } from "../core/registries/event-bus";
-import { ALL_EXTRAS, STRICT } from "../core/extensions";
+import { STRICT, configureExtensions } from "../core/extensions";
 import { serializeSurface } from "../core/serializer";
 import { a2uiState } from "../core/state.svelte";
 
@@ -115,6 +115,10 @@ class MockAgentTransport implements AgentTransport {
   }
 }
 
+// The extensions are one app-wide record; `configureExtensions({})` is the
+// reset back to the ALL_EXTRAS default.
+afterEach(() => configureExtensions({}));
+
 describe("Agent with a neutral mock transport", () => {
   it("connects, dispatches a tool call, and replies with the result", async () => {
     toolRegistry.register({
@@ -164,7 +168,8 @@ describe("Agent with a neutral mock transport", () => {
     expect(agent.connected).toBe(false);
   });
 
-  it("skips surface-watch polling for surfaces opted out via extensions.surfaceWatch=false", async () => {
+  it("skips surface-watch polling entirely when surfaceWatch is off", async () => {
+    configureExtensions(STRICT);
     vi.useFakeTimers();
     try {
       let json: unknown = { root: "v1" };
@@ -176,7 +181,6 @@ describe("Agent with a neutral mock transport", () => {
               id: "main",
               type: "static",
               getJson: () => json,
-              extensions: STRICT,
             },
           ],
           contextInstructions: () => "",
@@ -209,7 +213,7 @@ describe("Agent with a neutral mock transport", () => {
     }
   });
 
-  it("proactive mode emits an extension-wrapped SURFACE_UPDATED text turn for an ALL_EXTRAS surface", async () => {
+  it("proactive mode emits an extension-wrapped SURFACE_UPDATED text turn", async () => {
     vi.useFakeTimers();
     try {
       let json: unknown = { root: "v1" };
@@ -221,7 +225,6 @@ describe("Agent with a neutral mock transport", () => {
               id: "main",
               type: "static",
               getJson: () => json,
-              extensions: ALL_EXTRAS,
             },
           ],
           contextInstructions: () => "ctx",
@@ -281,7 +284,6 @@ describe("Agent with a neutral mock transport", () => {
               id: "canvas",
               type: "dynamic",
               getJson: () => json,
-              extensions: ALL_EXTRAS,
             },
           ],
           contextInstructions: () => "",
@@ -320,7 +322,8 @@ describe("Agent with a neutral mock transport", () => {
     }
   });
 
-  it("does not poll a STRICT dynamic surface", async () => {
+  it("does not poll a dynamic surface under STRICT", async () => {
+    configureExtensions(STRICT);
     vi.useFakeTimers();
     try {
       let json: unknown = { surfaceId: "canvas", data: { draft: "" } };
@@ -333,7 +336,6 @@ describe("Agent with a neutral mock transport", () => {
               id: "canvas",
               type: "dynamic",
               getJson: () => json,
-              extensions: STRICT,
             },
           ],
           contextInstructions: () => "",
@@ -416,7 +418,6 @@ describe("Agent with a neutral mock transport", () => {
               id: "main",
               type: "static",
               getJson: () => json,
-              extensions: ALL_EXTRAS,
             },
           ],
           contextInstructions: () => "",
@@ -484,7 +485,6 @@ describe("Agent with a neutral mock transport", () => {
               type: "static",
               getJson: () => state.struct,
               getDataModel: () => ({ ...state.dm }),
-              extensions: ALL_EXTRAS,
             },
           ],
           contextInstructions: () => "ctx",
@@ -820,7 +820,6 @@ describe("Agent with a neutral mock transport", () => {
               getDataModel: () => ({
                 ...(a2uiState.getSurface(surfaceId)?.data ?? {}),
               }),
-              extensions: ALL_EXTRAS,
             },
           ],
           contextInstructions: () => "",
@@ -1251,8 +1250,7 @@ describe("Agent with a neutral mock transport", () => {
                 type: "static",
                 getJson: () => ({ surfaceId: "main" }),
                 getDataModel: () => ({ ...state.dm }),
-                extensions: ALL_EXTRAS,
-              },
+                },
             ],
             contextInstructions: () => "ctx",
             instructions: "persona",
@@ -1308,7 +1306,6 @@ describe("Agent with a neutral mock transport", () => {
               type: "static",
               getJson: () => ({ surfaceId: "main" }),
               getDataModel: () => ({ ...state.dm }),
-              extensions: ALL_EXTRAS,
             },
           ],
           contextInstructions: () => "ctx",
@@ -1354,8 +1351,7 @@ describe("Agent with a neutral mock transport", () => {
                 type: "static",
                 getJson: () => ({ surfaceId: "main" }),
                 getDataModel: () => ({ ...state.dm }),
-                extensions: ALL_EXTRAS,
-              },
+                },
             ],
             contextInstructions: () => "",
             instructions: "persona",
@@ -1413,7 +1409,7 @@ describe("Agent with a neutral mock transport", () => {
 
     it("sizes the tool-result echo — the full-surface payload that drives the quota cost", async () => {
       // A tool whose result carries a large `updatedSurface` echo, exactly like
-      // the `toolResultExtras` extension does on a dense static surface.
+      // the surface-echo extension does on a dense static surface.
       const bigSurface = Array.from({ length: 200 }, (_, i) => ({
         id: `field-${i}`,
         component: { DateTimeInput: { value: { path: `/field-${i}` } } },
@@ -1620,7 +1616,6 @@ describe("Agent audio surface (capability-gated)", () => {
               type: "static",
               getJson: () => ({ surfaceId: "main" }),
               getDataModel: () => ({ ...state.dm }),
-              extensions: ALL_EXTRAS,
             },
           ] satisfies AgentSurface[],
           contextInstructions: () => "ctx",

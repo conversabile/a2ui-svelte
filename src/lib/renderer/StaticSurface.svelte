@@ -4,12 +4,7 @@
 	import { actionRegistry } from '../core/registries/action-registry';
 	import { highlightElements } from '../core/highlight';
 	import { revealElements } from '../core/reveal';
-	import {
-		A2UI_EXTENSION_NAMESPACE,
-		A2UI_EXTENSIONS_CONTEXT_KEY,
-		resolveExtensionOptions,
-		type ExtensionOptions
-	} from '../core/extensions';
+	import { A2UI_EXTENSION_NAMESPACE, getExtensions } from '../core/extensions';
 	import {
 		structuralFingerprint,
 		readDataModelsBySurface,
@@ -29,17 +24,9 @@
 		 * omits `updatedSurface` / `updatedContext`.
 		 */
 		feedback?: SurfaceFeedback;
-		/**
-		 * Per-surface extension flags. Missing keys fall back to the host-wide
-		 * default set under `A2UI_EXTENSIONS_CONTEXT_KEY` on Svelte context, or
-		 * to `ALL_EXTRAS` if no context default is set. Pass `STRICT` (from
-		 * `a2ui-svelte/core`) to opt this surface into v0.8 spec-strict
-		 * behaviour.
-		 */
-		options?: Partial<ExtensionOptions>;
 	}
 
-	let { surfaceId, children, feedback, options }: Props = $props();
+	let { surfaceId, children, feedback }: Props = $props();
 
 	// Resolve once at init: the surface's own `<script>` may still be running
 	// `buildToolResult` after the host has navigated away and torn this
@@ -48,20 +35,12 @@
 	const ctxFeedback = getContext<SurfaceFeedback | undefined>(SURFACE_FEEDBACK_KEY);
 	const effectiveFeedback: SurfaceFeedback | undefined = feedback ?? ctxFeedback;
 
-	// Resolve extension options once at mount. Props beat context; context
-	// beats ALL_EXTRAS. Surfaces are usually short-lived (page-scoped) so a
-	// static snapshot is fine — re-mount the surface to change its flags.
-	const ctxExtensions = getContext<Partial<ExtensionOptions> | undefined>(
-		A2UI_EXTENSIONS_CONTEXT_KEY
-	);
-	const resolvedExtensions: ExtensionOptions = resolveExtensionOptions(options ?? ctxExtensions);
-
 	// Create registry for static surface
 	const registry = new SurfaceRegistry(surfaceId);
 	setSurfaceContext(registry);
 	setParentId('root');
 
-	// ── 'diff' tool-result mode: the model's last-known state ──
+	// ── 'changed' tool-result mode: the model's last-known state ──
 	// Seeded lazily just before the FIRST tool action runs (at that moment the
 	// surface state is exactly what the system prompt showed the model — any
 	// earlier user edits were delivered by the surface-watch sync), then
@@ -75,7 +54,7 @@
 	} | null = null;
 
 	function captureEchoBaseline() {
-		if (resolvedExtensions.toolResultExtras !== 'diff' || echoBaseline) return;
+		if (getExtensions().toolResultSurfaceEcho !== 'changed' || echoBaseline) return;
 		const fb = effectiveFeedback;
 		if (!fb) return;
 		const surfaces = fb.globalSurfaces();
@@ -88,27 +67,27 @@
 	}
 
 	function buildToolResult(results: Record<string, unknown>[]) {
-		// B4: shape the tool-result envelope per the surface's
-		// `toolResultExtras` extension flag.
+		// B4: shape the tool-result envelope per the app-wide
+		// `toolResultSurfaceEcho` extension.
 		//
-		//   `true`  (default): spec-canonical `results` at the top level; all
-		//                     extras (`updatedSurface`, `updatedContext`,
+		//   `'full'` (default): spec-canonical `results` at the top level; the
+		//                     echo (`updatedSurface`, `updatedContext`,
 		//                     `availableElementIds`) moved under
 		//                     `extensions['a2ui-svelte']` so 3P consumers that
 		//                     don't recognise the namespace can drop the whole
 		//                     extension blob and still see the spec result.
-		//   `'diff'`:         extras carry only what CHANGED vs the model's
+		//   `'changed'`:      the echo carries only what CHANGED vs the model's
 		//                     last-known state — `updatedSurface` only on a
 		//                     structural change, `updatedDataModel` for value
 		//                     changes, context/ids only when changed. Nothing
 		//                     changed ⇒ just `{ results }`.
-		//   `false` (STRICT): just `{ results: [...] }` — no extras.
-		const mode = resolvedExtensions.toolResultExtras;
-		if (mode === false) {
+		//   `'none'` (STRICT): just `{ results: [...] }` — no echo.
+		const mode = getExtensions().toolResultSurfaceEcho;
+		if (mode === 'none') {
 			return { results };
 		}
 		const fb = effectiveFeedback;
-		if (mode === 'diff' && fb) {
+		if (mode === 'changed' && fb) {
 			return buildDiffToolResult(results, fb);
 		}
 		const extras: Record<string, unknown> = {
@@ -159,7 +138,7 @@
 	}
 
 	async function runClicks(ids: string[]) {
-		// 'diff' mode: the pre-action state is what the model last saw (the
+		// 'changed' mode: the pre-action state is what the model last saw (the
 		// system prompt at connect; sync-mode delivery covers user edits since).
 		captureEchoBaseline();
 		revealElements(ids);
@@ -196,7 +175,7 @@
 	 * reports which IDs were found.
 	 *
 	 * Unlike `runClicks` / `runUpdates` this mutates NOTHING, so it deliberately
-	 * returns a lean `{ results }` even when `toolResultExtras` is on: echoing
+	 * returns a lean `{ results }` even when the surface echo is on: echoing
 	 * the whole serialized surface back on a purely visual "look here" call is
 	 * the exact token amplifier we avoid elsewhere, and a highlight leaves the
 	 * agent's surface understanding unchanged.
@@ -284,11 +263,11 @@
 			runUpdates([{ element_id: args.element_id, value: args.value }])
 	});
 
-	// B3: batched variants — registered only when this surface's
-	// `batchTools` extension is on. Explicit plural names (`click_buttons` /
+	// B3: batched variants — registered only when the `batchTools` extension
+	// is on. Explicit plural names (`click_buttons` /
 	// `update_text_fields`) keep them distinct from the spec-canonical tools
 	// above and signal "this is an `a2ui-svelte` extension, not v0.8 spec".
-	if (resolvedExtensions.batchTools) {
+	if (getExtensions().batchTools) {
 		registry.registerTool({
 			name: 'click_buttons',
 			description:
@@ -349,12 +328,12 @@
 		});
 	}
 
-	// On-demand pointer tool — registered only when this surface's `pointerTool`
+	// On-demand pointer tool — registered only when the `pointerTool`
 	// extension is on. Lets the agent draw the user's eye to components WITHOUT
 	// changing them; the click/update tools already glow their targets as a side
 	// effect, this is the standalone "point at it" gesture. Not a v0.8 tool, so
 	// it stays off under STRICT.
-	if (resolvedExtensions.pointerTool) {
+	if (getExtensions().pointerTool) {
 		registry.registerTool({
 			name: 'point_to_elements',
 			description:
@@ -393,13 +372,6 @@
 	 * component tree so a keystroke ships as a tiny delta, not the whole tree.
 	 */
 	export const getDataModel = () => registry.getDataModel();
-	/**
-	 * Resolved per-surface extension flags. Hosts that publish this surface
-	 * handle to an `Agent` pass it through unchanged; the agent reads it
-	 * to decide which non-spec behaviours apply for this surface (e.g.
-	 * `surfaceWatch` polling).
-	 */
-	export const extensions: ExtensionOptions = resolvedExtensions;
 </script>
 
 <div class="a2ui-surface a2ui-static-surface" data-surface-id={surfaceId}>

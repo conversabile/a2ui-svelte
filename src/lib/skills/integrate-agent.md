@@ -235,9 +235,10 @@ test environment can construct Web Audio objects.
   the prompt embeds the surface pretty-printed and every tool result
   echoes the whole surface back. Two opt-in, spec-compliant fixes — set
   `compactSurfaceJson: true` on the definition (single-line surface
-  JSON, ~30% smaller prompt) and `options={{ toolResultExtras: 'diff' }}`
-  on the surface (results report only what changed; the full tree only
-  when the structure actually changed). On a 6-row roster fixture a
+  JSON, ~30% smaller prompt) and, once at startup,
+  `configureExtensions({ toolResultSurfaceEcho: 'changed' })` from
+  `a2ui-svelte/core` (results report only what changed; the full tree
+  only when the structure actually changed). On a 6-row roster fixture a
   7-call task drops from ~179k to ~63k billed input tokens with both on,
   with identical outcomes.
 - **Custom prompt.** Pass `buildPrompt: (inputs) => string` in the

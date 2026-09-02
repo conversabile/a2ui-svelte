@@ -5,7 +5,7 @@ import type { AgentUsage } from './transport';
  *
  * A live agent session can quietly accumulate an enormous token bill: the whole
  * serialized surface is embedded in the system prompt, and (with the
- * `toolResultExtras` extension) **every tool result echoes the full surface
+ * `toolResultSurfaceEcho: 'full'` extension) **every tool result echoes it
  * again** — both re-billed each turn. On a dense surface (a shift planner with
  * hundreds of inputs) one batch edit can push a single turn past a hundred
  * thousand tokens and trip a provider `RESOURCE_EXHAUSTED` quota error, with no

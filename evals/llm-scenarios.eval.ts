@@ -21,7 +21,7 @@ import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import { Agent } from '../src/lib/agent/agent.svelte';
 import { a2uiState } from '../src/lib/core/state.svelte';
-import type { ExtensionOptions } from '../src/lib/core/extensions';
+import { configureExtensions } from '../src/lib/core/extensions';
 import {
 	API_KEY,
 	EVAL_MODEL,
@@ -50,7 +50,6 @@ interface SurfaceHandle {
 	type: 'static' | 'dynamic';
 	getJson(): unknown;
 	getDataModel?(): Record<string, unknown>;
-	extensions?: ExtensionOptions;
 }
 
 interface PlannerExports {
@@ -142,9 +141,9 @@ describeLive('LLM evals — static shift planner', () => {
 	for (const profile of selectedProfiles()) {
 		describe(`[${profile.name}]`, () => {
 			async function start() {
+				configureExtensions(profile.extensions);
 				const { component } = render(ShiftPlannerPage, {
-					staffCount: EVAL_STAFF_COUNT,
-					options: profile.options
+					staffCount: EVAL_STAFF_COUNT
 				});
 				const page = component as unknown as PlannerExports;
 				const surface = page.surface()!;

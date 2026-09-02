@@ -1,11 +1,16 @@
 import { render } from '@testing-library/svelte';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import StaticSurface from './StaticSurface.svelte';
 import { toolRegistry } from '../core/registries/tool-registry';
-import { STRICT, ALL_EXTRAS } from '../core/extensions';
+import { STRICT, ALL_EXTRAS, configureExtensions } from '../core/extensions';
 import type { SurfaceFeedback } from './surface-feedback';
 import ButtonHarness from './__fixtures__/ButtonHarness.svelte';
 import DiffHarness from './__fixtures__/DiffHarness.svelte';
+
+// The extensions are one app-wide record, so every test that changes it
+// restores the default — `configureExtensions` is an absolute set, so `{}`
+// is the reset.
+afterEach(() => configureExtensions({}));
 
 describe('StaticSurface — B3: tool registration shape', () => {
 
@@ -46,22 +51,22 @@ describe('StaticSurface — B3: tool registration shape', () => {
 		expect((update.parameters as any).required).toEqual(['updates']);
 	});
 
-	it('also registers batch variants when explicitly opted into via ALL_EXTRAS prop', () => {
+	it('also registers batch variants when explicitly configured as ALL_EXTRAS', () => {
+		configureExtensions(ALL_EXTRAS);
 		render(StaticSurface, {
 			surfaceId: 'batch-explicit',
-			children: ButtonHarness as never,
-			options: ALL_EXTRAS
+			children: ButtonHarness as never
 		});
 		const names = toolRegistry.getDeclarations().map((d) => d.name);
 		expect(names).toContain('click_buttons');
 		expect(names).toContain('update_text_fields');
 	});
 
-	it('OMITS batch variants when the surface is STRICT', () => {
+	it('OMITS batch variants under STRICT', () => {
+		configureExtensions(STRICT);
 		render(StaticSurface, {
 			surfaceId: 'strict-no-batch',
-			children: ButtonHarness as never,
-			options: STRICT
+			children: ButtonHarness as never
 		});
 		const names = toolRegistry.getDeclarations().map((d) => d.name);
 		expect(names).toContain('click_button');
@@ -71,10 +76,10 @@ describe('StaticSurface — B3: tool registration shape', () => {
 	});
 
 	it('OMITS batch variants when batchTools is explicitly flipped off', () => {
+		configureExtensions({ batchTools: false });
 		render(StaticSurface, {
 			surfaceId: 'no-batch',
-			children: ButtonHarness as never,
-			options: { batchTools: false }
+			children: ButtonHarness as never
 		});
 		const names = toolRegistry.getDeclarations().map((d) => d.name);
 		expect(names).toContain('click_button');
@@ -112,11 +117,11 @@ describe('StaticSurface — B4: tool-result envelope shape', () => {
 		expect(result).not.toHaveProperty('updatedContext');
 	});
 
-	it('STRICT: returns just { results: [...] } with no extras at all', async () => {
+	it('STRICT: returns just { results: [...] } with no echo at all', async () => {
+		configureExtensions(STRICT);
 		render(StaticSurface, {
 			surfaceId: 'extras-strict',
-			children: ButtonHarness as never,
-			options: STRICT
+			children: ButtonHarness as never
 		});
 		const result: any = await toolRegistry.execute('click_button', { element_id: 'save-btn' });
 		expect(result).toEqual({
@@ -125,11 +130,11 @@ describe('StaticSurface — B4: tool-result envelope shape', () => {
 		expect(result).not.toHaveProperty('extensions');
 	});
 
-	it('honours an isolated toolResultExtras=false even with batchTools=true', async () => {
+	it("honours an isolated toolResultSurfaceEcho='none' even with batchTools on", async () => {
+		configureExtensions({ toolResultSurfaceEcho: 'none' });
 		render(StaticSurface, {
 			surfaceId: 'extras-off',
-			children: ButtonHarness as never,
-			options: { toolResultExtras: false }
+			children: ButtonHarness as never
 		});
 		// Batch variant still registered (batchTools defaults on)
 		const names = toolRegistry.getDeclarations().map((d) => d.name);
@@ -145,13 +150,14 @@ describe('StaticSurface — B4: tool-result envelope shape', () => {
 	});
 });
 
-describe("StaticSurface — 'diff' tool-result mode (changed-only envelope)", () => {
+describe("StaticSurface — 'changed' tool-result mode (changed-only envelope)", () => {
 	/**
-	 * Mount the DiffHarness with `toolResultExtras: 'diff'` and a feedback
+	 * Mount the DiffHarness with `toolResultSurfaceEcho: 'changed'` and a feedback
 	 * provider wired to the surface's own JSON (the lazy holder lets the
 	 * closure read the mounted component's exports after render returns).
 	 */
 	function mountDiffSurface(surfaceId: string) {
+		configureExtensions({ toolResultSurfaceEcho: 'changed' });
 		const ctx = { value: 'initial context' };
 		const holder: { getJson: (() => unknown) | null } = { getJson: null };
 		const feedback: SurfaceFeedback = {
@@ -161,8 +167,7 @@ describe("StaticSurface — 'diff' tool-result mode (changed-only envelope)", ()
 		const { component } = render(StaticSurface, {
 			surfaceId,
 			children: DiffHarness as never,
-			feedback,
-			options: { toolResultExtras: 'diff' as const }
+			feedback
 		});
 		holder.getJson = () => (component as { getJson: () => unknown }).getJson();
 		return { ctx };
@@ -263,20 +268,20 @@ describe('StaticSurface — on-demand pointer tool (point_to_elements)', () => {
 		expect((ptr.parameters as any).required).toEqual(['element_ids']);
 	});
 
-	it('OMITS point_to_elements when the surface is STRICT', () => {
+	it('OMITS point_to_elements under STRICT', () => {
+		configureExtensions(STRICT);
 		render(StaticSurface, {
 			surfaceId: 'ptr-strict',
-			children: ButtonHarness as never,
-			options: STRICT
+			children: ButtonHarness as never
 		});
 		expect(toolRegistry.getDeclarations().map((d) => d.name)).not.toContain('point_to_elements');
 	});
 
 	it('OMITS point_to_elements when pointerTool is explicitly flipped off', () => {
+		configureExtensions({ pointerTool: false });
 		render(StaticSurface, {
 			surfaceId: 'ptr-off',
-			children: ButtonHarness as never,
-			options: { pointerTool: false }
+			children: ButtonHarness as never
 		});
 		expect(toolRegistry.getDeclarations().map((d) => d.name)).not.toContain('point_to_elements');
 	});
@@ -298,7 +303,7 @@ describe('StaticSurface — on-demand pointer tool (point_to_elements)', () => {
 			]
 		});
 		// Purely visual gesture: never echoes the surface back, even though
-		// toolResultExtras defaults on.
+		// toolResultSurfaceEcho defaults to 'full'.
 		expect(result).not.toHaveProperty('extensions');
 	});
 });

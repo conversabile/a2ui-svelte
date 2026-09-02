@@ -5,7 +5,7 @@
  * scenarios can assert on outcomes and the report can compare token bills.
  *
  * Everything here is profile-driven: a {@link EvalProfile} bundles the
- * per-surface extension options and the agent-level `compactSurfaceJson` flag,
+ * app-wide extension record and the agent-level `compactSurfaceJson` flag,
  * so the same scenario runs unchanged with and without the context
  * optimizations.
  */
@@ -17,7 +17,7 @@ import type {
 	TransportCapabilities
 } from '../src/lib/agent/transport';
 import type { Agent } from '../src/lib/agent/agent.svelte';
-import type { ExtensionOptions } from '../src/lib/core/extensions';
+import type { Extensions } from '../src/lib/core/extensions';
 import { toolRegistry } from '../src/lib/core/registries/tool-registry';
 import { actionRegistry } from '../src/lib/core/registries/action-registry';
 import { GeminiTextTransport } from '../src/lib/agent/gemini/text-transport';
@@ -68,8 +68,8 @@ export const EVAL_STAFF_COUNT = Number(process.env.A2UI_EVAL_STAFF_COUNT ?? 6);
 /** One experimental arm: how the surface + agent are configured. */
 export interface EvalProfile {
 	name: string;
-	/** Per-surface extension flags (merged over ALL_EXTRAS by the surface). */
-	options: Partial<ExtensionOptions>;
+	/** App-wide extension record (passed to `configureExtensions` before mount). */
+	extensions: Partial<Extensions>;
 	/** Agent-level compact-JSON flag (prompt + sync payloads). */
 	compactSurfaceJson: boolean;
 }
@@ -77,20 +77,20 @@ export interface EvalProfile {
 /**
  * The experiment matrix. `baseline` is the library's historical default
  * (pretty JSON + full surface echo on every tool result); `optimized` is the
- * context-economy configuration ('diff' echo + compact JSON); `bare` removes
+ * context-economy configuration ('changed' echo + compact JSON); `bare` removes
  * the echo entirely (spec-strict results) — the maximal-removal arm that
  * probes whether the agent destabilises without post-action feedback.
  */
 export const PROFILES: Record<string, EvalProfile> = {
-	baseline: { name: 'baseline', options: {}, compactSurfaceJson: false },
+	baseline: { name: 'baseline', extensions: {}, compactSurfaceJson: false },
 	optimized: {
 		name: 'optimized',
-		options: { toolResultExtras: 'diff' },
+		extensions: { toolResultSurfaceEcho: 'changed' },
 		compactSurfaceJson: true
 	},
 	bare: {
 		name: 'bare',
-		options: { toolResultExtras: false },
+		extensions: { toolResultSurfaceEcho: 'none' },
 		compactSurfaceJson: true
 	}
 };

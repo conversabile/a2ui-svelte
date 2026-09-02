@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
 	buildSystemPrompt,
 	staticSurfacesBlock,
@@ -8,7 +8,7 @@ import {
 	historyBlock,
 	type PromptInputs
 } from './prompt-builder';
-import { STRICT, ALL_EXTRAS } from '../core/extensions';
+import { STRICT, ALL_EXTRAS, configureExtensions } from '../core/extensions';
 
 const baseInputs: PromptInputs = {
 	systemInstruction: 'You are a helpful assistant.',
@@ -159,7 +159,9 @@ describe('prompt-builder', () => {
 	});
 
 	describe('B3/B4 — extension-aware static-surface block', () => {
-		it('default (no extensions field on surface = ALL_EXTRAS): teaches batched + single tools and the envelope', () => {
+		afterEach(() => configureExtensions({}));
+
+		it('default (ALL_EXTRAS): teaches batched + single tools and the envelope', () => {
 			const out = staticSurfacesBlock([{ id: 'main', getJson: () => ({}) }]);
 			// Batch and single tool names both mentioned.
 			expect(out).toContain('click_button({element_id})');
@@ -179,9 +181,8 @@ describe('prompt-builder', () => {
 		});
 
 		it('ALL_EXTRAS explicit: identical content to the default', () => {
-			const out = staticSurfacesBlock([
-				{ id: 'main', getJson: () => ({}), extensions: ALL_EXTRAS }
-			]);
+			configureExtensions(ALL_EXTRAS);
+			const out = staticSurfacesBlock([{ id: 'main', getJson: () => ({}) }]);
 			expect(out).toContain('click_buttons({clicks:');
 			expect(out).toContain('TOOL-RESULT ENVELOPE');
 			expect(out).toContain('SURFACE UPDATES');
@@ -189,9 +190,8 @@ describe('prompt-builder', () => {
 		});
 
 		it('STRICT: drops batch / surface-watch / tool-result-envelope rules', () => {
-			const out = staticSurfacesBlock([
-				{ id: 'main', getJson: () => ({}), extensions: STRICT }
-			]);
+			configureExtensions(STRICT);
+			const out = staticSurfacesBlock([{ id: 'main', getJson: () => ({}) }]);
 			// Single-element form is taught.
 			expect(out).toContain('click_button({element_id})');
 			expect(out).toContain('update_text_field({element_id, value})');
@@ -199,7 +199,7 @@ describe('prompt-builder', () => {
 			expect(out).not.toContain('click_buttons');
 			expect(out).not.toContain('update_text_fields');
 			expect(out).not.toContain('BATCH OPERATIONS');
-			// SURFACE_UPDATED event rule is not advertised (no surface opts in).
+			// SURFACE_UPDATED event rule is not advertised.
 			expect(out).not.toContain('SURFACE UPDATES');
 			expect(out).not.toContain('<event>SURFACE_UPDATED</event>');
 			// Tool-result envelope rule is not advertised either.
@@ -209,29 +209,23 @@ describe('prompt-builder', () => {
 			expect(out).not.toContain('point_to_elements');
 		});
 
-		it('mixed surfaces: enables a rule as soon as ONE surface opts in', () => {
+		it('the record is app-wide: one setting describes every surface in the block', () => {
+			configureExtensions({ batchTools: true, toolResultSurfaceEcho: 'none', surfaceWatch: false, pointerTool: false });
 			const out = staticSurfacesBlock([
-				{ id: 'a', getJson: () => ({}), extensions: STRICT },
-				{
-					id: 'b',
-					getJson: () => ({}),
-					extensions: { ...STRICT, batchTools: true, toolResultExtras: false, surfaceWatch: false }
-				}
+				{ id: 'a', getJson: () => ({}) },
+				{ id: 'b', getJson: () => ({}) }
 			]);
+			expect(out).toContain('Static Surface ("a")');
+			expect(out).toContain('Static Surface ("b")');
 			expect(out).toContain('click_buttons');
 			expect(out).toContain('BATCH OPERATIONS');
 			expect(out).not.toContain('TOOL-RESULT ENVELOPE');
 			expect(out).not.toContain('SURFACE UPDATES');
 		});
 
-		it("'diff' toolResultExtras: teaches the changed-only envelope instead of the full echo", () => {
-			const out = staticSurfacesBlock([
-				{
-					id: 'main',
-					getJson: () => ({}),
-					extensions: { ...ALL_EXTRAS, toolResultExtras: 'diff' as const }
-				}
-			]);
+		it("toolResultSurfaceEcho 'changed': teaches the changed-only envelope instead of the full echo", () => {
+			configureExtensions({ toolResultSurfaceEcho: 'changed' });
+			const out = staticSurfacesBlock([{ id: 'main', getJson: () => ({}) }]);
 			expect(out).toContain('TOOL-RESULT ENVELOPE (changed-only)');
 			expect(out).toContain('updatedDataModel');
 			expect(out).toContain('present ONLY when the component STRUCTURE changed');
@@ -239,28 +233,14 @@ describe('prompt-builder', () => {
 			expect(out).not.toContain('The original static-surface JSON shown at session start is stale');
 		});
 
-		it("mixed 'diff' + full surfaces: errs toward the full-echo envelope description", () => {
-			const out = staticSurfacesBlock([
-				{ id: 'a', getJson: () => ({}), extensions: { ...ALL_EXTRAS, toolResultExtras: 'diff' as const } },
-				{ id: 'b', getJson: () => ({}) } // missing extensions = ALL_EXTRAS = true
-			]);
-			expect(out).toContain('TOOL-RESULT ENVELOPE');
-			expect(out).not.toContain('TOOL-RESULT ENVELOPE (changed-only)');
-		});
-
-		it('per-flag overrides: only toolResultExtras stays on', () => {
-			const out = staticSurfacesBlock([
-				{
-					id: 'main',
-					getJson: () => ({}),
-					extensions: {
-						surfaceWatch: false,
-						batchTools: false,
-						toolResultExtras: true,
-						pointerTool: false
-					}
-				}
-			]);
+		it('per-extension overrides: only the surface echo stays on', () => {
+			configureExtensions({
+				surfaceWatch: false,
+				batchTools: false,
+				toolResultSurfaceEcho: 'full',
+				pointerTool: false
+			});
+			const out = staticSurfacesBlock([{ id: 'main', getJson: () => ({}) }]);
 			expect(out).toContain('TOOL-RESULT ENVELOPE');
 			expect(out).not.toContain('BATCH OPERATIONS');
 			expect(out).not.toContain('SURFACE UPDATES');

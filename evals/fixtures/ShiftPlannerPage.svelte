@@ -6,7 +6,6 @@
 	import TextField from '../../src/lib/components/TextField.svelte';
 	import Button from '../../src/lib/components/Button.svelte';
 	import Divider from '../../src/lib/components/Divider.svelte';
-	import type { ExtensionOptions } from '../../src/lib/core/extensions';
 	import type { SurfaceFeedback } from '../../src/lib/renderer/surface-feedback';
 
 	/**
@@ -22,10 +21,9 @@
 	interface Props {
 		surfaceId?: string;
 		staffCount?: number;
-		options?: Partial<ExtensionOptions>;
 	}
 
-	let { surfaceId = 'shift-planner', staffCount = 6, options }: Props = $props();
+	let { surfaceId = 'shift-planner', staffCount = 6 }: Props = $props();
 
 	const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 	const DAY_LABELS: Record<string, string> = {
@@ -111,7 +109,7 @@
 		staff.map((m) => ({ name: m.name, role: m.role, shifts: { ...m.shifts } }));
 </script>
 
-<StaticSurface bind:this={surfaceRef} {surfaceId} {feedback} {options}>
+<StaticSurface bind:this={surfaceRef} {surfaceId} {feedback}>
 	<Column>
 		<Text id="planner-title" text="Team Shift Planner" usageHint="h2" />
 		<Text

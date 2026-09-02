@@ -12,32 +12,27 @@
  * simply drop it — their core static / dynamic surface contracts are
  * unaffected.
  *
- * # Where extension feature flags live
+ * # Where extensions live
  *
- * `ExtensionOptions` is a **per-surface** record. Each `<StaticSurface>` /
- * `<DynamicSurface>` resolves its own copy from (in order):
+ * `Extensions` is **one app-wide record**, set once at startup with
+ * `configureExtensions` and read anywhere with `getExtensions`. An extension
+ * describes the protocol this library speaks, not a region of the page: half
+ * of them name a *global* tool, so two surfaces cannot disagree about whether
+ * a tool name exists.
  *
- *   1. its `options={...}` prop, then
- *   2. the Svelte context set under `A2UI_EXTENSIONS_CONTEXT_KEY` at the
- *      integration root (host-wide default), then
- *   3. the `ALL_EXTRAS` preset.
+ * ```svelte
+ * <!-- src/routes/+layout.svelte -->
+ * <script>
+ *   import { configureExtensions } from 'a2ui-svelte/core';
+ *   configureExtensions({ toolResultSurfaceEcho: 'changed' });
+ * </script>
+ * ```
  *
- * The resolved record is exported on each surface as `extensions`, so when
- * the host publishes the surface handle the `Agent` sees the same
- * record and decides what to do for that surface. **The `Agent` never owns
- * an extension feature flag.**
+ * With no call at all the record is `ALL_EXTRAS`.
  */
 
 /** Identifier under which all of this library's non-spec fields are namespaced. */
 export const A2UI_EXTENSION_NAMESPACE = 'a2ui-svelte';
-
-/**
- * Svelte context key under which a host can set a default
- * `Partial<ExtensionOptions>` once at the integration root. Every
- * `<StaticSurface>` / `<DynamicSurface>` mounted in that subtree picks it up
- * unless it overrides via its own `options` prop.
- */
-export const A2UI_EXTENSIONS_CONTEXT_KEY = 'a2ui:extensions';
 
 /**
  * Generic shape of an extensions container. Always a flat object keyed by
@@ -67,50 +62,52 @@ export function readExtension<T>(
 }
 
 /**
- * Per-surface feature flags. Each flag toggles one non-spec behaviour on
- * the surface that carries it. Use the `STRICT` / `ALL_EXTRAS` presets for
- * the common cases; pass `Partial<ExtensionOptions>` to flip a single
- * flag.
+ * The app-wide extension record. Each field toggles one non-spec behaviour.
+ * Use the `STRICT` / `ALL_EXTRAS` presets for the common cases; pass a
+ * `Partial<Extensions>` to `configureExtensions` to change a single one.
  *
- * Note: these are flags only. Knobs that are not feature flags (e.g.
+ * Note: these are extensions only. Knobs that are not extensions (e.g.
  * polling cadence in milliseconds) live on the consuming class directly,
  * not here.
  */
-export interface ExtensionOptions {
+export interface Extensions {
 	/**
-	 * Surface-change watching — opts the surface into the agent's
-	 * change-delivery loop. When `true`, the `Agent` keeps the model's
-	 * view of this surface in sync with user-driven edits. How is governed by
+	 * Surface-change watching — opts the app into the agent's change-delivery
+	 * loop, so the `Agent` keeps the model's view of the mounted surfaces in
+	 * sync with user-driven edits. How is governed by
 	 * `surfaceWatchTuning.mode`: `'sync'` (default) pushes a silent A2UI v0.9
 	 * data-model delta in idle windows; `'proactive'` pushes a turn-triggering
 	 * `<event>SURFACE_UPDATED</event>` text message. Either way the payload is
-	 * namespaced under `extensions['a2ui-svelte']`.
+	 * namespaced under `extensions['a2ui-svelte']`. To exclude one surface,
+	 * leave it out of `definition.surfaces()` — an unchanged surface produces
+	 * no diff and costs no tokens anyway.
 	 */
 	surfaceWatch: boolean;
 	/**
-	 * Batched click / update tools — the surface registers
-	 * `click_button({clicks: […]})` and `update_text_field({updates: […]})`
-	 * (batched variants) in addition to the spec-canonical single-element
-	 * tools. (Wired up in B3.)
+	 * Batched click / update tools — registers `click_buttons({clicks: […]})`
+	 * and `update_text_fields({updates: […]})` (batched variants) in addition
+	 * to the spec-canonical single-element tools.
 	 */
 	batchTools: boolean;
 	/**
-	 * Tool-result envelope — what a surface's tool results carry beyond the
-	 * spec-canonical `results` array, under the `a2ui-svelte` extension
-	 * namespace. (Wired up in B4; `'diff'` added for context economy.)
+	 * How much of the post-action surface a tool result echoes back, under the
+	 * `a2ui-svelte` extension namespace. The spec-canonical `results` array is
+	 * byte-identical in all three modes.
 	 *
-	 *  - `true` (default): every result echoes the FULL post-action state —
+	 *  - `'full'` (default): every result echoes the FULL post-action state —
 	 *    `updatedSurface`, `updatedContext`, `availableElementIds`. Maximally
 	 *    informative, but the single biggest token amplifier on dense
 	 *    surfaces: the whole tree is re-billed on every tool call.
-	 *  - `'diff'`: results carry **only what changed** since the model's last
-	 *    known state — `updatedSurface` only when the component STRUCTURE
-	 *    changed; `updatedDataModel` (`{ surfaceId: { fieldId: value } }`)
-	 *    when field values changed beyond the agent's own edit; the rest only
-	 *    when changed. An unchanged surface returns just `{ results }`.
-	 *  - `false` (STRICT): always just `{ results: [...] }` — no extras.
+	 *  - `'changed'`: results carry **only what changed** since the model's
+	 *    last known state — `updatedSurface` only when the component STRUCTURE
+	 *    changed (a delta cannot convey new structure, so that case still
+	 *    sends the whole tree); `updatedDataModel`
+	 *    (`{ surfaceId: { fieldId: value } }`) when field values changed; the
+	 *    rest only when changed. An unchanged surface returns just
+	 *    `{ results }`.
+	 *  - `'none'` (STRICT): always just `{ results: [...] }` — no echo.
 	 */
-	toolResultExtras: boolean | 'diff';
+	toolResultSurfaceEcho: 'none' | 'full' | 'changed';
 	/**
 	 * On-demand pointer tool — registers `point_to_elements({ element_ids })`,
 	 * a non-spec generic tool that makes components glow briefly and scrolls
@@ -126,10 +123,10 @@ export interface ExtensionOptions {
 }
 
 /** All extensions disabled — speaks the A2UI v0.8 spec verbatim. */
-export const STRICT: ExtensionOptions = Object.freeze({
+export const STRICT: Extensions = Object.freeze({
 	surfaceWatch: false,
 	batchTools: false,
-	toolResultExtras: false,
+	toolResultSurfaceEcho: 'none' as const,
 	pointerTool: false
 });
 
@@ -137,20 +134,32 @@ export const STRICT: ExtensionOptions = Object.freeze({
  * All extensions enabled — the historical behaviour of this library.
  * Default for backwards compatibility.
  */
-export const ALL_EXTRAS: ExtensionOptions = Object.freeze({
+export const ALL_EXTRAS: Extensions = Object.freeze({
 	surfaceWatch: true,
 	batchTools: true,
-	toolResultExtras: true,
+	toolResultSurfaceEcho: 'full' as const,
 	pointerTool: true
 });
 
+let current: Extensions = { ...ALL_EXTRAS };
+
 /**
- * Resolve a partial extension-options bag into the full record, falling back
- * to `ALL_EXTRAS` for any key the caller omitted.
+ * Set the app-wide extension record. Call it **once at startup** (a root
+ * layout, or the entry module) — surfaces read it when they register their
+ * tools, so a later call cannot un-register what is already live.
+ *
+ * The partial is merged over `ALL_EXTRAS`, not over the current record: the
+ * call is an absolute set, so `configureExtensions({})` restores the defaults.
+ *
+ * On the server the record is module-level and therefore shared by every
+ * request. That is correct — it describes the app, not the user — but it is
+ * one more reason to set it at startup rather than per request.
  */
-export function resolveExtensionOptions(
-	partial: Partial<ExtensionOptions> | undefined
-): ExtensionOptions {
-	if (!partial) return { ...ALL_EXTRAS };
-	return { ...ALL_EXTRAS, ...partial };
+export function configureExtensions(partial: Partial<Extensions>): void {
+	current = { ...ALL_EXTRAS, ...partial };
+}
+
+/** The app-wide extension record. `ALL_EXTRAS` until `configureExtensions` says otherwise. */
+export function getExtensions(): Extensions {
+	return current;
 }

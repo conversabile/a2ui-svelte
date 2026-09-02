@@ -4,7 +4,6 @@ import { Agent, type AgentSurface } from './agent.svelte';
 import { ScriptedTransport } from './scripted-transport';
 import { toolRegistry } from '../core/registries/tool-registry';
 import { actionRegistry } from '../core/registries/action-registry';
-import { ALL_EXTRAS } from '../core/extensions';
 
 // Drain the microtask queue (ScriptedTransport defers its emits to a microtask;
 // tool dispatch is async). A macrotask hop lets all of it settle.
@@ -68,8 +67,7 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 			{
 				id: 'main',
 				type: 'static',
-				getJson: () => ({ surfaceId: 'main', saved: surface.value }),
-				extensions: ALL_EXTRAS
+				getJson: () => ({ surfaceId: 'main', saved: surface.value })
 			}
 		];
 		const agent = new Agent(
