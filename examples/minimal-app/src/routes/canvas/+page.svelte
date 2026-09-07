@@ -4,16 +4,12 @@
 	import { DEFAULT_CATALOG } from 'a2ui-svelte/authoring';
 	import { session } from '$lib/session.svelte';
 
-	let surfaceRef: DynamicSurface | undefined = $state();
-
 	onMount(() => {
-		if (surfaceRef) session.surfaces = [surfaceRef];
 		session.contextInstructions =
 			'The canvas is empty. Render whatever the user asks for using surfaceUpdate + beginRendering.';
 	});
 
 	onDestroy(() => {
-		session.surfaces = [];
 		session.contextInstructions = '';
 	});
 </script>
@@ -40,7 +36,7 @@
 </p>
 
 <div class="canvas">
-	<DynamicSurface bind:this={surfaceRef} surfaceId="canvas" catalog={DEFAULT_CATALOG} />
+	<DynamicSurface surfaceId="canvas" catalog={DEFAULT_CATALOG} />
 </div>
 
 <style>

@@ -33,14 +33,13 @@ JSON serialiser. Everything declared inside it is part of one A2UI tree.
   import { Card, Column, TextField, Button } from 'a2ui-svelte/components';
   import { session } from '$lib/session.svelte'; // app-side store; see step 3
 
-  let surfaceRef: StaticSurface | undefined = $state();
   let name = $state('');
   let email = $state('');
 
   function placeOrder() { /* ... */ }
 </script>
 
-<StaticSurface bind:this={surfaceRef} surfaceId="checkout-form">
+<StaticSurface surfaceId="checkout-form">
   <Card>
     <Column>
       <TextField id="name"  label="Name"  bind:value={name} />
@@ -70,20 +69,20 @@ Container property contracts (these are spec-mandated, the helpers enforce them)
 - `Column` / `Row` / `List` use `children: { explicitList: [...] }`.
 - `Button` has a single `child` (its label) — pass it via `label` prop.
 
-### 3. Publish the surface so the layout's `<AgentShell>` picks it up
+### 3. Publish the page's context
 
-The library doesn't dictate *how* you publish surfaces — pick a thin
-reactive store the layout reads. The canonical pattern is a Svelte 5
-runes-based session store:
+The surface itself needs no publishing: `<StaticSurface>` joins the
+library's global index on mount and leaves it on destroy, so the layout's
+`surfaces: mountedSurfaces` sees it (see `integrate-agent` skill).
+
+What is still yours to publish is the page's prose context — a thin
+reactive store the layout reads:
 
 ```ts
 // src/lib/session.svelte.ts
 function createSession() {
-  let surfaces = $state<Array<{ id: string; type: 'static' | 'dynamic'; getJson: () => unknown }>>([]);
   let contextInstructions = $state('');
   return {
-    get surfaces() { return surfaces; },
-    set surfaces(v) { surfaces = v; },
     get contextInstructions() { return contextInstructions; },
     set contextInstructions(v) { contextInstructions = v; }
   };
@@ -91,26 +90,23 @@ function createSession() {
 export const session = createSession();
 ```
 
-Then in your page, write into the store on mount and clear on destroy:
+Then in your page, write it on mount and clear it on destroy:
 
 ```svelte
 <script lang="ts">
   // ...continued from step 1
   onMount(() => {
-    session.surfaces = [{ id: 'checkout-form', type: 'static', getJson: () => surfaceRef?.toJSON() }];
     session.contextInstructions =
       'The checkout page collects name and email then places the order.';
   });
   onDestroy(() => {
-    session.surfaces = [];
     session.contextInstructions = '';
   });
 </script>
 ```
 
-The layout reads these and feeds them to the agent definition (see
-`integrate-agent` skill). The store name is up to you — pick
-something that fits your app's naming conventions.
+The store name is up to you — pick something that fits your app's naming
+conventions.
 
 ### 4. Add page-specific `contextInstructions`
 
@@ -124,15 +120,15 @@ Bad: "There is a button labelled 'Place order'." (already in the tree)
 
 ### 5. Cleanup on destroy
 
-Always reset `session.surfaces = []` and `session.contextInstructions = ''`
-in `onDestroy`. Otherwise the agent will keep referencing a surface that
-no longer exists in the DOM and emit invalid clicks.
+Always reset `session.contextInstructions = ''` in `onDestroy` —
+otherwise the agent keeps reading a page's instructions after the user
+has navigated away. The surface removes itself from the index on its own.
 
 ## Common variations
 
-- **Multi-surface page.** Two independent regions on one page — push two
-  entries into `session.surfaces`. Each `<StaticSurface>` needs its own
-  `surfaceId`.
+- **Multi-surface page.** Two independent regions on one page — just mount
+  two `<StaticSurface>`s; each needs its own `surfaceId` and both show up in
+  `mountedSurfaces()`.
 - **List of items the agent might click.** Wrap each item in a
   `<Row>`/`<Column>` containing a `Button` with a stable, slug-based id
   (`id={`item-${item.slug}`}`). The agent will reference items by id, not

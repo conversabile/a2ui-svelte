@@ -1,5 +1,11 @@
 <script lang="ts">
+	import { onDestroy, onMount } from 'svelte';
 	import { a2uiState } from '../core/state.svelte';
+	import {
+		registerSurface,
+		unregisterSurface,
+		type AgentSurface
+	} from '../core/registries/surface-index';
 	import { serializeSurface } from '../core/serializer';
 	import { setCatalog, type Catalog } from '../authoring/catalog';
 	import { DEFAULT_CATALOG } from '../components/default-catalog';
@@ -57,19 +63,31 @@
 	// Make the catalog available to descendant <Component> instances via context.
 	setCatalog(() => resolvedCatalog);
 
+	// The handle the agent reads this surface through. Joins the global surface
+	// index on mount (never at module scope — that would leave an entry behind
+	// after a server render) so `surfaces: mountedSurfaces` finds it.
+	const handle: AgentSurface = {
+		id: surfaceId,
+		type: 'dynamic',
+		getJson: () => serializeSurface(surfaceId),
+		/**
+		 * The surface's `{ fieldId → value }` data model — the agent's rendered
+		 * data values, as the `Agent` syncs them in `'sync'` mode (A2UI v0.9).
+		 * Sourced from the surface's live `data` object (the same map
+		 * `getJson()` embeds under `data`).
+		 */
+		getDataModel: (): Record<string, unknown> => ({
+			...(a2uiState.getSurface(surfaceId)?.data ?? {})
+		})
+	};
+	onMount(() => registerSurface(handle));
+	onDestroy(() => unregisterSurface(handle));
+
 	// Expose properties for GeminiLive
 	export const id = surfaceId;
 	export const type = 'dynamic';
-	export const getJson = () => serializeSurface(surfaceId);
-	/**
-	 * The surface's `{ fieldId → value }` data model — the agent's rendered
-	 * data values, as the `Agent` syncs them in `'sync'` mode (A2UI v0.9).
-	 * Sourced from the surface's live `data` object (the same map `getJson()`
-	 * embeds under `data`).
-	 */
-	export const getDataModel = (): Record<string, unknown> => ({
-		...(a2uiState.getSurface(surfaceId)?.data ?? {})
-	});
+	export const getJson = handle.getJson;
+	export const getDataModel = handle.getDataModel!;
 
 	$effect(() => {
 		console.log(`[DynamicSurface:${surfaceId}] surface updated:`, surface);

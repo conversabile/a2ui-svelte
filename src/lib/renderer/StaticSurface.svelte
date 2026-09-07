@@ -1,7 +1,12 @@
 <script lang="ts">
-	import { onDestroy, tick, getContext } from 'svelte';
+	import { onDestroy, onMount, tick, getContext } from 'svelte';
 	import { SurfaceRegistry, setSurfaceContext, setParentId } from '../core/surface-registry';
 	import { actionRegistry } from '../core/registries/action-registry';
+	import {
+		registerSurface,
+		unregisterSurface,
+		type AgentSurface
+	} from '../core/registries/surface-index';
 	import { highlightElements } from '../core/highlight';
 	import { revealElements } from '../core/reveal';
 	import { A2UI_EXTENSION_NAMESPACE, getExtensions } from '../core/extensions';
@@ -354,9 +359,22 @@
 		});
 	}
 
-	// Clean up this surface's registry entries on destroy: its actions, and the
-	// tools above — whose closures would otherwise keep driving a dead surface.
+	// The handle the agent reads this surface through. Joins the global surface
+	// index on mount (never at module scope — that would leave an entry behind
+	// after a server render) so `surfaces: mountedSurfaces` finds it.
+	const handle: AgentSurface = {
+		id: surfaceId,
+		type: 'static',
+		getJson: () => registry.toJSON(),
+		getDataModel: () => registry.getDataModel()
+	};
+	onMount(() => registerSurface(handle));
+
+	// Clean up this surface's registry entries on destroy: its actions, the
+	// tools above — whose closures would otherwise keep driving a dead surface —
+	// and its entry in the surface index.
 	onDestroy(() => {
+		unregisterSurface(handle);
 		actionRegistry.unregisterBySurface(surfaceId);
 		registry.dispose();
 	});
@@ -364,14 +382,14 @@
 	// Expose properties for GeminiLive (or other controllers)
 	export const id = surfaceId;
 	export const type = 'static';
-	export const getJson = () => registry.toJSON();
+	export const getJson = handle.getJson;
 	export const getTools = () => registry.getTools();
 	/**
 	 * The surface's `{ fieldId → value }` data model — the unit the
 	 * `Agent` syncs in `'sync'` mode (A2UI v0.9). Decoupled from the
 	 * component tree so a keystroke ships as a tiny delta, not the whole tree.
 	 */
-	export const getDataModel = () => registry.getDataModel();
+	export const getDataModel = handle.getDataModel!;
 </script>
 
 <div class="a2ui-surface a2ui-static-surface" data-surface-id={surfaceId}>

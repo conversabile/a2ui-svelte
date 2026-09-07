@@ -7,6 +7,7 @@
 	import Button from '../../src/lib/components/Button.svelte';
 	import Divider from '../../src/lib/components/Divider.svelte';
 	import type { SurfaceFeedback } from '../../src/lib/renderer/surface-feedback';
+	import { mountedSurfaces } from '../../src/lib/core/registries/surface-index';
 
 	/**
 	 * Dense, realistic eval fixture: a team shift planner. One roster row per
@@ -75,8 +76,6 @@
 	let newRole = $state('');
 	let lastSavedAt = $state('');
 
-	let surfaceRef: StaticSurface | undefined = $state();
-
 	function contextText(): string {
 		return (
 			'Team Shift Planner. The roster has one row per staff member; each day cell is a ' +
@@ -90,7 +89,7 @@
 	}
 
 	const feedback: SurfaceFeedback = {
-		globalSurfaces: () => (surfaceRef ? [surfaceRef.getJson()] : []),
+		globalSurfaces: () => mountedSurfaces().map((s) => s.getJson()),
 		contextInstructions: () => contextText()
 	};
 
@@ -103,13 +102,13 @@
 	}
 
 	// ── Harness accessors (the eval drives + asserts through these) ──
-	export const surface = () => surfaceRef;
+	// The surface itself comes from the library's index — `surface('shift-planner')`.
 	export const contextInstructions = () => contextText();
 	export const getStaff = () =>
 		staff.map((m) => ({ name: m.name, role: m.role, shifts: { ...m.shifts } }));
 </script>
 
-<StaticSurface bind:this={surfaceRef} {surfaceId} {feedback}>
+<StaticSurface {surfaceId} {feedback}>
 	<Column>
 		<Text id="planner-title" text="Team Shift Planner" usageHint="h2" />
 		<Text

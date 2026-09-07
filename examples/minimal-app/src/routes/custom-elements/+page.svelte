@@ -5,7 +5,6 @@
 	import StarRating from '$lib/StarRating.svelte';
 	import { session } from '$lib/session.svelte';
 
-	let surfaceRef: StaticSurface | undefined = $state();
 	let rating = $state(0);
 	let log = $state<string[]>([]);
 
@@ -14,7 +13,6 @@
 	}
 
 	onMount(() => {
-		if (surfaceRef) session.surfaces = [surfaceRef];
 		session.contextInstructions =
 			'The custom-elements page shows a star-rating widget. To the agent it is a ' +
 			'MultipleChoice (id "rating") with five options "1 star" … "5 stars". ' +
@@ -23,7 +21,6 @@
 	});
 
 	onDestroy(() => {
-		session.surfaces = [];
 		session.contextInstructions = '';
 	});
 </script>
@@ -55,7 +52,7 @@
 	<em>"give it four stars"</em>.
 </p>
 
-<StaticSurface bind:this={surfaceRef} surfaceId="custom-elements">
+<StaticSurface surfaceId="custom-elements">
 	<Card>
 		<Column>
 			<Text id="hint" text="Rate this demo:" usageHint="body" />

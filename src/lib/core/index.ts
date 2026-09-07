@@ -11,6 +11,14 @@ export {
 } from './surface-registry';
 export { toolRegistry, type ToolDefinition } from './registries/tool-registry';
 export { actionRegistry, type ActionType } from './registries/action-registry';
+export {
+    mountedSurfaces,
+    surface,
+    registerSurface,
+    unregisterSurface,
+    mountedStaticSurfaceCount,
+    type AgentSurface
+} from './registries/surface-index';
 export { userActionBus, type UserAction, type UserActionListener } from './registries/event-bus';
 export { highlightElements, setHighlightEnabled, isHighlightEnabled } from './highlight';
 export { revealElements } from './reveal';

@@ -1,8 +1,8 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
 **Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3, WP4,
-WP5, WP5b and WP6 done. **WP7 is next**, then WP5c: WP5c's original mechanism was
-wrong (2026-09-07 audit — see its section) and its correct form depends on WP7's
+WP5, WP5b, WP6 and WP7 done. **WP5c is next**: its original mechanism was wrong
+(2026-09-07 audit — see its section) and its correct form builds on WP7's
 surface index. WP5's fix stays provisional until WP5c lands. See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
@@ -1511,3 +1511,15 @@ text, what the next WP must know. The diff holds everything else.)_
   rejections — not connected, empty, error, close, `stop()`.
 - `sendTextMessage` deprecated (two names for one thing; the wrapper only
   swallowed a rejection). Still works, every caller moved (incl. the evals).
+
+### WP7 — DONE (2026-09-07, branch `develop`)
+
+- `core/registries/surface-index.ts`: `mountedSurfaces()`, `surface(id)`,
+  register/unregister, `mountedStaticSurfaceCount()` (WP5c's 0→1 trigger).
+- `AgentSurface` moved there (core must not import agent), re-exported from
+  `./agent` — public API unchanged. `<A2ASurface>` left out on purpose.
+- Closure: the example app's surface list is gone (the store keeps only
+  `contextInstructions`, the definition moved to `lib/agent-definition.ts`);
+  eval fixtures lost their `surface()` accessors and `bind:this`.
+- SSR resolution needs node, so `vite.config.ts` now has two vitest projects:
+  `client` (jsdom) + `server` (`*.ssr.test.ts`). `pnpm test` 280; check clean.

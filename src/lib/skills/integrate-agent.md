@@ -27,20 +27,28 @@ context. It is a plain object, independent of any model or channel;
 the same definition runs over every transport.
 
 ```ts
+// src/lib/agent-definition.ts
 import type { AgentDefinition } from 'a2ui-svelte/agent';
+import { mountedSurfaces } from 'a2ui-svelte/core';
 import { session } from '$lib/session.svelte';
 
 const assistant: AgentDefinition = {
   instructions: 'You are a helpful assistant. Always be concise.',
-  surfaces: () => session.surfaces,
+  surfaces: mountedSurfaces,
   contextInstructions: () => session.contextInstructions,
   mode: 'static' // 'static' | 'dynamic' | 'both'
 };
 ```
 
-The `surfaces` and `contextInstructions` callbacks are invoked on every
-surface-watch tick *and* on every tool call. Keep them fast — they
-should just read reactive state, not do work.
+`mountedSurfaces()` is the library's own index: every `<StaticSurface>` /
+`<DynamicSurface>` joins it on mount and leaves on destroy, so pages
+publish nothing. Write your own callback only when the agent should see
+less than what is on screen (per-route scoping, a surface you hide from
+the model); `surface(id)` from the same module gets one by id.
+
+Keep the definition in its own module (the layout then holds only the
+transport). Both callbacks are invoked on every surface-watch tick *and*
+on every tool call, so keep them fast — read reactive state, don't do work.
 
 ### 2. Construct a transport (auth lives here)
 
@@ -193,7 +201,7 @@ import { SURFACE_FEEDBACK_KEY, type SurfaceFeedback } from 'a2ui-svelte/renderer
 const surfaceFeedback: SurfaceFeedback = {
   globalSurfaces: () =>
     JSON.parse(JSON.stringify(
-      session.surfaces.filter((s) => s && s.type === 'static').map((s) => s.getJson())
+      mountedSurfaces().filter((s) => s.type === 'static').map((s) => s.getJson())
     )),
   contextInstructions: () => session.contextInstructions
 };

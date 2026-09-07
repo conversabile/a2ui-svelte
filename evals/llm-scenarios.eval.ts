@@ -35,6 +35,10 @@ import {
 	sendAndWait
 } from './harness';
 import { record, printSummary } from './report';
+import {
+	surface as mountedSurface,
+	type AgentSurface
+} from '../src/lib/core/registries/surface-index';
 import ShiftPlannerPage from './fixtures/ShiftPlannerPage.svelte';
 import DynamicCanvasPage from './fixtures/DynamicCanvasPage.svelte';
 
@@ -45,15 +49,7 @@ if (!API_KEY) {
 	);
 }
 
-interface SurfaceHandle {
-	id: string;
-	type: 'static' | 'dynamic';
-	getJson(): unknown;
-	getDataModel?(): Record<string, unknown>;
-}
-
 interface PlannerExports {
-	surface(): SurfaceHandle | undefined;
 	contextInstructions(): string;
 	getStaff(): Array<{ name: string; role: string; shifts: Record<string, string> }>;
 }
@@ -68,7 +64,7 @@ const DYNAMIC_INSTRUCTIONS =
 
 async function startSession(opts: {
 	profile: EvalProfile;
-	surface: SurfaceHandle;
+	surface: AgentSurface;
 	contextInstructions?: () => string;
 	instructions: string;
 	mode: 'static' | 'dynamic';
@@ -77,7 +73,7 @@ async function startSession(opts: {
 	const agent = new Agent(
 		{
 			instructions: opts.instructions,
-			surfaces: () => [opts.surface as never],
+			surfaces: () => [opts.surface],
 			contextInstructions: opts.contextInstructions,
 			mode: opts.mode,
 			compactSurfaceJson: opts.profile.compactSurfaceJson
@@ -146,7 +142,7 @@ describeLive('LLM evals — static shift planner', () => {
 					staffCount: EVAL_STAFF_COUNT
 				});
 				const page = component as unknown as PlannerExports;
-				const surface = page.surface()!;
+				const surface = mountedSurface('shift-planner')!;
 				const session = await startSession({
 					profile,
 					surface,
@@ -256,8 +252,8 @@ describeLive('LLM evals — dynamic surface', () => {
 	// only differ in prompt formatting here, so run the two main arms.
 	for (const profile of selectedProfiles(['baseline', 'optimized'])) {
 		it(`build-form-then-update [${profile.name}]`, async () => {
-			const { component } = render(DynamicCanvasPage, { surfaceId: 'ai-canvas' });
-			const surface = (component as unknown as { surface(): SurfaceHandle | undefined }).surface()!;
+			render(DynamicCanvasPage, { surfaceId: 'ai-canvas' });
+			const surface = mountedSurface('ai-canvas')!;
 			const { agent, rec } = await startSession({
 				profile,
 				surface,

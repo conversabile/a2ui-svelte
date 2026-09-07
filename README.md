@@ -53,15 +53,15 @@ the same surface, with all defaults enabled:
   import { Card, Column, TextField, Button } from 'a2ui-svelte/components';
   import { Agent, AgentShell } from 'a2ui-svelte/agent';
   import { GeminiLiveTransport } from 'a2ui-svelte/agent/gemini';
+  import { mountedSurfaces } from 'a2ui-svelte/core';
   import 'a2ui-svelte/renderer/styles.css';
 
-  let surface: ReturnType<typeof StaticSurface>;
   let name = $state('');
 
   const agent = new Agent(
     {
       instructions:        'You are a friendly assistant.',
-      surfaces:            () => (surface ? [surface] : []),
+      surfaces:            mountedSurfaces,   // every surface on screen
       contextInstructions: () => 'The user can set their name here.'
     },
     new GeminiLiveTransport({
@@ -71,7 +71,7 @@ the same surface, with all defaults enabled:
   );
 </script>
 
-<StaticSurface bind:this={surface} surfaceId="hello">
+<StaticSurface surfaceId="hello">
   <Card><Column>
     <TextField id="name" label="Name" bind:value={name} />
     <Button id="save" primary label="Save"
@@ -156,7 +156,7 @@ import { GeminiLiveTransport, GeminiTextTransport } from 'a2ui-svelte/agent/gemi
 
 const assistant: AgentDefinition = {
   instructions: 'You are a helpful assistant.',
-  surfaces: () => mySurfaces
+  surfaces: mountedSurfaces          // from 'a2ui-svelte/core'
 };
 
 // Streaming voice (mic + mute appear in the shell):

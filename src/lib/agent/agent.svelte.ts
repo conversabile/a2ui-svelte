@@ -1,6 +1,7 @@
 import { processMessage } from '../core/processor';
 import { toolRegistry } from '../core/registries/tool-registry';
 import { actionRegistry } from '../core/registries/action-registry';
+import type { AgentSurface } from '../core/registries/surface-index';
 import { userActionBus, type UserAction } from '../core/registries/event-bus';
 import { A2UI_EXTENSION_NAMESPACE, wrapExtension, getExtensions } from '../core/extensions';
 import { stripDataModel, readDataModelFromJson } from '../core/surface-snapshot';
@@ -60,24 +61,9 @@ function readDataModel(surface: AgentSurface): Record<string, unknown> {
 	return readDataModelFromJson(surface.getJson());
 }
 
-export interface AgentSurface {
-	id: string;
-	type: 'static' | 'dynamic';
-	getJson(): unknown;
-	/**
-	 * The surface's **data model** — a flat `{ fieldId → value }` map of the
-	 * values the user (or agent) has entered, decoupled from the component
-	 * tree. This is the unit of `'sync'`-mode delivery (A2UI v0.9
-	 * `sendDataModel`): only changed entries are pushed to the agent, so a
-	 * keystroke costs tens of bytes instead of the whole tree.
-	 *
-	 * `<StaticSurface>` / `<DynamicSurface>` implement this from their
-	 * registry / data-model state. When a handle omits it, the agent derives
-	 * the map from `getJson()` (the static `dataModel` array or the dynamic
-	 * `data` object) — so pre-existing hand-rolled handles keep working.
-	 */
-	getDataModel?(): Record<string, unknown>;
-}
+// The surface handle now lives in core, beside the index that tracks mounted
+// surfaces; re-exported here because it is part of the agent's contract.
+export type { AgentSurface };
 
 /**
  * How surface changes that the user makes (typing into a field, navigating,

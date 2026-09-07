@@ -23,18 +23,14 @@ import { render, cleanup } from '@testing-library/svelte';
 import { toolRegistry } from '../src/lib/core/registries/tool-registry';
 import { buildSystemPrompt } from '../src/lib/agent/prompt-builder';
 import { configureExtensions, type Extensions } from '../src/lib/core/extensions';
+import {
+	surface as mountedSurface,
+	type AgentSurface
+} from '../src/lib/core/registries/surface-index';
 import { clearRegistries, estTokens } from './harness';
 import ShiftPlannerPage from './fixtures/ShiftPlannerPage.svelte';
 
-interface SurfaceHandle {
-	id: string;
-	type: 'static';
-	getJson(): unknown;
-	getDataModel(): Record<string, unknown>;
-}
-
 interface PlannerExports {
-	surface(): SurfaceHandle | undefined;
 	contextInstructions(): string;
 	getStaff(): Array<{ name: string; role: string; shifts: Record<string, string> }>;
 }
@@ -47,12 +43,12 @@ function mountPlanner(extensions: Partial<Extensions>, staffCount = 6) {
 	configureExtensions(extensions);
 	const { component } = render(ShiftPlannerPage, { staffCount });
 	const page = component as unknown as PlannerExports;
-	const surface = page.surface();
+	const surface = mountedSurface('shift-planner');
 	if (!surface) throw new Error('fixture surface did not mount');
 	return { page, surface };
 }
 
-function buildPrompt(page: PlannerExports, surface: SurfaceHandle, compact: boolean): string {
+function buildPrompt(page: PlannerExports, surface: AgentSurface, compact: boolean): string {
 	return buildSystemPrompt({
 		systemInstruction: INSTRUCTIONS,
 		staticSurfaces: [surface],

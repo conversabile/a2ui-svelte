@@ -16,9 +16,9 @@ this is the long-form prose version.
 ```
 your app                    a2ui-svelte
 ─────────                   ────────────
-+page.svelte                <StaticSurface>
-   │                           │
-   ├─ session.svelte.ts ◄──────┘  surfaces, contextInstructions
++page.svelte                <StaticSurface> ──► joins mountedSurfaces()
+   │                           │                on mount, leaves on unmount
+   ├─ session.svelte.ts ◄──────┘  contextInstructions (page prose)
    │
    └─ +layout.svelte
          │
@@ -217,6 +217,26 @@ provider (see
 Passing `apiKey` directly works too, but exposes the key client-side —
 development only.
 
+## Finding the surfaces — `mountedSurfaces()`
+
+The library keeps a global index of the surfaces currently on screen:
+`<StaticSurface>` and `<DynamicSurface>` add themselves on mount and
+remove themselves on destroy, exactly like the tool and action
+registries. So an app never has to keep its own list:
+
+```ts
+import { mountedSurfaces, surface } from 'a2ui-svelte/core';
+
+mountedSurfaces();          // every mounted surface, in mount order
+surface('checkout-form');   // one by id, or undefined
+```
+
+`surfaces: mountedSurfaces` is the whole wiring for the common case —
+"whatever is on screen". Keep your own callback when the agent should
+see less than that (per-route scoping, a surface you deliberately hide
+from the model). Surface ids must be unique: two live surfaces with one
+id break agent targeting, so the index warns and the newcomer wins.
+
 ## `Agent` construction
 
 An agent is a **definition** connected to a **transport**:
@@ -224,12 +244,13 @@ An agent is a **definition** connected to a **transport**:
 ```ts
 import { Agent, type AgentDefinition } from 'a2ui-svelte/agent';
 import { GeminiLiveTransport, GeminiTextTransport } from 'a2ui-svelte/agent/gemini';
+import { mountedSurfaces } from 'a2ui-svelte/core';
 import { session } from '$lib/session.svelte';
 
 // What the agent IS — declare once, valid for every transport.
 const assistant: AgentDefinition = {
   instructions:        'You are a helpful assistant.',
-  surfaces:            () => session.surfaces,
+  surfaces:            mountedSurfaces,
   contextInstructions: () => session.contextInstructions,
   mode:                'static'
 };
@@ -500,11 +521,12 @@ fresh surface JSON into the result.
 
 ```ts
 import { SURFACE_FEEDBACK_KEY, type SurfaceFeedback } from 'a2ui-svelte/renderer';
+import { mountedSurfaces } from 'a2ui-svelte/core';
 
 const surfaceFeedback: SurfaceFeedback = {
   globalSurfaces: () =>
     JSON.parse(JSON.stringify(
-      session.surfaces.filter((s) => s && s.type === 'static').map((s) => s.getJson())
+      mountedSurfaces().filter((s) => s.type === 'static').map((s) => s.getJson())
     )),
   contextInstructions: () => session.contextInstructions
 };
@@ -660,11 +682,14 @@ For deterministic, network-free tests, use the built-in
 
 ```ts
 import { Agent, ScriptedTransport } from 'a2ui-svelte/agent';
+import { mountedSurfaces } from 'a2ui-svelte/core';
+
+render(MyPage);   // the page's surfaces join the index as they mount
 
 const transport = new ScriptedTransport([
   { on: 'save it', calls: [{ name: 'click_button', args: { element_id: 'save-btn' } }], text: 'Saved.' }
 ]);
-const agent = new Agent({ instructions: 'persona', surfaces: () => fixtures }, transport);
+const agent = new Agent({ instructions: 'persona', surfaces: mountedSurfaces }, transport);
 await agent.start();
 await agent.send('please save it');   // resolves at the model's turn-complete
 // assert the action ran, the tool result echoed, the transcript updated…
@@ -694,6 +719,9 @@ supported — wrap, don't subclass.
 
 ## Pitfalls
 
+- **Duplicate surface ids.** The agent names components by id; two
+  surfaces sharing one id is ambiguous for it and for `surface(id)`.
+  The index warns in the console — give each surface its own id.
 - **Stale surfaces in `surfaces()` callback.** The callback is invoked
   whenever the agent needs the live surface state — on every poll tick and at
   each idle flush in `'sync'` mode, and on every timer tick in `'proactive'`

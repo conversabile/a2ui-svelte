@@ -4,8 +4,7 @@
 	/** Minimal dynamic-surface host for the dynamic eval scenarios. */
 	let { surfaceId = 'ai-canvas' }: { surfaceId?: string } = $props();
 
-	let ref: DynamicSurface | undefined = $state();
-	export const surface = () => ref;
+	// The eval reads the surface from the library's index — `surface(surfaceId)`.
 </script>
 
-<DynamicSurface bind:this={ref} {surfaceId} />
+<DynamicSurface {surfaceId} />

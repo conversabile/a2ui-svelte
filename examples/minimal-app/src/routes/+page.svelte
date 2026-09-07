@@ -21,8 +21,6 @@
 	} from 'a2ui-svelte/components';
 	import { session } from '$lib/session.svelte';
 
-	let surfaceRef: StaticSurface | undefined = $state();
-
 	// Input states
 	let name = $state('');
 	let budget = $state('');
@@ -45,7 +43,6 @@
 	];
 
 	onMount(() => {
-		if (surfaceRef) session.surfaces = [surfaceRef];
 		session.contextInstructions =
 			'Static surface showing all 16 A2UI v0.8 components. ' +
 			'Tabs id="demo-tabs" has three panels titled "Inputs", "Display", and "Layout". ' +
@@ -56,7 +53,6 @@
 	});
 
 	onDestroy(() => {
-		session.surfaces = [];
 		session.contextInstructions = '';
 	});
 </script>
@@ -78,7 +74,7 @@
 	glow and scroll into view (switching tabs if needed).
 </p>
 
-<StaticSurface bind:this={surfaceRef} surfaceId="static-surface">
+<StaticSurface surfaceId="static-surface">
 	<Card>
 		<Column>
 			<!-- Header row: Icon + Text (h2) -->

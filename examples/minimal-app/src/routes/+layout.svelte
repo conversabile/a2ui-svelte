@@ -1,43 +1,33 @@
 <script lang="ts">
 	import '../app.css';
 	import { onMount, setContext } from 'svelte';
-	import {
-		Agent,
-		AgentShell,
-		type AgentDefinition,
-		type AgentTransport
-	} from 'a2ui-svelte/agent';
+	import { Agent, AgentShell, type AgentTransport } from 'a2ui-svelte/agent';
 	import { GeminiLiveTransport, GeminiTextTransport } from 'a2ui-svelte/agent/gemini';
 	import { AnthropicTextTransport } from 'a2ui-svelte/agent/anthropic';
 	import { OpenAITextTransport, OpenAIRealtimeTransport } from 'a2ui-svelte/agent/openai';
 	import { DeepgramVoiceAgentTransport } from 'a2ui-svelte/agent/deepgram';
 	import { HumeEviTransport } from 'a2ui-svelte/agent/hume';
 	import { SURFACE_FEEDBACK_KEY, type SurfaceFeedback } from 'a2ui-svelte/renderer';
+	import { mountedSurfaces } from 'a2ui-svelte/core';
 	import { session } from '$lib/session.svelte';
+	import { assistant } from '$lib/agent-definition';
 
 	let { children } = $props();
 
+	// What a tool result echoes back to the agent: every mounted static surface,
+	// plus the page's prose context.
 	const surfaceFeedback: SurfaceFeedback = {
 		globalSurfaces: () =>
 			JSON.parse(
 				JSON.stringify(
-					session.surfaces.filter((s) => s && s.type === 'static').map((s) => s.getJson())
+					mountedSurfaces()
+						.filter((s) => s.type === 'static')
+						.map((s) => s.getJson())
 				)
 			),
 		contextInstructions: () => session.contextInstructions
 	};
 	setContext<SurfaceFeedback>(SURFACE_FEEDBACK_KEY, surfaceFeedback);
-
-	// ── The agent definition ──────────────────────────────────────────────────
-	// What the agent IS — persona, surfaces, page context — declared once,
-	// independent of any model or channel. Every transport below runs this same
-	// definition unchanged.
-	const assistant: AgentDefinition = {
-		instructions: 'You are a helpful assistant demonstrating the a2ui-svelte library. Be concise.',
-		surfaces: () => session.surfaces,
-		contextInstructions: () => session.contextInstructions,
-		mode: 'both'
-	};
 
 	// ── Model switch ──────────────────────────────────────────────────────────
 	// Swapping the transport is the ONLY thing the picker changes. The same
