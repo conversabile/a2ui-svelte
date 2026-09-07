@@ -313,8 +313,18 @@ whether to render the mic.
   while playback and surface-sync keep running — for noisy environments where
   trailing background noise would otherwise barge-in and cut the agent off.
   Inert on transports without audio input.
-- `sendTextMessage(text)` — send a typed turn (works on every transport;
-  voice live-APIs accept text turns too).
+- `send(text, { timeoutMs? })` — send a typed turn and wait for it: resolves at
+  the model's `turn-complete` (after the tool round trip, not at the
+  intermediate events), rejects if the turn can never complete — not connected,
+  transport error or close, session stopped, or the deadline elapsed (60 s by
+  default). Works on every transport; voice live-APIs accept text turns too.
+  Use it to disable the composer for exactly as long as the turn lasts.
+- `sendTextMessage(text)` — **deprecated**, use `send`. The old fire-and-forget
+  form: it can only report a failed turn to the console.
+- `on('turn-complete' | 'error', handler)` — subscribe to the agent's own
+  events; returns the unsubscribe function. Subscriptions survive
+  `stop()`/`start()`. `'error'` fires on a transport error and on a close
+  nobody asked for.
 - `reset()` — clear transcript, stop session, ready for a fresh start.
 
 ## Debugging token usage
@@ -656,9 +666,13 @@ const transport = new ScriptedTransport([
 ]);
 const agent = new Agent({ instructions: 'persona', surfaces: () => fixtures }, transport);
 await agent.start();
-agent.sendTextMessage('please save it');
+await agent.send('please save it');   // resolves at the model's turn-complete
 // assert the action ran, the tool result echoed, the transcript updated…
 ```
+
+`await agent.send(…)` is the turn boundary — no sleep, no polling. If a test
+hangs on it, the scripted turn never completed; pass `{ timeoutMs }` below the
+runner's own timeout to get a message that says so.
 
 For finer control, write a stub transport that emits synthetic events —
 implement `AgentTransport`, return a `capabilities` object matching the
@@ -687,8 +701,8 @@ supported — wrap, don't subclass.
   incorrectly, the agent acts on stale JSON. Always read live state.
 - **Forgetting `agent.stop()` on `onDestroy`.** Hot reload leaks
   recorder instances. Always tear down.
-- **Sending text before connecting.** `agent.sendTextMessage` while
-  `agent.connected === false` is a no-op with a console warning. The
+- **Sending text before connecting.** `agent.send` while
+  `agent.connected === false` rejects without sending. The
   default `<AgentShell>` lazy-starts the session on the first send; if you
   build your own UI, do the same or check `agent.connected` first.
 - **Pico-less projects forgetting `renderer/styles.css`.** The shell

@@ -83,10 +83,9 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 		// The neutral text profile: no poll timer started.
 		expect(agent.connected).toBe(true);
 
-		agent.sendTextMessage('please save it');
-		await flush();
-		flushSync();
-		await flush();
+		// One await covers the whole turn: the tool call, its result, and the
+		// scripted follow-up reply.
+		await agent.send('please save it');
 		flushSync();
 
 		// The action ran → the surface changed.
@@ -117,8 +116,7 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 
 		await agent.start();
 		flushSync();
-		agent.sendTextMessage('hello');
-		await flush();
+		await agent.send('hello');
 		flushSync();
 
 		expect(agent.transcript).toEqual([
@@ -164,10 +162,7 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 
 		await agent.start();
 		flushSync();
-		agent.sendTextMessage('click both');
-		await flush();
-		flushSync();
-		await flush();
+		await agent.send('click both');
 		flushSync();
 
 		// Both actions ran in batch order; both results echoed; one final reply.
@@ -200,8 +195,7 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 		expect(agent.transcript.filter((m) => m.role === 'model')).toEqual([]);
 
 		// The real question now consumes the still-queued reaction.
-		agent.sendTextMessage('here is the real question');
-		await flush();
+		await agent.send('here is the real question');
 		flushSync();
 		expect(agent.transcript.at(-1)).toEqual({ role: 'model', text: 'The answer.' });
 

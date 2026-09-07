@@ -18,6 +18,32 @@ export type AgentMode = 'static' | 'dynamic' | 'both';
 export type AgentStatus = 'idle' | 'thinking' | 'error';
 
 /**
+ * Agent-level events — the session's own signals, deliberately narrower than
+ * {@link AgentTransportEventMap}: a host subscribes to turn boundaries and
+ * failures without coupling to the transport's event stream.
+ */
+export interface AgentEventMap {
+	/**
+	 * The model finished a turn. A turn that called tools completes only after
+	 * the model has seen the results and produced its continuation (the
+	 * transports normalise this — see `AgentTransportEventMap['turn-complete']`).
+	 */
+	'turn-complete': Record<string, never>;
+	/** The session failed: a transport error, or a close nobody asked for. */
+	'error': { message: string; cause?: unknown };
+}
+
+/** Default deadline for {@link Agent.send}; override per call with `timeoutMs`. */
+const DEFAULT_TURN_TIMEOUT_MS = 60_000;
+
+/** One turn awaited by {@link Agent.send}. */
+interface PendingTurn {
+	resolve: () => void;
+	reject: (e: Error) => void;
+	timer: ReturnType<typeof setTimeout> | null;
+}
+
+/**
  * Read a surface's `{ fieldId → value }` data model. Prefers the handle's
  * explicit `getDataModel()`; falls back to deriving it from `getJson()` — the
  * static `dataModel` array or the dynamic `data` object — so hand-rolled
@@ -229,6 +255,12 @@ export class Agent {
 	#mode: AgentMode;
 	#surfaceWatchTuning: Required<SurfaceWatchTuning>;
 	#unsubs: Array<() => void> = [];
+	// Host subscriptions to the agent's own events (`on()`). They belong to the
+	// agent, not to a session, so they survive `stop()` / `start()`.
+	#listeners: { [E in keyof AgentEventMap]?: Set<(p: AgentEventMap[E]) => void> } = {};
+	// Turns awaited by `send()`, oldest first: each `turn-complete` settles the
+	// head, so sequential sends resolve in order.
+	#pendingTurns: PendingTurn[] = [];
 	#surfaceInterval: ReturnType<typeof setInterval> | null = null;
 	#lastAgentMutationAt = 0;
 	// Audio I/O — created in `start()` only when the transport's capabilities
@@ -423,6 +455,7 @@ export class Agent {
 		this.connected = false;
 		this.canAppendToUser = false;
 		this.modelTurnActive = false;
+		this.#failPendingTurns('[Agent] session stopped before the turn completed');
 	}
 
 	async toggle(): Promise<void> {
@@ -435,22 +468,118 @@ export class Agent {
 		}
 	}
 
+	/**
+	 * @deprecated Use {@link send} and handle the failure. This is the old
+	 * fire-and-forget form: it can only report a failed turn to the console,
+	 * which is why it is going away.
+	 */
 	sendTextMessage(text: string): void {
+		void this.send(text).catch((e) => console.error('[Agent] Turn failed:', e));
+	}
+
+	/**
+	 * Send a typed turn and resolve when the model's turn ends. Rejects when the
+	 * turn can never complete: nothing to send, not connected, the transport
+	 * errored or closed, the session was stopped, or `timeoutMs` elapsed
+	 * (default {@link DEFAULT_TURN_TIMEOUT_MS} — pass your own for a channel
+	 * that runs longer, e.g. a live voice turn under evaluation).
+	 *
+	 * Resolution is event-driven (the transport's `turn-complete`), never
+	 * polled. The transport contract carries no turn id, so a boundary produced
+	 * by another turn in flight — a forwarded `userAction`, a proactive push —
+	 * settles the oldest pending send.
+	 */
+	send(text: string, opts: { timeoutMs?: number } = {}): Promise<void> {
 		const trimmed = text.trim();
-		if (!trimmed) return;
+		if (!trimmed) return Promise.reject(new Error('[Agent] send(): message is empty'));
+		if (!this.connected) {
+			console.warn('[Agent] Cannot send text message: not connected');
+			return Promise.reject(new Error('[Agent] send(): not connected — call start() first'));
+		}
+		const timeoutMs = opts.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
+		return new Promise<void>((resolve, reject) => {
+			const pending: PendingTurn = { resolve, reject, timer: null };
+			pending.timer = setTimeout(() => {
+				pending.timer = null;
+				this.#dropPendingTurn(pending);
+				reject(new Error(`[Agent] send(): no turn-complete within ${timeoutMs}ms`));
+			}, timeoutMs);
+			this.#pendingTurns.push(pending);
+			try {
+				this.#dispatchText(trimmed);
+			} catch (e) {
+				this.#dropPendingTurn(pending);
+				if (pending.timer) clearTimeout(pending.timer);
+				reject(e instanceof Error ? e : new Error(String(e)));
+			}
+		});
+	}
+
+	/**
+	 * Subscribe to an agent event ({@link AgentEventMap}); returns the
+	 * unsubscribe function.
+	 */
+	on<E extends keyof AgentEventMap>(
+		event: E,
+		handler: (payload: AgentEventMap[E]) => void
+	): () => void {
+		let set = this.#listeners[event] as Set<(p: AgentEventMap[E]) => void> | undefined;
+		if (!set) {
+			set = new Set();
+			(this.#listeners[event] as unknown) = set;
+		}
+		set.add(handler);
+		return () => void set!.delete(handler);
+	}
+
+	#emit<E extends keyof AgentEventMap>(event: E, payload: AgentEventMap[E]): void {
+		const set = this.#listeners[event] as Set<(p: AgentEventMap[E]) => void> | undefined;
+		if (!set) return;
+		// Snapshot: a handler may unsubscribe itself (or another) while we emit.
+		for (const h of [...set]) {
+			try {
+				h(payload);
+			} catch (e) {
+				console.error(`[Agent] listener for "${event}" threw:`, e);
+			}
+		}
+	}
+
+	/** The one path that puts a typed turn on the wire. Assumes `connected`. */
+	#dispatchText(trimmed: string): void {
 		if (this.status !== 'error') this.setStatus('thinking');
 		this.transcript = [...this.transcript, { role: 'user', text: trimmed }];
 		this.canAppendToUser = false;
-		if (this.connected) {
-			// Sync the current data model onto this typed turn (silently, via the
-			// context channel) so the model sees the latest UI before it reads the
-			// user's message. A typed message is an idle moment, so this flushes
-			// immediately. Ordered before the text turn below.
-			if (this.#surfaceWatchTuning.mode === 'sync') this.#syncDataModel();
-			this.#transport.sendText(trimmed);
-			this.rec('text', trimmed);
-		} else {
-			console.warn('[Agent] Cannot send text message: not connected');
+		// Sync the current data model onto this typed turn (silently, via the
+		// context channel) so the model sees the latest UI before it reads the
+		// user's message. A typed message is an idle moment, so this flushes
+		// immediately. Ordered before the text turn below.
+		if (this.#surfaceWatchTuning.mode === 'sync') this.#syncDataModel();
+		this.#transport.sendText(trimmed);
+		this.rec('text', trimmed);
+	}
+
+	/** Resolve the oldest turn awaited by `send()`, if any. */
+	#settlePendingTurn(): void {
+		const pending = this.#pendingTurns.shift();
+		if (!pending) return;
+		if (pending.timer) clearTimeout(pending.timer);
+		pending.resolve();
+	}
+
+	#dropPendingTurn(pending: PendingTurn): void {
+		const i = this.#pendingTurns.indexOf(pending);
+		if (i >= 0) this.#pendingTurns.splice(i, 1);
+	}
+
+	/** Fail every awaited turn — the session can no longer complete them. */
+	#failPendingTurns(reason: string, cause?: unknown): void {
+		if (this.#pendingTurns.length === 0) return;
+		const pending = this.#pendingTurns;
+		this.#pendingTurns = [];
+		for (const p of pending) {
+			if (p.timer) clearTimeout(p.timer);
+			p.reject(new Error(reason, { cause }));
 		}
 	}
 
@@ -576,11 +705,23 @@ export class Agent {
 			this.#transport.on('error', (p) => {
 				console.error('[Agent] Transport error:', p.message, p.cause);
 				if (!this.#intentionalDisconnect) this.setStatus('error');
+				// Before `stop()`, so an awaited turn rejects with the real cause
+				// rather than the generic teardown message.
+				this.#failPendingTurns(`[Agent] transport error: ${p.message}`, p.cause);
+				this.#emit('error', { message: p.message, cause: p.cause });
 				void this.stop();
 			}),
 			this.#transport.on('close', (p) => {
 				console.log('[Agent] Transport closed:', p.reason);
 				if (!this.#intentionalDisconnect) this.setStatus('error');
+				// A close always ends any turn in flight; it is only an *error* when
+				// we didn't ask for it (`stop()` / `toggle()` / `reset()` did).
+				this.#failPendingTurns(
+					`[Agent] transport closed before the turn completed${p.reason ? `: ${p.reason}` : ''}`
+				);
+				if (!this.#intentionalDisconnect) {
+					this.#emit('error', { message: `Transport closed: ${p.reason ?? '(no reason)'}` });
+				}
 				void this.stop();
 			}),
 			this.#transport.on('usage', (u) => {
@@ -681,10 +822,10 @@ export class Agent {
 		if (this.status === 'thinking') this.setStatus('idle');
 		// The model just went idle: clear the gate and flush any change that was
 		// buffered (coalesced) during its turn, without waiting for the next poll.
-		// WP7 extension point: a turn-lifecycle hook (onTurnComplete) would slot
-		// here so guardrails/subagents inherit it across every transport.
 		this.modelTurnActive = false;
 		if (this.#surfaceWatchTuning.mode === 'sync') this.#syncDataModel();
+		this.#emit('turn-complete', {});
+		this.#settlePendingTurn();
 	}
 
 	#assembleToolDeclarations(): Array<{
@@ -924,7 +1065,7 @@ export class Agent {
 		// Only a streaming transport has idle windows to poll. A non-streaming
 		// (request/response) transport has no live session to push into between
 		// turns — it relies on the pre-turn flush (`#syncDataModel()` from
-		// `sendTextMessage()` / `#handleUserAction()`), which already gives the
+		// `send()` / `#handleUserAction()`), which already gives the
 		// model the current UI before it answers. So skip the timer there.
 		if (!this.capabilities.streaming) return;
 

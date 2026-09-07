@@ -217,9 +217,13 @@ const transport = new ScriptedTransport([
 ]);
 const agent = new Agent(assistant, transport);
 await agent.start();
-agent.sendTextMessage('please save it');
+await agent.send('please save it');   // resolves at the model's turn-complete
 // assert the action ran, transport.toolResults echoed, transcript updated…
 ```
+
+`agent.send()` resolves at the turn boundary (after any tool round trip) and
+rejects if the turn can't finish — so a test never sleeps. (`sendTextMessage`
+is the deprecated fire-and-forget form; don't write new code against it.)
 
 For finer control, stub `AgentTransport` yourself and emit synthetic
 events; advertise text-only modalities in `capabilities` unless your

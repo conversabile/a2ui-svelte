@@ -42,7 +42,7 @@ type EventName = keyof AgentTransportEventMap;
  * client-owned history) exactly as it would against a real text model.
  *
  * Tests push reactions (constructor or {@link pushReaction}), drive the agent
- * (`sendTextMessage`, a `userActionBus` emit, …), and assert on the resulting
+ * (`await agent.send(…)`, a `userActionBus` emit, …), and assert on the resulting
  * surface state and on what reached the transport (`textsSent`, `toolResults`).
  */
 export class ScriptedTransport implements AgentTransport {

@@ -121,7 +121,15 @@
 		const value = text.trim();
 		if (!value) return;
 		if (!agent.connected) await agent.start();
-		agent.sendTextMessage(value);
+		try {
+			await agent.send(value);
+		} catch (e) {
+			// The turn died (transport error/close, or it never finished). The
+			// agent already owns the visible state — `status` goes to `'error'`
+			// on a broken session — so the shell's job is to keep the reason
+			// readable instead of dropping it.
+			console.error('[AgentShell] Turn failed:', e);
+		}
 	}
 
 	async function handleSubmit(e: Event) {

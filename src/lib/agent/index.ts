@@ -8,6 +8,7 @@ export {
 export {
 	Agent,
 	type AgentDefinition,
+	type AgentEventMap,
 	type AgentSurface,
 	type AgentMode,
 	type AgentStatus,

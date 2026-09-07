@@ -314,7 +314,11 @@ export async function sendAndWait(
 	const activity = () => `${rec.turnCompletes}:${rec.toolCalls.length}:${rec.modelText.length}`;
 	let lastActivity = activity();
 	let lastActivityAt = Date.now();
-	agent.sendTextMessage(text);
+	// The loop below is this turn's error handler — it throws on a transport
+	// error, a close, or the timeout — so the promise is settled here rather
+	// than reported twice. It carries the eval's own (long) deadline so a live
+	// turn is never cut at `send()`'s 60 s default. WP11 collapses the two.
+	void agent.send(text, { timeoutMs }).catch(() => {});
 	for (;;) {
 		if (rec.errors.length > errBefore) {
 			lastTurnEndedAt = Date.now();

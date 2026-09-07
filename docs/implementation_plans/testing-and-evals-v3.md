@@ -1,8 +1,9 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
 **Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3, WP4,
-WP5 and WP5b done; **WP5c open** (WP5's fix is provisional — see its log entry).
-See §5.
+WP5, WP5b and WP6 done. **WP7 is next**, then WP5c: WP5c's original mechanism was
+wrong (2026-09-07 audit — see its section) and its correct form depends on WP7's
+surface index. WP5's fix stays provisional until WP5c lands. See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
 `src/lib/testing/` changeset (see WP0).
@@ -368,7 +369,8 @@ text.
   patches around something with a cleaner fix one level down — say so **before
   writing the code**, not as a note under the finished diff. WP5 is the cautionary
   case: it was built as specified, and only afterwards was the collision it works
-  around (WP5c) named.
+  around (WP5c) named. WP5c is the rule working — its element-id lookup was shown
+  to be unnecessary, and the WP was rewritten, before any of it was built.
 - **Be terse.** §5 entries: 8 lines, hard cap. Docs and comments: state the rule
   and the one reason it exists. One line per fact; the diff holds the rest.
 - **Do not run `pnpm lint` / `pnpm format`** — no config in the repo; Prettier
@@ -727,58 +729,17 @@ skill in [src/lib/skills/](../../src/lib/skills/).
 
 ---
 
-### WP5c — Register the generic tools once, not per surface
+### WP5c — moved to Phase 2
 
-**Depends on:** WP5b (which removes the per-surface record this WP would
-otherwise have to look up), and WP5 (whose machinery it deletes).
-
-**The remaining half of the bug.** WP5b settles who decides what a tool does;
-this WP settles who runs it. One name, one copy, and the reply built from the
-surface the target element belongs to.
-
-**The fix.** Register the generic tools **once**, globally, not per surface: the
-tool resolves `element_id` to its owning surface and builds its reply from *that*
-surface's feedback. Per-surface state (`echoBaseline`, `effectiveFeedback`) moves
-behind a surface lookup keyed by element id; `resolvedExtensions` needs no lookup
-— after WP5b there is one record for the whole app.
-
-**Registered ≠ declared.** Two questions, two answers:
-
-- **Registered in `toolRegistry`.** `click_button` / `update_text_field`
-  unconditionally — they are the v0.8 tools, and `toolRegistry.execute(name,
-  args)` is the entry point any external spec-compliant agent would come through
-  (nothing carries calls into it yet; that transport is the consumer's). They
-  must not vanish because an extension is on. `click_buttons` /
-  `update_text_fields` / `point_to_elements` register iff their extension is on
-  — now one app-wide answer, so no call can land on a surface that disagrees.
-- **Declared to our own model** (`Agent.#assembleToolDeclarations`). With
-  `batchTools` on, declare the batched pair *instead of* the singular pair, not
-  alongside it: two tools for one job cost prompt tokens twice and make the model
-  loop item-by-item, while a batch of one is exactly a single call. Rule 3
-  stands — the batched tools replace the singular ones in the **prompt**, never
-  in the registry.
-
-**Then delete:** the provider stack in `ToolRegistry` (back to one tool per
-name), `SurfaceRegistry.dispose()`'s per-provider removal, and the
-`StaticSurface.lifecycle.test.ts` cases about shadowing order.
-
-**Tests.** Mount A and B; a click on B's element returns B's `updatedSurface` and
-B's baseline, and unmounting A changes nothing about that. With `batchTools` on,
-the declarations contain `click_buttons` and not `click_button`, while
-`toolRegistry.execute('click_button', …)` still drives the surface.
-
-**Commit:** `refactor(renderer): register the generic tools once, not per surface`
-
-**Document in this commit:** [extensions.md](../guides/extensions.md) —
-`batchTools` swaps the prompt's tools and never removes the spec ones; and
-[agent-integration.md](../guides/agent-integration.md) — `toolRegistry.execute`
-is the entry point for an external spec-compliant agent.
+It now depends on WP7 and lands right after it — see below. Its original
+mechanism (resolve `element_id` to its owning surface) was wrong; the
+correction is in the moved section.
 
 ---
 
 ## PHASE 2 — The six real gaps
 
-### WP6 — `agent.send()` / `agent.on()`
+### WP6 — `agent.send()` / `agent.on()` — DONE
 
 **Depends on:** WP3 (`turn-complete` must be trustworthy first).
 
@@ -845,6 +806,10 @@ are already module-global, so this is consistent, not a new kind of global.
 - Duplicate id: last wins, `console.warn` — two live surfaces with one id already
   break agent targeting.
 - Registration is mount-time only, never at module scope (SSR).
+- The index's count of mounted **static** surfaces is what WP5c uses to register
+  the generic tools once (0→1) and drop them (1→0) — so keep the count, not just
+  the map. The `SurfaceFeedback` wiring in the example app stays until WP5c
+  deletes it; this WP only removes the hand-rolled surface *list*.
 
 **Tests.** Two fixtures → both listed, `surface('x')` resolves; unmount → gone;
 duplicate warns; nothing registers during SSR.
@@ -858,6 +823,116 @@ into `examples/minimal-app/src/lib/agent-definition.ts` — the layout keeps onl
 the transport picker. That is the shape §1.4 tells users to adopt.
 
 **Commit:** `feat(core): track mounted surfaces in a global registry`
+
+---
+
+### WP5c — Register the generic tools once, and build the echo in the `Agent`
+
+**Depends on:** WP5b (one extensions record for the app), WP5 (whose machinery it
+deletes), and WP7 — whose surface index is what drives registration, and whose
+closure rewrites the same example-app wiring this WP finishes.
+
+**The remaining half of the bug.** WP5b settled who decides what a tool does;
+this WP settles who runs it, and who builds the reply.
+
+**Correction to this WP's original text** (written before the audit below). It
+said the tool should resolve `element_id` to its owning surface and build the
+reply from that surface's state. **The surface of origin is never needed:**
+
+- the **click** goes through the global
+  [`actionRegistry`](../../src/lib/core/registries/action-registry.ts#L53), and
+  `revealElements` / `highlightElements` query the whole document
+  ([reveal.ts:17](../../src/lib/core/reveal.ts#L17),
+  [highlight.ts:30](../../src/lib/core/highlight.ts#L30));
+- the **`'full'` echo** is three page-wide reads —
+  [StaticSurface.svelte:93-99](../../src/lib/renderer/StaticSurface.svelte#L93-L99):
+  `globalSurfaces()` (every mounted surface, by contract), `contextInstructions()`
+  (the page), `listActions()` (unfiltered);
+- the **`'changed'` echo** diffs against `echoBaseline`, which stores those same
+  page-wide values.
+
+So the lookup would return the same bytes. Worse: a lookup keyed by element id
+keeps one `echoBaseline` per surface, which is exactly today's defect. Each
+snapshot is written at a different moment, so a click in B diffs against a
+snapshot taken before A's click and re-reports changes the model already has.
+
+**The fix — one registration, one snapshot, no lookup.**
+
+1. **Register the generic tools once, from the surface index.** New
+   `src/lib/core/generic-tools.ts`; WP7's index registers them when its count of
+   *static* surfaces goes 0→1 and unregisters at 1→0 — never at module scope
+   (SSR). `click_button` / `update_text_field` unconditionally; `click_buttons` /
+   `update_text_fields` / `point_to_elements` iff their extension is on (one
+   app-wide answer after WP5b). The tools keep the reveal/highlight/execute body
+   and the settle-then-`tick()` wait, and return spec-canonical `{ results }` —
+   nothing else.
+2. **The echo moves to [`Agent.#handleToolCall`](../../src/lib/agent/agent.svelte.ts#L806).**
+   It already holds every input the surface had to be handed: `#def.surfaces()`
+   (the app's declared scope — the same set `#buildPrompt` shows the model),
+   `#contextInstructions()`, and `actionRegistry.listActions()`. One
+   `#echoBaseline` per `Agent`, seeded when the prompt is sent at connect — which
+   is what the snapshot always meant: **what this model last saw**, not what a
+   surface last emitted. Getting that seed from the prompt instead of "just
+   before the first tool call" is a correctness gain, not just a move.
+   Which results carry an echo: `ToolDefinition` gains `mutatesSurface?: boolean`
+   (additive, Rule 8) — true on the click/update pair and their batched forms,
+   absent on `point_to_elements`, which keeps its deliberate lean `{ results }`.
+   The dynamic branch (`surfaceUpdate` / `beginRendering` / `dataModelUpdate`) is
+   unchanged.
+
+**Registered ≠ declared.** Two questions, two answers:
+
+- **Registered in `toolRegistry`.** `click_button` / `update_text_field`
+  unconditionally — they are the v0.8 tools, and `toolRegistry.execute(name,
+  args)` is the entry point any external spec-compliant agent would come through
+  (nothing carries calls into it yet; that transport is the consumer's). They
+  must not vanish because an extension is on.
+- **Declared to our own model** (`Agent.#assembleToolDeclarations`). With
+  `batchTools` on, declare the batched pair *instead of* the singular pair, not
+  alongside it: two tools for one job cost prompt tokens twice and make the model
+  loop item-by-item, while a batch of one is exactly a single call. Rule 3
+  stands — the batched tools replace the singular ones in the **prompt**, never
+  in the registry.
+
+**Then delete:**
+
+- `SurfaceFeedback`, `SURFACE_FEEDBACK_KEY` and `<StaticSurface>`'s `feedback`
+  prop — nothing reads them once the `Agent` builds the echo. **Breaking**
+  (Rule 8): both are exported from `./renderer`. Migration is a deletion — drop
+  the `setContext` call; the two callbacks already exist on the
+  `AgentDefinition`, which [+layout.svelte:20-38](../../examples/minimal-app/src/routes/+layout.svelte#L20-L38)
+  declares twice today.
+- `buildToolResult`, `buildDiffToolResult`, `captureEchoBaseline` and
+  `echoBaseline` from `<StaticSurface>`, which keeps only its registry and its
+  exported handle.
+- the provider stack in `ToolRegistry` (back to one tool per name), and
+  `SurfaceRegistry.registerTool` / `dispose()` — no surface registers a tool.
+- the `StaticSurface.lifecycle.test.ts` cases about shadowing order.
+
+**The one cost, stated.** A third-party spec-compliant agent driving
+`toolRegistry.execute` directly now gets `{ results }` with no echo. Correct
+under STRICT, and harmless otherwise: the echo rides under
+`extensions['a2ui-svelte']`, which such an agent drops anyway.
+
+**Tests.** Mount A and B ⇒ one `click_button` in the registry; a click on either
+element returns bare `{ results }`; the `Agent`'s reply carries one echo built
+from every surface in `#def.surfaces()`, and unmounting A does not change the
+remaining reply. `'changed'` ⇒ two clicks in *different* surfaces report each
+change exactly once — the case that goes red under a per-surface snapshot.
+`point_to_elements` gets no echo. With `batchTools` on the declarations contain
+`click_buttons` and not `click_button`, while `toolRegistry.execute('click_button', …)`
+still drives the surface. Last static surface unmounts ⇒ registry empty.
+
+**Commit:** `refactor(core)!: register the generic tools once and build the echo in the Agent`
+(with a `BREAKING CHANGE:` footer for `SurfaceFeedback`, `SURFACE_FEEDBACK_KEY`
+and the `feedback` prop).
+
+**Document in this commit:** [extensions.md](../guides/extensions.md) — the echo
+is built by the `Agent`, not the surface; `batchTools` swaps the prompt's tools
+and never removes the spec ones. [agent-integration.md](../guides/agent-integration.md)
+— `toolRegistry.execute` is the entry point for an external spec-compliant agent
+and returns spec-canonical `{ results }`. Plus the matching skills in
+[src/lib/skills/](../../src/lib/skills/) and the example app's layout.
 
 ---
 
@@ -1259,9 +1334,10 @@ the new documents.
 ```
 WP0       stash the staged changeset (user runs git) — everything assumes HEAD
 Phase 1   WP1  WP1b  WP2  WP3  WP4  WP5   independent, parallel, separate fix: commits
-                              WP5b → WP5c (needs WP5; deletes most of it)
+                              WP5b
                      ↓
-Phase 2   WP6 (needs WP3)   WP7   WP8 (needs WP7)   WP9   WP9b   WP9c (simplifies WP9b)
+Phase 2   WP6 (needs WP3)   WP7   WP5c (needs WP5, WP5b, WP7; deletes most of WP5)
+                            WP8 (needs WP7)   WP9   WP9b   WP9c (simplifies WP9b)
                      ↓
 Phase 3   WP10        (independent — can start any time after WP0)
                      ↓
@@ -1297,6 +1373,9 @@ add conversation-level tests; WP8 adds Playwright.
   `./testing`, and it exports exactly `agentCall`, `agentClick`, `agentFill`.
   Nothing importable from `./testing` is usable in a running app, and nothing in
   `./core` or `./agent` is unsafe in one (§0 placement rule).
+- A surface's tool returns spec-canonical `{ results }`; the namespaced echo is
+  built once, by the `Agent`, from one snapshot of what the model last saw — and
+  a test with two mounted surfaces reports each change exactly once (WP5c).
 - No file in the repo is named `harness.ts`.
 - No test file resets a registry by hand.
 - Every commit is a closed unit — its code, tests, and doc/skill updates land
@@ -1421,3 +1500,14 @@ text, what the next WP must know. The diff holds everything else.)_
   must be set before any surface mounts. `#watchedSurfaces()` is all-or-nothing.
 - Verified red with a no-op `configureExtensions` (18 failures). `pnpm test`
   264 / 1 skipped; `pnpm check` 0 errors; `pnpm eval` unchanged (179k → 63k).
+
+### WP6 — DONE (2026-09-07, branch `develop`)
+
+- `send(text, { timeoutMs? })` + `on('turn-complete' | 'error')`, over a FIFO:
+  one boundary settles the head, so sends resolve in order. 9 tests, red
+  without settle/fail/emit (6/9). `pnpm test` 273; `pnpm check` 0 errors.
+- Deviation (approved): default `timeoutMs` 60 s, not the WP's sub-5 s, which
+  would reject healthy long turns; the DX it wanted comes from the timer-free
+  rejections — not connected, empty, error, close, `stop()`.
+- `sendTextMessage` deprecated (two names for one thing; the wrapper only
+  swallowed a rejection). Still works, every caller moved (incl. the evals).

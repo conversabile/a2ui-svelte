@@ -596,7 +596,7 @@ describe("Agent with a neutral mock transport", () => {
         rootId: "root",
         components: [{ id: "b", component: { Button: {} } }] as unknown[],
       };
-      agent.sendTextMessage("what changed?");
+      const turn = agent.send("what changed?");
       flushSync();
 
       expect(transport.contextUpdates.length).toBe(1);
@@ -605,6 +605,8 @@ describe("Agent with a neutral mock transport", () => {
       expect(ext.updatedSurfaces).toEqual([state.struct]);
       expect(Array.isArray(ext.availableElementIds)).toBe(true);
 
+      transport.emit("turn-complete", {});
+      await turn;
       await agent.stop();
     });
 
@@ -614,7 +616,7 @@ describe("Agent with a neutral mock transport", () => {
       flushSync();
 
       state.dm = { name: "Mario" };
-      agent.sendTextMessage("who did I add?");
+      const turn = agent.send("who did I add?");
       flushSync();
 
       expect(transport.contextUpdates.length).toBe(1);
@@ -623,6 +625,8 @@ describe("Agent with a neutral mock transport", () => {
       });
       expect(transport.textsSent).toContain("who did I add?");
 
+      transport.emit("turn-complete", {});
+      await turn;
       await agent.stop();
     });
 
@@ -657,10 +661,12 @@ describe("Agent with a neutral mock transport", () => {
       await agent.start();
       flushSync();
 
-      agent.sendTextMessage("hello");
+      const turn = agent.send("hello");
       flushSync();
       expect(transport.contextUpdates.length).toBe(0);
 
+      transport.emit("turn-complete", {});
+      await turn;
       await agent.stop();
     });
 
@@ -687,10 +693,12 @@ describe("Agent with a neutral mock transport", () => {
 
       // The agent already knows it wrote `name: Mario`; a later flush must not
       // re-report it.
-      agent.sendTextMessage("done?");
+      const turn = agent.send("done?");
       flushSync();
       expect(transport.contextUpdates.length).toBe(0);
 
+      transport.emit("turn-complete", {});
+      await turn;
       await agent.stop();
     });
 
@@ -703,13 +711,15 @@ describe("Agent with a neutral mock transport", () => {
       flushSync();
 
       state.dm = { name: "Mario" };
-      agent.sendTextMessage("x");
+      const turn = agent.send("x");
       flushSync();
 
       expect(
         transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
       ).toBe(true);
 
+      transport.emit("turn-complete", {});
+      await turn;
       await agent.stop();
     });
 
@@ -851,12 +861,14 @@ describe("Agent with a neutral mock transport", () => {
 
       // A later idle flush must NOT re-send the structure the agent just
       // authored back to it as a SURFACE_UPDATED re-sync.
-      agent.sendTextMessage("done?");
+      const turn = agent.send("done?");
       flushSync();
       expect(
         transport.contextUpdates.some((t) => t.includes("SURFACE_UPDATED")),
       ).toBe(false);
 
+      transport.emit("turn-complete", {});
+      await turn;
       a2uiState.deleteSurface(surfaceId);
       await agent.stop();
     });
@@ -1149,6 +1161,189 @@ describe("Agent with a neutral mock transport", () => {
     }
   });
 
+  describe("turn boundary (agent.send / agent.on)", () => {
+    function connected() {
+      const transport = new MockAgentTransport();
+      const agent = new Agent(
+        { surfaces: () => [], contextInstructions: () => "", instructions: "persona" },
+        transport,
+      );
+      return { transport, agent };
+    }
+
+    it("resolves only after the tool round trip, not at the intermediate events", async () => {
+      toolRegistry.register({
+        name: "wp6_noop",
+        description: "no-op",
+        parameters: { type: "object", properties: {} },
+        execute: async () => ({ status: "success" }),
+      });
+      const { transport, agent } = connected();
+      await agent.start();
+      flushSync();
+
+      let settled = false;
+      const turn = agent.send("do it").then(() => {
+        settled = true;
+      });
+      expect(transport.textsSent).toContain("do it");
+
+      // Model text and a tool round trip are mid-turn: the turn is not over
+      // until the transport says so (WP3 suppresses the mid-loop boundary).
+      transport.emit("text-out", { text: "working…" });
+      transport.emit("tool-call", {
+        calls: [{ id: "c1", name: "wp6_noop", args: {} }],
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      flushSync();
+      expect(transport.toolResults.length).toBe(1);
+      expect(settled).toBe(false);
+
+      transport.emit("turn-complete", {});
+      await turn;
+      expect(settled).toBe(true);
+
+      await agent.stop();
+    });
+
+    it("rejects when the transport errors during the turn", async () => {
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { transport, agent } = connected();
+      await agent.start();
+      flushSync();
+
+      const turn = agent.send("x");
+      transport.emit("error", { message: "socket died" });
+      await expect(turn).rejects.toThrow(/socket died/);
+      expect(agent.status).toBe("error");
+
+      err.mockRestore();
+    });
+
+    it("rejects when the transport closes during the turn", async () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const { transport, agent } = connected();
+      await agent.start();
+      flushSync();
+
+      const turn = agent.send("x");
+      transport.emit("close", { reason: "server hung up" });
+      await expect(turn).rejects.toThrow(/server hung up/);
+
+      log.mockRestore();
+    });
+
+    it("rejects when the session is stopped mid-turn", async () => {
+      const { agent } = connected();
+      await agent.start();
+      flushSync();
+
+      const turn = agent.send("x");
+      await agent.stop();
+      await expect(turn).rejects.toThrow(/stopped/);
+    });
+
+    it("rejects before start() and on an empty message, without sending", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { transport, agent } = connected();
+
+      await expect(agent.send("hi")).rejects.toThrow(/not connected/);
+      await expect(agent.send("   ")).rejects.toThrow(/empty/);
+      expect(transport.textsSent).toEqual([]);
+
+      // The void wrapper keeps its no-op-plus-warning behaviour and never
+      // raises an unhandled rejection.
+      expect(() => agent.sendTextMessage("hi")).not.toThrow();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(warn).toHaveBeenCalled();
+      expect(transport.textsSent).toEqual([]);
+
+      warn.mockRestore();
+    });
+
+    it("resolves sequential sends in order, one per turn boundary", async () => {
+      const { transport, agent } = connected();
+      await agent.start();
+      flushSync();
+
+      const order: number[] = [];
+      const first = agent.send("one").then(() => order.push(1));
+      const second = agent.send("two").then(() => order.push(2));
+
+      transport.emit("turn-complete", {});
+      await first;
+      expect(order).toEqual([1]);
+
+      transport.emit("turn-complete", {});
+      await second;
+      expect(order).toEqual([1, 2]);
+
+      await agent.stop();
+    });
+
+    it("times out with a message naming the deadline", async () => {
+      vi.useFakeTimers();
+      try {
+        const { agent } = connected();
+        await agent.start();
+        flushSync();
+
+        const turn = agent.send("x", { timeoutMs: 5_000 });
+        const rejected = expect(turn).rejects.toThrow(
+          /no turn-complete within 5000ms/,
+        );
+        await vi.advanceTimersByTimeAsync(5_000);
+        await rejected;
+
+        await agent.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("notifies on() subscribers of turns and errors, and unsubscribes", async () => {
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { transport, agent } = connected();
+      const seen: string[] = [];
+      const off = agent.on("turn-complete", () => seen.push("turn"));
+      agent.on("error", (p) => seen.push(`error:${p.message}`));
+
+      await agent.start();
+      flushSync();
+
+      transport.emit("turn-complete", {});
+      expect(seen).toEqual(["turn"]);
+
+      off();
+      transport.emit("turn-complete", {});
+      expect(seen).toEqual(["turn"]);
+
+      transport.emit("error", { message: "socket died" });
+      expect(seen).toEqual(["turn", "error:socket died"]);
+
+      err.mockRestore();
+    });
+
+    it("does not report an error for a close we asked for", async () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const { transport, agent } = connected();
+      const seen: string[] = [];
+      agent.on("error", (p) => seen.push(p.message));
+
+      await agent.start();
+      flushSync();
+      // `toggle()` marks the disconnect intentional before closing.
+      const closing = agent.toggle();
+      transport.emit("close", { reason: "client" });
+      await closing;
+
+      expect(seen).toEqual([]);
+      expect(agent.status).toBe("idle");
+
+      log.mockRestore();
+    });
+  });
+
   describe("history routing by capability", () => {
     it("embeds prior turns in the prompt for a server-history transport", async () => {
       const transport = new MockAgentTransport();
@@ -1274,7 +1469,7 @@ describe("Agent with a neutral mock transport", () => {
         ).toBe(false);
 
         // The pre-turn flush attaches the current UI to the typed message.
-        agent.sendTextMessage("who did I add?");
+        const turn = agent.send("who did I add?");
         flushSync();
         const surfaceTurn = transport.textsSent.find((t) =>
           t.includes("SURFACE_UPDATED"),
@@ -1283,6 +1478,8 @@ describe("Agent with a neutral mock transport", () => {
         expect(surfaceTurn).toContain("Mario");
         expect(transport.textsSent).toContain("who did I add?");
 
+        transport.emit("turn-complete", {});
+        await turn;
         await agent.stop();
       } finally {
         vi.useRealTimers();
@@ -1322,7 +1519,7 @@ describe("Agent with a neutral mock transport", () => {
       // flush, but a request/response transport has nothing to interrupt.
       transport.emit("text-out", { text: "partial answer" });
       state.dm = { name: "Mario" };
-      agent.sendTextMessage("and now?");
+      const turn = agent.send("and now?");
       flushSync();
 
       const surfaceTurn = transport.textsSent.find((t) =>
@@ -1331,6 +1528,8 @@ describe("Agent with a neutral mock transport", () => {
       expect(surfaceTurn).toBeDefined();
       expect(surfaceTurn).toContain("Mario");
 
+      transport.emit("turn-complete", {});
+      await turn;
       await agent.stop();
     });
 
@@ -1367,7 +1566,7 @@ describe("Agent with a neutral mock transport", () => {
         // It behaves as 'sync': the pre-message flush emits a clientDataModel
         // delta, never a turn-triggering proactive push.
         state.dm = { name: "Mario" };
-        agent.sendTextMessage("hi");
+        const turn = agent.send("hi");
         flushSync();
         const surfaceTurn = transport.textsSent.find((t) =>
           t.includes("SURFACE_UPDATED"),
@@ -1375,6 +1574,8 @@ describe("Agent with a neutral mock transport", () => {
         expect(surfaceTurn).toBeDefined();
         expect(surfaceTurn).toContain("clientDataModel");
 
+        transport.emit("turn-complete", {});
+        await turn;
         await agent.stop();
       } finally {
         warn.mockRestore();
