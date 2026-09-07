@@ -1,5 +1,4 @@
 import { setContext, getContext } from 'svelte';
-import { toolRegistry, type ToolDefinition } from './registries/tool-registry';
 
 const SURFACE_KEY = Symbol('a2ui-surface');
 const PARENT_KEY = Symbol('a2ui-parent');
@@ -14,8 +13,6 @@ export class SurfaceRegistry {
     private components: Array<{ id: string; component: Record<string, any> }> = [];
     private childrenByParent: Map<string, string[]> = new Map();
     private counter = 0;
-    /** Tools registered by components in this surface, for `dispose()` */
-    private registeredTools: ToolDefinition[] = [];
     private dataSources: Map<string, () => any> = new Map();
 
     constructor(surfaceId: string) {
@@ -74,35 +71,6 @@ export class SurfaceRegistry {
                 children.push(id);
             }
         }
-    }
-
-    /**
-     * Register a tool provided by a component in this surface.
-     * Delegates to the global ToolRegistry.
-     */
-    registerTool(tool: ToolDefinition) {
-        toolRegistry.register(tool);
-        this.registeredTools.push(tool);
-    }
-
-    /**
-     * Unregister every tool this surface installed. Called when the surface
-     * unmounts, so a dead surface's tool closures stop being declared to the
-     * agent. Removal is per-provider: another mounted surface that registered
-     * the same tool name keeps its own.
-     */
-    dispose() {
-        for (const tool of this.registeredTools) toolRegistry.unregister(tool.name, tool);
-        this.registeredTools = [];
-    }
-
-    /**
-     * Returns the Gemini-format function declarations for tools
-     * registered by components in this surface.
-     */
-    getTools(): Array<{ name: string; description: string; parameters: Record<string, any> }> {
-        const names = new Set(this.registeredTools.map((t) => t.name));
-        return toolRegistry.getDeclarations().filter((d) => names.has(d.name));
     }
 
     /**

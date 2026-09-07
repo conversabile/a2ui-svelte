@@ -244,13 +244,14 @@ to the [v0.8 spec](https://a2ui.org/):
 - **Both client→server events** — `userAction` (with the spec-mandated
   `{ name, surfaceId, sourceComponentId, timestamp, context }` shape)
   and `error`.
-- **Spec-canonical generic tools** — `click_button({element_id})` and
-  `update_text_field({element_id, value})`.
 - **Catalog selection handshake** — client capabilities under
   `a2uiClientCapabilities`, standard-catalog URI default.
 - **A2A envelope** — `application/json+a2ui` `DataPart` + the
   `X-A2A-Extensions` header, with `wrapA2A`/`unwrapA2A` helpers and the
   `<A2ASurface>` adapter. *Transport not included — bring your own.*
+
+The tools that drive a surface (`click_button`, `update_text_field`) are
+**ours, not A2UI's** — the spec defines only the human→agent direction.
 
 A small number of non-spec behaviours useful in practice — surface-change
 polling, batched click/update tools, richer tool-result envelope, an

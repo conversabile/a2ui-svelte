@@ -6,7 +6,7 @@ import { mountedSurfaces } from './surface-index';
 describe('surface index — SSR', () => {
 	it('registers nothing during a server render', () => {
 		const { body } = render(LifecycleSurface, {
-			props: { surfaceId: 'planner', buttonId: 'save-btn', tag: 'A' }
+			props: { surfaceId: 'planner', buttonId: 'save-btn' }
 		});
 
 		expect(body).toContain('data-surface-id="planner"');

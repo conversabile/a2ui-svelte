@@ -23,8 +23,8 @@ catalog, messages, and events in Svelte 5.
 assumes the agent owns the UI. Most real apps don't want that — they
 already own their UI in a framework. So we inverted it: you lay out the
 UI in Svelte, and `a2ui-svelte` makes that UI *legible and drivable* by
-an agent using the same A2UI components, IDs, and generic tools
-(`click_button`, `update_text_field`). This is the case we support best.
+an agent using the same A2UI components and IDs, driven by our own built-in
+tools (`click_button`, `update_text_field` — see [below](#what-conforms-to-the-v08-wire)). This is the case we support best.
 
 **`<DynamicSurface>` is real A2UI** — an empty canvas the agent fills in
 via `surfaceUpdate` / `beginRendering`. It works, but agent-generated UI
@@ -69,11 +69,14 @@ spec-conformant:
 - **Both client→server events** — `userAction` (spec-mandated
   `{ name, surfaceId, sourceComponentId, timestamp, context }` shape)
   and `error`.
-- **Spec-canonical generic tools** — `click_button({element_id})` and
-  `update_text_field({element_id, value})`.
 - **Catalog-selection handshake** — capabilities under
   `a2uiClientCapabilities`, standard-catalog URI default.
 - **A2A envelope** — `DataPart` + `X-A2A-Extensions` header.
+
+**Not in that list: the tools.** Nothing in v0.8/v0.9/v0.10 describes an agent
+*driving* the UI — the spec has only the human→agent direction (`userAction`,
+§5). So `click_button({element_id})` / `update_text_field({element_id, value})`
+and their `{ results }` envelope are ours; a spec-only agent won't know them.
 
 Library-specific extras (surface-change polling, batched tools, richer
 tool-result envelope, an on-demand `point_to_elements` highlight tool,

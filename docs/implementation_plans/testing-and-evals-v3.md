@@ -1,9 +1,7 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
 **Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3, WP4,
-WP5, WP5b, WP6 and WP7 done. **WP5c is next**: its original mechanism was wrong
-(2026-09-07 audit — see its section) and its correct form builds on WP7's
-surface index. WP5's fix stays provisional until WP5c lands. See §5.
+WP5, WP5b, WP6, WP7 and WP5c done. **WP8 is next.** See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
 `src/lib/testing/` changeset (see WP0).
@@ -779,7 +777,7 @@ switches `sendTextMessage` + comment to `await agent.send(…)`.
 
 ---
 
-### WP7 — `mountedSurfaces()`
+### WP7 — `mountedSurfaces()` — DONE
 
 **The gap.** There is no way to find a mounted surface, so every consumer
 hand-rolls the plumbing: the example app keeps a store whose only job is holding
@@ -826,7 +824,7 @@ the transport picker. That is the shape §1.4 tells users to adopt.
 
 ---
 
-### WP5c — Register the generic tools once, and build the echo in the `Agent`
+### WP5c — Register the generic tools once, and build the echo in the `Agent` — DONE
 
 **Depends on:** WP5b (one extensions record for the app), WP5 (whose machinery it
 deletes), and WP7 — whose surface index is what drives registration, and whose
@@ -1164,15 +1162,14 @@ more useful than the bare `'not_found'` token. `'pointed'` carried nothing
   and it leaves room to add a third state deliberately later instead of forcing
   a parallel field the day one is needed.
 
-**Verify against the spec before landing.**
-[StaticSurface.svelte:96](../../src/lib/renderer/StaticSurface.svelte#L96) calls
-the `results` array "spec-canonical", but nothing in this repo records whether
-v0.8 fixes the `status` **vocabulary** or only the envelope. Check
-<https://a2ui.org/> first: if the spec pins the values, this WP is constrained to
-whatever it says and our extension bends to it (Rule 1); if it does not, the
-table above stands. Either way, record the answer in
-[docs/guides/a2ui-compatibility.md](../../docs/guides/a2ui-compatibility.md),
-which is currently silent on tool results entirely.
+**Answered (2026-09-07, during WP5c).** The spec pins nothing here: `results`,
+`click_button`, `update_text_field` and `element_id` appear **nowhere** in the
+A2UI repo (v0_8, v0_9, v0_10 specs, SDKs, renderers, samples). v0.8 §5 defines
+only the human→agent direction (`userAction`, `error`); an agent driving the UI
+is our inversion, so both the tools and their result envelope are ours. The
+table above stands, unconstrained. The docs that called them "spec-canonical"
+were corrected in the WP5c follow-up; [a2ui-compatibility.md](../../docs/guides/a2ui-compatibility.md)
+now says so explicitly.
 
 **Consequences.**
 
@@ -1523,3 +1520,34 @@ text, what the next WP must know. The diff holds everything else.)_
   eval fixtures lost their `surface()` accessors and `bind:this`.
 - SSR resolution needs node, so `vite.config.ts` now has two vitest projects:
   `client` (jsdom) + `server` (`*.ssr.test.ts`). `pnpm test` 280; check clean.
+
+### WP5c — DONE (2026-09-07, branch `develop`)
+
+- `core/builtin-tools.ts` holds the five built-in tools; the surface index
+  installs them at 0→1 static surfaces and drops them at 1→0. `ToolRegistry` is
+  back to one definition per name, plus `get(name)` and
+  `ToolDefinition.mutatesSurface`.
+- The echo moved to `Agent.#withSurfaceEcho`, over ONE `#echoBaseline` seeded
+  from the prompt at `start()`. Tools return bare `{ results }`.
+- `batchTools` now *swaps* the batched pair in for the singular pair in the
+  prompt (`#assembleToolDeclarations`); the registry keeps both.
+- Deleted: `SurfaceFeedback` / `SURFACE_FEEDBACK_KEY` / the `feedback` prop,
+  `SurfaceRegistry.registerTool`/`dispose`/`getTools`, `<StaticSurface>`'s
+  `getTools` export. **Breaking** — all exported from `./renderer`.
+- The context-cost eval measured the echo by calling `toolRegistry.execute`
+  directly, which no longer produces one; it now drives a real `Agent` over
+  `ScriptedTransport`. Same numbers as before (179k → 63k billed chars).
+- `pnpm test` 280 (+`builtin-tools.test.ts`, `agent.echo.test.ts`); `pnpm check`
+  0 errors; `pnpm eval`, `pnpm package`, minimal-app build all green.
+
+### WP5c follow-up — naming + a false spec claim (2026-09-07)
+
+- Checked `/home/dario/lavoro/A2UI`: `click_button`, `update_text_field`,
+  `element_id`, `results` and "generic tool" appear in **none** of v0_8/v0_9/
+  v0_10, the SDKs, renderers or samples. v0.8 §5 has only `userAction` +
+  `error` — the tools and their envelope are entirely ours.
+- So `generic-tools.ts` → `builtin-tools.ts`, and every "spec-canonical"
+  claim about them was corrected (README, CLAUDE.md Rule 3, compatibility,
+  extensions, agent-integration, the skill, prompt-builder, extensions.ts).
+  `userAction`'s "spec-canonical" wording is true and was left alone.
+- Rule 3 now forbids the claim instead of making it, so it can't return.

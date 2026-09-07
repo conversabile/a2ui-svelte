@@ -3,9 +3,8 @@
 This guide covers wiring an AI agent to A2UI surfaces. It walks through
 the `AgentDefinition`, the `AgentTransport` interface (and the built-in
 transports for Gemini, Anthropic, OpenAI, Deepgram and Hume), the
-`Agent` orchestrator, the `<AgentShell>` UI, and the `SurfaceFeedback`
-context that bridges your app's session store to the library's tool
-result reporting.
+`Agent` orchestrator, the `<AgentShell>` UI, and the tool-result echo
+that keeps the model's view of the page current.
 
 The same content in skill form is at
 [`integrate-agent`](../../src/lib/skills/integrate-agent.md);
@@ -363,7 +362,7 @@ and it has two amplifiers:
 2. **Every tool result echoes the full surface back.** With
    `toolResultSurfaceEcho: 'full'` (the default), each `click_button` /
    `update_text_field` result carries `updatedSurface` = the whole surface JSON
-   again (see [`SurfaceFeedback`](#surfacefeedback-context)). One batched edit
+   again (see [The tool-result echo](#the-tool-result-echo)). One batched edit
    ⇒ one more full-surface copy injected into context.
 
 So even a *single* 20-field batch update on a large grid can push one turn well
@@ -468,9 +467,8 @@ structural fix.
 ```svelte
 <!-- src/routes/+layout.svelte -->
 <script lang="ts">
-  import { onDestroy, setContext } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { AgentShell } from 'a2ui-svelte/agent';
-  import { SURFACE_FEEDBACK_KEY, type SurfaceFeedback } from 'a2ui-svelte/renderer';
   import 'a2ui-svelte/renderer/styles.css';
   // ...definition + transport + agent...
 
@@ -508,33 +506,35 @@ bound to the agent's `$state` fields. `debug` doubles as a boolean prop:
 `<AgentShell {agent} debug />` adds a toggle button that reveals the built-in
 token panel.
 
-## `SurfaceFeedback` context
+## The tool-result echo
 
-When the agent calls a tool, the `Agent` runs the action handler and
-sends `{ status: 'success' }` back as the result. But often the agent
-wants to *see* the surface after the action ran — for instance, to
-confirm a navigation actually happened.
+When the agent calls `click_button` or `update_text_field`, the tool runs the
+action and returns a bare `{ results }`. But the agent usually also
+wants to *see* the page afterwards — to confirm a navigation happened, or to
+learn about a field the click reset.
 
-The library exposes a `SurfaceFeedback` Svelte context the consumer
-fills in. The library reads it at tool-result time and substitutes the
-fresh surface JSON into the result.
+The **`Agent` adds that echo**, under `extensions['a2ui-svelte']`, from the
+surfaces your own `AgentDefinition` declares:
 
 ```ts
-import { SURFACE_FEEDBACK_KEY, type SurfaceFeedback } from 'a2ui-svelte/renderer';
-import { mountedSurfaces } from 'a2ui-svelte/core';
-
-const surfaceFeedback: SurfaceFeedback = {
-  globalSurfaces: () =>
-    JSON.parse(JSON.stringify(
-      mountedSurfaces().filter((s) => s.type === 'static').map((s) => s.getJson())
-    )),
+export const assistant: AgentDefinition = {
+  instructions: '…',
+  surfaces: mountedSurfaces,                        // what the echo reports
   contextInstructions: () => session.contextInstructions
 };
-setContext<SurfaceFeedback>(SURFACE_FEEDBACK_KEY, surfaceFeedback);
 ```
 
-The `JSON.parse(JSON.stringify(...))` clone is required: Svelte 5
-reactive proxies don't survive the live API serialiser.
+So there is nothing extra to wire: the same `surfaces()` and
+`contextInstructions()` the system prompt is built from are what the echo
+reports. How much it reports is the `toolResultSurfaceEcho` extension —
+`'full'`, `'changed'` (deltas only) or `'none'` — see
+[extensions.md](extensions.md#changed-only-tool-results-toolresultsurfaceecho-changed).
+
+**Calling a tool directly.** `toolRegistry.execute('click_button', { element_id })`
+from `a2ui-svelte/core` is the entry point for an external agent (and for
+tests). It drives the surface and returns exactly `{ results: [...] }` — no
+echo, because the echo is an agent-level concern. The names are ours, not
+A2UI's, so a spec-only agent won't call them unprompted.
 
 ## Extensions (`Extensions`)
 
@@ -558,7 +558,7 @@ they're not extensions.)
 | Extension               | Default  | What it does                                                                                                                                                                                                                            |
 |-------------------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `surfaceWatch`          | `true`   | The `Agent` keeps the model aware of user-driven changes to the mounted surfaces. *How* the change is delivered is governed by `surfaceWatchTuning.mode` — a silent, idle-timed data-model sync (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`). See "Surface-change delivery" below. The payload is wrapped under `extensions['a2ui-svelte']`. |
-| `batchTools`            | `true`   | Registers batched variants `click_buttons({clicks: […]})` and `update_text_fields({updates: […]})` alongside the spec-canonical single-element `click_button` / `update_text_field`. The agent prompt is taught to prefer batching when many ops fall together. |
+| `batchTools`            | `true`   | Registers batched variants `click_buttons({clicks: […]})` and `update_text_fields({updates: […]})` alongside the single-element `click_button` / `update_text_field`. The agent prompt is taught to prefer batching when many ops fall together. |
 | `toolResultSurfaceEcho` | `'full'` | How much of the post-action surface a click / update result echoes back under `extensions['a2ui-svelte']`. `'full'` — the whole snapshot (`updatedSurface`, `updatedContext`, `availableElementIds`). `'changed'` — only what the action changed. `'none'` — results are just `{ results: [...] }`, exactly what the spec promises. |
 | `pointerTool`           | `true`   | Registers `point_to_elements({element_ids})`, a non-spec gesture that scrolls components into view and glows them so the agent can point at on-screen data without changing it. |
 

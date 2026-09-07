@@ -10,12 +10,12 @@ function tool(name: string, marker: string): ToolDefinition {
 	};
 }
 
-describe('ToolRegistry — provider stacks', () => {
+describe('ToolRegistry', () => {
 	beforeEach(() => {
 		for (const d of toolRegistry.getDeclarations()) toolRegistry.unregister(d.name);
 	});
 
-	it('declares and executes the most recently registered provider of a name', async () => {
+	it('holds one definition per name — a re-register replaces it', async () => {
 		toolRegistry.register(tool('click_button', 'A'));
 		toolRegistry.register(tool('click_button', 'B'));
 
@@ -24,49 +24,30 @@ describe('ToolRegistry — provider stacks', () => {
 		expect(await toolRegistry.execute('click_button')).toEqual({ marker: 'B' });
 	});
 
-	it('unregistering one provider leaves the other declared, whichever order', async () => {
-		const a = tool('click_button', 'A');
-		const b = tool('click_button', 'B');
-		toolRegistry.register(a);
-		toolRegistry.register(b);
-
-		// Remove the shadowed one: the live provider is untouched.
-		toolRegistry.unregister('click_button', a);
-		expect(toolRegistry.size).toBe(1);
-		expect(await toolRegistry.execute('click_button')).toEqual({ marker: 'B' });
-
-		// Re-register A behind B, then remove the live one: A becomes live again.
-		toolRegistry.register(a);
-		toolRegistry.unregister('click_button', b);
-		expect(toolRegistry.size).toBe(1);
-		expect(await toolRegistry.execute('click_button')).toEqual({ marker: 'A' });
-
-		toolRegistry.unregister('click_button', a);
-		expect(toolRegistry.hasTools).toBe(false);
-	});
-
-	it('unregister without a provider removes the name entirely', () => {
+	it('unregister removes the name', () => {
 		toolRegistry.register(tool('click_button', 'A'));
-		toolRegistry.register(tool('click_button', 'B'));
-
 		toolRegistry.unregister('click_button');
 		expect(toolRegistry.hasTools).toBe(false);
 	});
 
-	it('re-registering the same definition does not stack it twice', () => {
-		const a = tool('click_button', 'A');
-		toolRegistry.register(a);
-		toolRegistry.register(a);
-
-		toolRegistry.unregister('click_button', a);
-		expect(toolRegistry.hasTools).toBe(false);
+	it('unregistering a name that was never registered is a no-op', async () => {
+		toolRegistry.register(tool('click_button', 'A'));
+		toolRegistry.unregister('never_registered');
+		expect(await toolRegistry.execute('click_button')).toEqual({ marker: 'A' });
 	});
 
-	it('unregistering a provider that was never registered is a no-op', async () => {
-		const a = tool('click_button', 'A');
-		toolRegistry.register(a);
+	it('get() hands back the definition, so callers can read mutatesSurface', () => {
+		toolRegistry.register({ ...tool('click_button', 'A'), mutatesSurface: true });
+		toolRegistry.register(tool('point_to_elements', 'P'));
 
-		toolRegistry.unregister('click_button', tool('click_button', 'ghost'));
-		expect(await toolRegistry.execute('click_button')).toEqual({ marker: 'A' });
+		expect(toolRegistry.get('click_button')!.mutatesSurface).toBe(true);
+		expect(toolRegistry.get('point_to_elements')!.mutatesSurface).toBeUndefined();
+		expect(toolRegistry.get('nope')).toBeUndefined();
+	});
+
+	it('reports an unknown tool as an error instead of throwing', async () => {
+		expect(await toolRegistry.execute('nope')).toEqual({
+			error: 'Tool "nope" is not registered'
+		});
 	});
 });

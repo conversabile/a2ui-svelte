@@ -1,6 +1,6 @@
 ---
 name: integrate-agent
-description: Use when wiring an AI agent (voice via Gemini Live / OpenAI Realtime / Deepgram / Hume EVI, text via Gemini / Anthropic Claude / OpenAI, or a custom AgentTransport) to the A2UI surfaces in a SvelteKit app. Covers the AgentDefinition, transport auth, AgentShell mounting, and the SurfaceFeedback context.
+description: Use when wiring an AI agent (voice via Gemini Live / OpenAI Realtime / Deepgram / Hume EVI, text via Gemini / Anthropic Claude / OpenAI, or a custom AgentTransport) to the A2UI surfaces in a SvelteKit app. Covers the AgentDefinition, transport auth, AgentShell mounting, and the tool-result echo.
 type: skill
 ---
 
@@ -147,14 +147,11 @@ voice ↔ text ↔ scripted-test without touching anything else.
 ```svelte
 <!-- src/routes/+layout.svelte -->
 <script lang="ts">
-  import { onDestroy, setContext } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { AgentShell } from 'a2ui-svelte/agent';
-  import { SURFACE_FEEDBACK_KEY, type SurfaceFeedback } from 'a2ui-svelte/renderer';
   import 'a2ui-svelte/renderer/styles.css';
-  import { session } from '$lib/session.svelte';
   // ...definition + transport + agent construction from steps 1–3...
 
-  // See step 5 for SurfaceFeedback wiring.
   onDestroy(() => agent.stop());
 </script>
 
@@ -185,31 +182,35 @@ For a headless setup (custom UI):
 `$state` — bind freely. `agent.capabilities` tells you what the
 transport can do.
 
-### 5. Wire `SurfaceFeedback` context for tool result reporting
+### 5. The tool-result echo — nothing to wire
 
-When the agent calls a tool, the action handler runs synchronously and
-returns. But the agent often wants to know *what the surface looks like
-after the action* — and your surface state may have changed (a route
-navigation, a list re-fetch). The `SurfaceFeedback` Svelte context lets
-the library snapshot the latest surface JSON and feed it back as the
-tool's result, instead of just `{ status: 'success' }`.
+When the agent calls `click_button` / `update_text_field`, the tool runs the
+action and returns a bare `{ results }`. The **`Agent`** then
+attaches what the page looks like afterwards, under
+`extensions['a2ui-svelte']`, reading the same `surfaces()` and
+`contextInstructions()` your `AgentDefinition` already declares (step 1). So
+`surfaces: mountedSurfaces` is the whole wiring.
+
+Size it with the app-wide `toolResultSurfaceEcho` extension:
 
 ```ts
-import { setContext } from 'svelte';
-import { SURFACE_FEEDBACK_KEY, type SurfaceFeedback } from 'a2ui-svelte/renderer';
+import { configureExtensions } from 'a2ui-svelte/core';
 
-const surfaceFeedback: SurfaceFeedback = {
-  globalSurfaces: () =>
-    JSON.parse(JSON.stringify(
-      mountedSurfaces().filter((s) => s.type === 'static').map((s) => s.getJson())
-    )),
-  contextInstructions: () => session.contextInstructions
-};
-setContext<SurfaceFeedback>(SURFACE_FEEDBACK_KEY, surfaceFeedback);
+// once, at startup, before any surface mounts
+configureExtensions({ toolResultSurfaceEcho: 'changed' }); // 'full' | 'changed' | 'none'
 ```
 
-The `JSON.parse(JSON.stringify(...))` step is required: Svelte 5 proxies
-must be detached before they go through the live API serialiser.
+`'full'` (default) re-ships the whole tree on every call — the library's
+biggest token amplifier on a dense surface. `'changed'` ships only what the
+action changed. `'none'` is spec-strict: exactly `{ results }`.
+
+Driving a surface without an `Agent` (tests, or an external agent) goes
+through the registry and gets no echo. The tool names are ours, not A2UI's:
+
+```ts
+import { toolRegistry } from 'a2ui-svelte/core';
+await toolRegistry.execute('click_button', { element_id: 'save-btn' });
+```
 
 ### 6. Test with `ScriptedTransport` (no model, no network)
 

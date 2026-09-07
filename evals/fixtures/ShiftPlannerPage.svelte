@@ -6,8 +6,6 @@
 	import TextField from '../../src/lib/components/TextField.svelte';
 	import Button from '../../src/lib/components/Button.svelte';
 	import Divider from '../../src/lib/components/Divider.svelte';
-	import type { SurfaceFeedback } from '../../src/lib/renderer/surface-feedback';
-	import { mountedSurfaces } from '../../src/lib/core/registries/surface-index';
 
 	/**
 	 * Dense, realistic eval fixture: a team shift planner. One roster row per
@@ -88,11 +86,6 @@
 		);
 	}
 
-	const feedback: SurfaceFeedback = {
-		globalSurfaces: () => mountedSurfaces().map((s) => s.getJson()),
-		contextInstructions: () => contextText()
-	};
-
 	function addStaff() {
 		const name = newName.trim();
 		if (!name) return;
@@ -108,7 +101,7 @@
 		staff.map((m) => ({ name: m.name, role: m.role, shifts: { ...m.shifts } }));
 </script>
 
-<StaticSurface {surfaceId} {feedback}>
+<StaticSurface {surfaceId}>
 	<Column>
 		<Text id="planner-title" text="Team Shift Planner" usageHint="h2" />
 		<Text

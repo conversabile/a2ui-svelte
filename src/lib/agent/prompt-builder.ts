@@ -152,7 +152,7 @@ export function staticSurfacesBlock(
 
   if (surfaceEcho === "changed") {
     out +=
-      `${ruleNo}. **TOOL-RESULT ENVELOPE (changed-only)**: Every \`click_button\` / \`update_text_field\` (and their batched variants) returns the spec-canonical \`results\` array, plus — under \`extensions["a2ui-svelte"]\` — ONLY what the action actually changed:\n` +
+      `${ruleNo}. **TOOL-RESULT ENVELOPE (changed-only)**: Every \`click_button\` / \`update_text_field\` (and their batched variants) returns a \`results\` array, plus — under \`extensions["a2ui-svelte"]\` — ONLY what the action actually changed:\n` +
       '   - `updatedSurface`: present ONLY when the component STRUCTURE changed (a component appeared or disappeared, navigation). When present, replace your structural understanding with it. When absent, the structure you already know is still current.\n' +
       '   - `updatedDataModel`: `{ "<surfaceId>": { "<fieldId>": "<value>" } }` of field values that changed — including side effects of your action (e.g. a form resetting after save). Merge them (upsert each key); fields not listed are unchanged.\n' +
       "   - `updatedContext` / `availableElementIds`: present only when they changed.\n" +
@@ -173,7 +173,7 @@ export function staticSurfacesBlock(
       "     }\n" +
       "   }\n" +
       "   ```\n" +
-      '   The spec-canonical `results` field is the per-element outcome. The `extensions["a2ui-svelte"]` block is a post-action snapshot — **after every tool call, trust `updatedSurface` as the authoritative new structure and refresh your understanding from `updatedContext` and `availableElementIds`**. The original static-surface JSON shown at session start is stale the moment you act.\n';
+      '   The `results` field is the per-element outcome. The `extensions["a2ui-svelte"]` block is a post-action snapshot — **after every tool call, trust `updatedSurface` as the authoritative new structure and refresh your understanding from `updatedContext` and `availableElementIds`**. The original static-surface JSON shown at session start is stale the moment you act.\n';
     ruleNo++;
   }
 

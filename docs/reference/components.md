@@ -994,7 +994,7 @@ agent it MUST appear as one of the 16 standard catalog types. The contract:
 
 1. **Register as a standard type.** Call `defineA2uiComponent({ type: 'TextField' | … })` — never invent a non-standard `type`. The surface JSON the agent receives only ever contains standard component types.
 2. **Keep screen/tree parity.** Everything the agent sees in the tree must be visible on screen, and vice-versa. Use `<A2UIRepresentation>` to register the standard sub-tree; its `isHidden` children render nothing themselves so there is no duplicated/hidden DOM.
-3. **Route interaction through the standard action.** The agent drives the component with the generic tools (`click_button`, `update_text_field`) targeting the standard type's action — the bespoke HTML is a presentation detail only.
+3. **Route interaction through the standard action.** The agent drives the component with the built-in tools (`click_button`, `update_text_field`) targeting the standard type's action — the bespoke HTML is a presentation detail only.
 4. **Stay out of `DEFAULT_CATALOG`.** Composites are for static authoring. To make one agent-renderable on a *dynamic* surface, opt in explicitly:
 
    ```ts

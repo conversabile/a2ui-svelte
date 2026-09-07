@@ -5,7 +5,7 @@
 `a2ui-svelte` is a **Svelte 5 library** that implements the **A2UI framework**: a
 pattern where a human user and a live AI agent simultaneously interact with the
 same UI. The agent reads the UI as a JSON component tree and drives it through
-generic tools; the human uses the normal HTML. Both see the same components, the
+built-in tools; the human uses the normal HTML. Both see the same components, the
 same component IDs, and the same state.
 
 This is both a runtime and a **reference implementation of A2UI** — the goal is a
@@ -41,7 +41,7 @@ bug — unless the behaviour is a deliberate, namespaced extension (see Rule 5).
 ### Surfaces
 
 - **Static surface** (`<StaticSurface>`) — a region of UI you declare in Svelte.
-  The agent sees it as a JSON tree and interacts through generic tools
+  The agent sees it as a JSON tree and interacts through our built-in tools
   (`click_button`, `update_text_field`). This is our **inversion** of A2UI (you
   own the UI, not the agent) and the **primary, stable** path.
 - **Dynamic surface** (`<DynamicSurface>`) — the classic A2UI model: an empty
@@ -156,9 +156,10 @@ The library is theme-agnostic and must stay that way.
   spec property is **synthesised** from the component's own resolved id, never
   authored: no component takes an `action` name as a prop, so the two cannot
   drift. Authors write `id` + `onclick`; the JSON is derived.
-- **Generic tools are spec-canonical** — `click_button({element_id})` and
-  `update_text_field({element_id, value})`. Batched siblings are an extension
-  (Rule 5), never a replacement.
+- **The built-in tools are ours, not the spec's** — A2UI has no
+  agent-drives-the-UI direction, so `click_button` / `update_text_field` are
+  never "spec-canonical". They are still the fixed pair: batched siblings are
+  an extension (Rule 5), never a replacement.
 - **Tool results must report failure** — a tool that wraps a failing operation
   must return `status: 'error'` with the underlying message, so the agent learns
   the operation failed instead of silently continuing.

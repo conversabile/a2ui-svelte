@@ -86,12 +86,12 @@ export interface Extensions {
 	/**
 	 * Batched click / update tools — registers `click_buttons({clicks: […]})`
 	 * and `update_text_fields({updates: […]})` (batched variants) in addition
-	 * to the spec-canonical single-element tools.
+	 * to the single-element tools.
 	 */
 	batchTools: boolean;
 	/**
 	 * How much of the post-action surface a tool result echoes back, under the
-	 * `a2ui-svelte` extension namespace. The spec-canonical `results` array is
+	 * `a2ui-svelte` extension namespace. The `results` array is
 	 * byte-identical in all three modes.
 	 *
 	 *  - `'full'` (default): every result echoes the FULL post-action state —
@@ -110,7 +110,7 @@ export interface Extensions {
 	toolResultSurfaceEcho: 'none' | 'full' | 'changed';
 	/**
 	 * On-demand pointer tool — registers `point_to_elements({ element_ids })`,
-	 * a non-spec generic tool that makes components glow briefly and scrolls
+	 * a non-spec tool that makes components glow briefly and scrolls
 	 * them into view so the agent can *point at* on-screen data (the user asks
 	 * "where do I save this?" / "show me the total", or the agent references a
 	 * value and wants to indicate it). Purely a client-side visual gesture: it

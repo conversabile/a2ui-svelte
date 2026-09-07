@@ -19,9 +19,11 @@ Two namespaces sit at the boundary:
 - **Spec.** Top-level fields of every message conform to the A2UI v0.8
   schemas. The 16 standard catalog components, the four server→client
   message kinds (`surfaceUpdate`, `beginRendering`, `dataModelUpdate`,
-  `deleteSurface`), the two client→server events (`userAction`,
-  `error`), and the spec-canonical generic tools (`click_button`,
-  `update_text_field`) are all spec-pure.
+  `deleteSurface`) and the two client→server events (`userAction`,
+  `error`) are all spec-pure. The built-in tools (`click_button`,
+  `update_text_field`) are **ours** — the spec has no agent-drives-the-UI
+  direction — but their results carry nothing beyond `{ results }`, so a
+  spec-strict consumer sees no stray fields.
 - **Extension.** Library-specific data rides under
   `extensions: { 'a2ui-svelte': { ... } }`. A 3P consumer that doesn't
   recognise the `a2ui-svelte` namespace drops it; the spec result is
@@ -43,9 +45,9 @@ tool name exists.
 | Extension               | Default  | What it changes vs. spec-strict                                                                                                                                                                                       |
 |-------------------------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `surfaceWatch`          | `true`   | The `Agent` keeps the model aware of user-driven surface changes. Delivery is governed by `surfaceWatchTuning.mode`: a silent, idle-timed A2UI v0.9 data-model delta (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`) — payload wrapped in `extensions['a2ui-svelte']` either way. Off → the agent is never told a surface changed. See the [agent-integration guide](agent-integration.md#surface-change-delivery-surfacewatchtuning). |
-| `batchTools`            | `true`   | Registers the batched siblings `click_buttons({clicks})` and `update_text_fields({updates})` alongside the spec-canonical singulars. Off → only the singulars.                                                  |
-| `toolResultSurfaceEcho` | `'full'` | How much of the post-action surface a tool result echoes under `extensions['a2ui-svelte']`. `'full'` → `updatedSurface`, `updatedContext`, `availableElementIds`. `'changed'` → **only what changed** (see [Changed-only tool results](#changed-only-tool-results-toolresultsurfaceecho-changed)). `'none'` → results are exactly `{ results: [...] }`.                                                          |
-| `pointerTool`           | `true`   | Registers `point_to_elements({element_ids})` — a non-spec generic tool that makes components glow and scrolls them into view so the agent can *point at* on-screen data without changing it. Off → the tool is not offered (components still glow as a side effect of the agent editing them). See [On-demand pointing](#on-demand-pointing-point_to_elements). |
+| `batchTools`            | `true`   | Declares the batched siblings `click_buttons({clicks})` / `update_text_fields({updates})` to the model **instead of** the singular pair. The singulars stay registered either way. Off → the model sees the singulars.                                                  |
+| `toolResultSurfaceEcho` | `'full'` | How much of the post-action surface the `Agent` echoes onto a tool result under `extensions['a2ui-svelte']`. `'full'` → `updatedSurface`, `updatedContext`, `availableElementIds`. `'changed'` → **only what changed** (see [Changed-only tool results](#changed-only-tool-results-toolresultsurfaceecho-changed)). `'none'` → results are exactly `{ results: [...] }`.                                                          |
+| `pointerTool`           | `true`   | Registers `point_to_elements({element_ids})` — a non-spec tool that makes components glow and scrolls them into view so the agent can *point at* on-screen data without changing it. Off → the tool is not offered (components still glow as a side effect of the agent editing them). See [On-demand pointing](#on-demand-pointing-point_to_elements). |
 
 Presets: `ALL_EXTRAS` (all on, default) and `STRICT` (all off).
 Both are exported from `a2ui-svelte/core`.
@@ -64,11 +66,11 @@ The partial is merged over `ALL_EXTRAS`, not over the current record: the call
 is an absolute set, so `configureExtensions({})` restores the defaults. Read
 it back anywhere with `getExtensions()`.
 
-Call it **before any surface mounts** — surfaces read the record when they
-register their tools, so a later call cannot un-register a live tool. On the
-server the record is module-level and shared by every request; that is correct
-(it describes the app, not the user) but is one more reason to set it at
-startup rather than per request.
+Call it **before any surface mounts** — the record is read when the generic
+tools are installed (as the first static surface mounts), so a later call
+cannot un-register a live tool. On the server the record is module-level and
+shared by every request; that is correct (it describes the app, not the user)
+but is one more reason to set it at startup rather than per request.
 
 ## When to turn extensions off
 
@@ -119,8 +121,28 @@ click can mutate fields the agent didn't touch (a form resetting after save),
 and the delta is the only way it learns that without a full echo.
 
 Spec posture is unchanged: everything rides under `extensions['a2ui-svelte']`;
-the spec-canonical `results` field is byte-identical across `'full'`,
+the `results` field is byte-identical across `'full'`,
 `'changed'` and `'none'`.
+
+### Who builds the echo
+
+The **`Agent`** does, not the surface. The tools themselves return exactly
+`{ results }`; the agent adds the echo on the way to the transport, from the
+surfaces its own `AgentDefinition.surfaces()` declares.
+
+Two consequences worth knowing:
+
+- There is **one** "what the model last saw" snapshot per agent, seeded from
+  the system prompt at connect. So a click in surface A and a click in surface
+  B diff against the same baseline, and neither re-reports a change the model
+  already has.
+- An external spec-compliant agent calling `toolRegistry.execute('click_button', …)`
+  directly gets `{ results }` with no echo. That is correct under `STRICT`, and
+  harmless otherwise — such an agent drops the `a2ui-svelte` namespace anyway.
+
+A tool opts into the echo with `mutatesSurface: true` on its `ToolDefinition`.
+The click/update pair and their batched forms set it; `point_to_elements` does
+not (see below).
 
 ## On-demand pointing (`point_to_elements`)
 
@@ -149,8 +171,8 @@ elementIds } } }` carried in an A2A `DataPart`; on the voice path the function
 tool is the working vehicle.
 
 **Deliberately lean results.** Unlike `click_button` / `update_text_field`,
-`point_to_elements` **never** attaches the surface echo — whatever
-`toolResultSurfaceEcho` says. It returns only:
+`point_to_elements` **never** gets the surface echo — whatever
+`toolResultSurfaceEcho` says, because it does not declare `mutatesSurface`. It returns only:
 
 ```jsonc
 { "results": [

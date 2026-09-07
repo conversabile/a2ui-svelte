@@ -21,9 +21,12 @@ import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import { toolRegistry } from '../src/lib/core/registries/tool-registry';
+import { Agent } from '../src/lib/agent/agent.svelte';
+import { ScriptedTransport } from '../src/lib/agent/scripted-transport';
 import { buildSystemPrompt } from '../src/lib/agent/prompt-builder';
 import { configureExtensions, type Extensions } from '../src/lib/core/extensions';
 import {
+	mountedSurfaces,
 	surface as mountedSurface,
 	type AgentSurface
 } from '../src/lib/core/registries/surface-index';
@@ -60,32 +63,51 @@ function buildPrompt(page: PlannerExports, surface: AgentSurface, compact: boole
 	});
 }
 
+/** The 7-call task, one tool call per model turn. */
+const SCRIPTED_CALLS: Array<{ name: string; args: Record<string, unknown> }> = [
+	{ name: 'update_text_field', args: { element_id: 'shift-anna-wed', value: '10:00-18:00' } },
+	{
+		name: 'update_text_fields',
+		args: {
+			updates: [
+				{ element_id: 'shift-carla-thu', value: 'Morning' },
+				{ element_id: 'shift-lucia-thu', value: 'Morning' },
+				{ element_id: 'shift-marco-thu', value: 'Morning' }
+			]
+		}
+	},
+	{ name: 'update_text_field', args: { element_id: 'add-staff-name', value: 'Bruno' } },
+	{ name: 'update_text_field', args: { element_id: 'add-staff-role', value: 'Waiter' } },
+	{ name: 'click_button', args: { element_id: 'add-staff-btn' } },
+	{ name: 'update_text_field', args: { element_id: 'shift-bruno-fri', value: 'Evening' } },
+	{ name: 'click_button', args: { element_id: 'save-week-btn' } }
+];
+
 /**
- * A realistic multi-step task, executed exactly as the `Agent` would
- * (sequential `toolRegistry.execute` calls): three shift edits, a structural
- * change (adding a staff member), an edit on the new row, and a save that
- * mutates the page context.
+ * A realistic multi-step task, executed through the real `Agent` (three shift
+ * edits, a structural change adding a staff member, an edit on the new row,
+ * and a save that mutates the page context). The agent is what builds the
+ * tool-result echo, so the sizes measured here are exactly what a model would
+ * be billed for.
  */
-async function runScriptedTask(): Promise<number[]> {
-	const sizes: number[] = [];
-	const call = async (name: string, args: Record<string, unknown>) => {
-		const result = await toolRegistry.execute(name, args);
-		sizes.push(JSON.stringify(result).length);
-	};
-	await call('update_text_field', { element_id: 'shift-anna-wed', value: '10:00-18:00' });
-	await call('update_text_fields', {
-		updates: [
-			{ element_id: 'shift-carla-thu', value: 'Morning' },
-			{ element_id: 'shift-lucia-thu', value: 'Morning' },
-			{ element_id: 'shift-marco-thu', value: 'Morning' }
-		]
-	});
-	await call('update_text_field', { element_id: 'add-staff-name', value: 'Bruno' });
-	await call('update_text_field', { element_id: 'add-staff-role', value: 'Waiter' });
-	await call('click_button', { element_id: 'add-staff-btn' });
-	await call('update_text_field', { element_id: 'shift-bruno-fri', value: 'Evening' });
-	await call('click_button', { element_id: 'save-week-btn' });
-	return sizes;
+async function runScriptedTask(page: PlannerExports, compact: boolean): Promise<number[]> {
+	const transport = new ScriptedTransport(
+		SCRIPTED_CALLS.map((c) => ({ calls: [c], text: 'done' }))
+	);
+	const agent = new Agent(
+		{
+			instructions: INSTRUCTIONS,
+			surfaces: mountedSurfaces,
+			contextInstructions: () => page.contextInstructions(),
+			compactSurfaceJson: compact,
+			mode: 'static'
+		},
+		transport
+	);
+	await agent.start();
+	for (let i = 0; i < SCRIPTED_CALLS.length; i++) await agent.send(`step ${i + 1}`);
+	agent.stop();
+	return transport.toolResults.map((r) => JSON.stringify(r.result).length);
 }
 
 /**
@@ -156,7 +178,7 @@ describe('context-cost measurement (hermetic)', () => {
 			const { page, surface } = mountPlanner(extensions);
 			const compact = mode !== "full-echo ('full')";
 			const promptChars = buildPrompt(page, surface, compact).length;
-			const resultSizes = await runScriptedTask();
+			const resultSizes = await runScriptedTask(page, compact);
 			rows.push({
 				mode,
 				promptChars,

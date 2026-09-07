@@ -4,7 +4,13 @@ import { actionRegistry } from '../core/registries/action-registry';
 import type { AgentSurface } from '../core/registries/surface-index';
 import { userActionBus, type UserAction } from '../core/registries/event-bus';
 import { A2UI_EXTENSION_NAMESPACE, wrapExtension, getExtensions } from '../core/extensions';
-import { stripDataModel, readDataModelFromJson } from '../core/surface-snapshot';
+import {
+	stripDataModel,
+	readDataModelFromJson,
+	structuralFingerprint,
+	readDataModelsBySurface,
+	diffDataModelsBySurface
+} from '../core/surface-snapshot';
 import type {
 	AgentTransport,
 	AgentTransportConnectOptions,
@@ -285,6 +291,17 @@ export class Agent {
 	// snapshot seen on the previous tick and when it last changed.
 	#lastSyncObservedSnapshot = '';
 	#lastSyncObservedChangeAt = 0;
+	// ── Tool-result echo baseline ──
+	// What THIS model last saw, seeded from the system prompt at connect and
+	// advanced after every echo it is sent. One per agent, because the echo is
+	// page-wide: a click in surface A and a click in surface B diff against the
+	// same snapshot, so neither re-reports a change the model already has.
+	#echoBaseline: {
+		structure: string;
+		dataModels: Record<string, Record<string, unknown>>;
+		context: string;
+		elementIds: string;
+	} | null = null;
 	#intentionalDisconnect = false;
 	#currentModelText = '';
 	// Whether the next inbound text chunk continues the current user turn.
@@ -357,6 +374,9 @@ export class Agent {
 
 		const tools = this.#assembleToolDeclarations();
 		const systemInstruction = this.#buildPrompt(tools);
+		// The prompt IS what the model has seen — seed the echo baseline from it,
+		// so the first tool result reports only what the call itself changed.
+		this.#captureEchoBaseline();
 
 		// Snapshot the connect-time payload sizes. The system prompt embeds the
 		// full serialized surface (pretty-printed), so this is usually the
@@ -819,7 +839,17 @@ export class Agent {
 		description: string;
 		parameters: Record<string, unknown>;
 	}> {
-		const declarations = toolRegistry.getDeclarations().slice();
+		// With `batchTools` on the batched pair REPLACES the singular pair in the
+		// prompt (never in the registry — `toolRegistry.execute('click_button')`
+		// stays the entry point for an external spec-compliant agent). Declaring
+		// both costs prompt tokens twice and makes the model loop item-by-item,
+		// while a batch of one is exactly a single call.
+		const superseded = getExtensions().batchTools
+			? new Set(['click_button', 'update_text_field'])
+			: new Set<string>();
+		const declarations = toolRegistry
+			.getDeclarations()
+			.filter((d) => !superseded.has(d.name));
 
 		if (this.#mode === 'dynamic' || this.#mode === 'both') {
 			declarations.unshift({
@@ -962,6 +992,7 @@ export class Agent {
 			} catch (e) {
 				result = { status: 'error', error: (e as Error).message ?? 'Unknown tool error' };
 			}
+			result = this.#withSurfaceEcho(call.name, result);
 			try {
 				// Tool results are a top quota cost: with the surface-echo
 				// extension the result echoes the FULL serialized surface back to
@@ -973,6 +1004,101 @@ export class Agent {
 				this.setStatus('error');
 			}
 		}
+	}
+
+	/**
+	 * Read every surface the definition declares, as serialized JSON — the same
+	 * set `#buildPrompt` shows the model, so the echo and the prompt can never
+	 * disagree about what is on screen.
+	 */
+	#surfaceJson(): unknown[] {
+		return this.#def
+			.surfaces()
+			.filter((s) => s)
+			.map((s) => s.getJson());
+	}
+
+	/** Record the current page state as "what this model has seen". */
+	#captureEchoBaseline(): void {
+		const surfaces = this.#surfaceJson();
+		this.#echoBaseline = {
+			structure: structuralFingerprint(surfaces),
+			dataModels: readDataModelsBySurface(surfaces),
+			context: this.#contextInstructions(),
+			elementIds: JSON.stringify(actionRegistry.listActions())
+		};
+	}
+
+	/**
+	 * Attach the surface echo to a tool result, per the app-wide
+	 * `toolResultSurfaceEcho` extension:
+	 *
+	 *   `'full'` (default): the whole serialized page under
+	 *                       `extensions['a2ui-svelte']`, so a 3P consumer that
+	 *                       doesn't know the namespace drops the blob and still
+	 *                       still sees a clean `results` array.
+	 *   `'changed'`:        only what changed vs `#echoBaseline` —
+	 *                       `updatedSurface` on a structural change,
+	 *                       `updatedDataModel` for value changes,
+	 *                       context/ids only when they moved. Nothing changed ⇒
+	 *                       the result is returned untouched.
+	 *   `'none'` (STRICT):  untouched.
+	 *
+	 * Only tools that declare `mutatesSurface` get one: a purely visual gesture
+	 * (`point_to_elements`) leaves the model's understanding unchanged, and
+	 * echoing the tree back on it is the exact token amplifier we avoid.
+	 */
+	#withSurfaceEcho(name: string, result: unknown): unknown {
+		const mode = getExtensions().toolResultSurfaceEcho;
+		if (mode === 'none') return result;
+		if (!toolRegistry.get(name)?.mutatesSurface) return result;
+
+		const surfaces = this.#surfaceJson();
+		const context = this.#contextInstructions();
+		const actions = actionRegistry.listActions();
+
+		let extras: Record<string, unknown>;
+		if (mode === 'changed') {
+			const structure = structuralFingerprint(surfaces);
+			const dataModels = readDataModelsBySurface(surfaces);
+			const elementIds = JSON.stringify(actions);
+			const prev = this.#echoBaseline;
+			extras = {};
+			if (!prev || structure !== prev.structure) {
+				// A value delta can't convey a component appearing/disappearing,
+				// so echo the full tree — the data-model values ride inside it.
+				extras.updatedSurface = surfaces;
+			} else {
+				const delta = diffDataModelsBySurface(prev.dataModels, dataModels);
+				// The model already knows the value it just wrote — but a click may
+				// have mutated OTHER fields too (a form reset). Report every change;
+				// the agent's own writes are a few bytes and double as confirmation.
+				if (Object.keys(delta).length > 0) extras.updatedDataModel = delta;
+			}
+			if (!prev || context !== prev.context) extras.updatedContext = context;
+			if (!prev || elementIds !== prev.elementIds) extras.availableElementIds = actions;
+			this.#echoBaseline = { structure, dataModels, context, elementIds };
+			if (Object.keys(extras).length === 0) return result;
+		} else {
+			extras = {
+				availableElementIds: actions,
+				updatedSurface: surfaces,
+				updatedContext: context
+			};
+		}
+
+		const carrier = (result ?? {}) as Record<string, unknown>;
+		const existing = (carrier.extensions ?? {}) as Record<string, unknown>;
+		return {
+			...carrier,
+			extensions: {
+				...existing,
+				[A2UI_EXTENSION_NAMESPACE]: {
+					...((existing[A2UI_EXTENSION_NAMESPACE] as Record<string, unknown>) ?? {}),
+					...extras
+				}
+			}
+		};
 	}
 
 	#handleUserAction(action: UserAction): void {

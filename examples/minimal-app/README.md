@@ -102,9 +102,9 @@ rejected — see the
   (`/api/providers` returns booleans only).
 - Keeping each text model's key server-side via a `baseUrl` proxy route,
   and minting short-lived voice credentials per connect.
-- The `session.svelte.ts` pattern for publishing surfaces to the
-  layout-level shell.
-- The `SurfaceFeedback` context for tool-result reporting.
+- `surfaces: mountedSurfaces` in `lib/agent-definition.ts` — the library's
+  own index of mounted surfaces, so a page just mounts a `<StaticSurface>`
+  and the agent sees it (and the tool-result echo reports it).
 - The on-demand `point_to_elements` highlight extension (default-on) —
   ask the agent to point something out and it glows + scrolls into view.
 - CSS variable theming (see `app.css` for indigo override of

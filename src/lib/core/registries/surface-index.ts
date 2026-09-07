@@ -8,6 +8,8 @@
  * one page, one set of live surfaces.
  */
 
+import { registerBuiltinTools, unregisterBuiltinTools } from '../builtin-tools';
+
 /**
  * The handle a surface exposes to an `Agent` — what `<StaticSurface>` and
  * `<DynamicSurface>` export, and the contract a hand-rolled surface must meet.
@@ -49,6 +51,7 @@ export function registerSurface(surface: AgentSurface): void {
 		);
 	}
 	surfaces.set(surface.id, surface);
+	syncBuiltinTools();
 }
 
 /**
@@ -57,6 +60,7 @@ export function registerSurface(surface: AgentSurface): void {
  */
 export function unregisterSurface(surface: AgentSurface): void {
 	if (surfaces.get(surface.id) === surface) surfaces.delete(surface.id);
+	syncBuiltinTools();
 }
 
 /** Every surface mounted right now, in mount order. */
@@ -70,7 +74,7 @@ export function surface(id: string): AgentSurface | undefined {
 }
 
 /**
- * How many **static** surfaces are mounted. The generic tools
+ * How many **static** surfaces are mounted. The built-in tools
  * (`click_button`, `update_text_field`) only make sense while at least one
  * static surface is up, so this count is what decides whether they are live.
  */
@@ -78,4 +82,24 @@ export function mountedStaticSurfaceCount(): number {
 	let n = 0;
 	for (const s of surfaces.values()) if (s.type === 'static') n++;
 	return n;
+}
+
+/**
+ * Whether the built-in tools are installed right now — the module's own view,
+ * so a re-register on every mount doesn't re-read the extension record.
+ */
+let builtinToolsInstalled = false;
+
+/**
+ * Install the built-in tools while at least one static surface is mounted, and
+ * remove them once the last one goes. They target elements through the global
+ * `actionRegistry`, so one registration serves every surface — registering
+ * them per surface is what made two mounted surfaces fight over one tool name.
+ */
+function syncBuiltinTools(): void {
+	const wanted = mountedStaticSurfaceCount() > 0;
+	if (wanted === builtinToolsInstalled) return;
+	builtinToolsInstalled = wanted;
+	if (wanted) registerBuiltinTools();
+	else unregisterBuiltinTools();
 }

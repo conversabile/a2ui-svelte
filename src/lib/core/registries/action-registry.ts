@@ -1,5 +1,5 @@
 /**
- * Global Action Registry for the A2UI generic tools framework.
+ * Global Action Registry for the built-in agent tools.
  *
  * Components register their interaction callbacks here, keyed by (elementId, type).
  * A component may register more than one action verb on the same element — e.g. a

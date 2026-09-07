@@ -15,28 +15,28 @@ describe('surface index', () => {
 	});
 
 	it('lists every mounted surface, and resolves one by id', () => {
-		render(LifecycleSurface, { surfaceId: 'planner', buttonId: 'save-btn', tag: 'A' });
+		render(LifecycleSurface, { surfaceId: 'planner', buttonId: 'save-btn' });
 		render(DynamicSurface, { surfaceId: 'canvas' });
 
 		expect(mountedSurfaces().map((s) => s.id)).toEqual(['planner', 'canvas']);
 		expect(surface('planner')?.type).toBe('static');
 		expect(surface('canvas')?.type).toBe('dynamic');
 		expect(surface('nope')).toBeUndefined();
-		// Only the static surface counts — the generic tools have nothing to
+		// Only the static surface counts — the built-in tools have nothing to
 		// drive on a canvas the agent renders itself.
 		expect(mountedStaticSurfaceCount()).toBe(1);
 	});
 
 	it('the registered handle reads the live surface', () => {
-		render(LifecycleSurface, { surfaceId: 'planner', buttonId: 'save-btn', tag: 'A' });
+		render(LifecycleSurface, { surfaceId: 'planner', buttonId: 'save-btn' });
 
 		expect(elementIds(surface('planner')!.getJson())).toContain('save-btn');
 		expect(surface('planner')!.getDataModel?.()).toEqual({});
 	});
 
 	it('drops a surface when it unmounts', () => {
-		const a = render(LifecycleSurface, { surfaceId: 'a', buttonId: 'a-btn', tag: 'A' });
-		render(LifecycleSurface, { surfaceId: 'b', buttonId: 'b-btn', tag: 'B' });
+		const a = render(LifecycleSurface, { surfaceId: 'a', buttonId: 'a-btn' });
+		render(LifecycleSurface, { surfaceId: 'b', buttonId: 'b-btn' });
 
 		a.unmount();
 
@@ -48,8 +48,8 @@ describe('surface index', () => {
 	it('warns on a duplicate id, and the last mounted wins', () => {
 		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-		render(LifecycleSurface, { surfaceId: 'dup', buttonId: 'first-btn', tag: 'A' });
-		render(LifecycleSurface, { surfaceId: 'dup', buttonId: 'second-btn', tag: 'B' });
+		render(LifecycleSurface, { surfaceId: 'dup', buttonId: 'first-btn' });
+		render(LifecycleSurface, { surfaceId: 'dup', buttonId: 'second-btn' });
 
 		expect(warn).toHaveBeenCalledWith(expect.stringContaining('"dup"'));
 		expect(mountedSurfaces()).toHaveLength(1);
@@ -58,8 +58,8 @@ describe('surface index', () => {
 
 	it('a duplicate unmounting does not evict the surface that replaced it', () => {
 		vi.spyOn(console, 'warn').mockImplementation(() => {});
-		const first = render(LifecycleSurface, { surfaceId: 'dup', buttonId: 'first-btn', tag: 'A' });
-		render(LifecycleSurface, { surfaceId: 'dup', buttonId: 'second-btn', tag: 'B' });
+		const first = render(LifecycleSurface, { surfaceId: 'dup', buttonId: 'first-btn' });
+		render(LifecycleSurface, { surfaceId: 'dup', buttonId: 'second-btn' });
 
 		first.unmount();
 
