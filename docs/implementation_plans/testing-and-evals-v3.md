@@ -1,7 +1,7 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
 **Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3, WP4,
-WP5, WP5b, WP6, WP7 and WP5c done. **WP8 is next.** See §5.
+WP5, WP5b, WP6, WP7, WP5c and WP8 done. **WP9 is next.** See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
 `src/lib/testing/` changeset (see WP0).
@@ -934,7 +934,7 @@ and returns spec-canonical `{ results }`. Plus the matching skills in
 
 ---
 
-### WP8 — `window.__a2ui` for end-to-end tests
+### WP8 — `window.__a2ui` for end-to-end tests — DONE
 
 **Depends on:** WP7.
 
@@ -1551,3 +1551,20 @@ text, what the next WP must know. The diff holds everything else.)_
   extensions, agent-integration, the skill, prompt-builder, extensions.ts).
   `userAction`'s "spec-canonical" wording is true and was left alone.
 - Rule 3 now forbids the claim instead of making it, so it can't return.
+
+### WP8 — DONE (2026-09-07, branch `develop`)
+
+- `core/dev-global.ts`: installs `window.__a2ui` (`execute`, `tools`,
+  `surfaces`, `json`) behind `import.meta.env.DEV && typeof window !== 'undefined'`.
+  Read-through only. Exports `devGlobal` + the `A2uiDevGlobal` type and the
+  `Window` declaration from `./core`, so `page.evaluate` types resolve.
+- Imported for its side effect by **both** `<StaticSurface>` and
+  `<DynamicSurface>` — `surfaces()`/`json()` cover dynamic surfaces too, and the
+  plan's "StaticSurface only" would have missed a dynamic-only page.
+- `json()` **throws** (with the mounted ids) on an unknown id as well as on an
+  ambiguous omitted one — an `undefined` inside `page.evaluate` surfaces as an
+  unrelated failure later.
+- Verified erasure: present in our `dist/core/dev-global.js`, **0 hits** in the
+  example app's client bundle after `pnpm --filter minimal-app build`.
+- `pnpm test` 283 (+`dev-global.test.ts`); `pnpm check` 0 errors; `pnpm package`
+  green (publint clean).

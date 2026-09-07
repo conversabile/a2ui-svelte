@@ -12,6 +12,7 @@
 	import { STANDARD_CATALOG_ID, STANDARD_CATALOG_ALIAS } from '../core/catalog-selection';
 	import Component from './Component.svelte';
 	import './styles.css';
+	import '../core/dev-global';
 
 	interface Props {
 		surfaceId: string;

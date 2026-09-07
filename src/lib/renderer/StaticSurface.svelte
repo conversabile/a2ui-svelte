@@ -9,6 +9,7 @@
 	} from '../core/registries/surface-index';
 	import type { Snippet } from 'svelte';
 	import './styles.css';
+	import '../core/dev-global';
 
 	interface Props {
 		surfaceId: string;

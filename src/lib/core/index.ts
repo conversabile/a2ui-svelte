@@ -56,3 +56,4 @@ export {
     diffDataModel,
     diffDataModelsBySurface
 } from './surface-snapshot';
+export { devGlobal, type A2uiDevGlobal } from './dev-global';
