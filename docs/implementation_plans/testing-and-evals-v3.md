@@ -1,7 +1,8 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
 **Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3, WP4,
-WP5, WP5b, WP6, WP7, WP5c, WP8, WP9, WP9b and WP9c done. **WP10 is next.** See §5.
+WP5, WP5b, WP6, WP7, WP5c, WP8, WP9, WP9b, WP9c and WP10 done. **WP11 is next.**
+See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
 `src/lib/testing/` changeset (see WP0).
@@ -50,7 +51,7 @@ tests are its only user today:
 | export | subpath | why |
 |---|---|---|
 | `mountedSurfaces()`, `surface(id)` (WP7) | `./core` | `surfaces: mountedSurfaces` is production `AgentDefinition` wiring |
-| `validateSurface()` (WP10) | `./core` | `<StaticSurface>` calls it on mount under `DEV` |
+| `validateSurface()` (WP10) | `./core` | the surfaces call it on mount/update, in production too |
 | `withoutAudio()` (WP9) | `./agent` | a real `AgentTransport` wrapper; valid in any headless deployment |
 | `ScriptedTransport` | `./agent` (unchanged) | implements the production contract faithfully — usable for demos and offline mode |
 | `agentCall`, `agentClick`, `agentFill` (WP9b) | `./testing` | invert production behaviour; dangerous in app code |
@@ -1203,29 +1204,79 @@ a2ui-compatibility note above.
 
 ## PHASE 3 — Spec compliance is our job, not the user's
 
-### WP10 — Surface validation: dev warning + our own tests
+### WP10 — Surface validation: always on, in dev and production — DONE
 
 **Reuses:** `src/lib/testing/validate-surface{,.test}.ts` from the WP0 patch —
 the logic is sound, the packaging changes.
 
-Split the checks by who can break them:
+**One surface JSON shape, two sources.** The validator takes the serialized
+surface (`getJson()`), so it runs over a static surface (our serializer's output
+from your Svelte components) and a dynamic one (the tree the model pushed)
+alike. A structural failure means our serializer is wrong in the first case and
+the model emitted a non-compliant tree in the second.
 
-| check | who | where it goes |
+**Severity, not switches.** Every issue carries
+`severity: 'error' | 'warning'` — a broken tree an agent will misread vs. a
+convention we recommend. Callers filter; nothing turns a check off. The staged
+`kebabIds` / `actionNameMatchesId` options go away: they exist only to switch
+the warnings off, which is what filtering by severity does properly.
+
+| check | severity | why |
 |---|---|---|
-| single-`child` slots, `children.explicitList` shape, unique ids, resolvable refs, one-type envelopes, reachability | **us** — properties of our serializer | our own suite, run over every repo fixture |
-| `action.name === id` | **us**, after WP2 — it holds by construction | our own suite |
-| kebab-case ids, unknown/custom types | **users** — host conventions, custom catalogs | dev-mode `console.warn` |
+| single-`child` slots, `children.explicitList` shape, unique ids, resolvable refs, one-type envelopes, reachability | **error** | the agent misreads the tree; ours to get right |
+| `action.name === id` | **error**, after WP2 — it holds by construction | divergence is a serializer bug |
+| kebab-case ids, unknown/custom types | **warning** | host conventions and custom catalogs: legal, but a documented source of agent hallucinations |
+
+**Validation always runs — no dev/prod divergence.** No `import.meta.env.DEV`
+guard: a surface that confuses the agent confuses it in production too, and
+behaviour that differs between `pnpm dev` and the shipped app is behaviour
+nobody can reason about. It is one pass over the component list per mount or
+update. If the warnings prove noisy, the answer is a documented config switch,
+not a build-time one.
+
+**What happens on failure depends on where the JSON came from** — the same tree
+means different things from the two sources:
+
+| source | `error` | `warning` |
+|---|---|---|
+| static (our serializer, from your components) | `console.error` + **throw** | `console.warn` |
+| dynamic (the model's `surfaceUpdate`) | reject the update, keep the last good tree, feed the issues back to the model — **never throw** | `console.warn` |
+
+A static-surface error is a deterministic bug in us or in the author's markup:
+fail fast and loudly. A dynamic-surface error is the model emitting a bad tree,
+which is routine — throwing would take the page down on a bad generation. Rule 3
+already says the tool result must carry the reason, so it returns the issues,
+not a bare status:
+
+```json
+{
+  "status": "error",
+  "error": "surfaceUpdate rejected: 2 issues",
+  "issues": [
+    { "componentId": "staff-card", "message": "Card must have a single string `child` (wrap multiples in a Column/Row)" }
+  ]
+}
+```
 
 **Deliver.**
 
 1. Move the structural assertions into the serializer's suite and run the
-   validator over every fixture in the repo as part of `pnpm test`.
-2. `<StaticSurface>` and `<DynamicSurface>` validate on mount when
-   `import.meta.env.DEV` and `console.warn` a readable report. Zero-cost in
-   production; must never throw. Finding out while running `pnpm dev` beats
-   finding out only if you happened to write a test.
-3. Export `validateSurface(json)` from `a2ui-svelte/core` for users who want it
-   in CI. One function, no package.
+   validator over every fixture in the repo as part of `pnpm test`. Our suite
+   fails on any `error`.
+2. `<StaticSurface>` validates on mount; `<DynamicSurface>` after each processed
+   update (it is empty at mount — validating there would check nothing the model
+   sent). Report per the table above.
+3. `processMessage()` returns its issues instead of swallowing them, and the
+   agent's dispatch stops hardcoding success. Today
+   [agent.svelte.ts:979-980](../../src/lib/agent/agent.svelte.ts#L979-L980)
+   answers `{ status: 'success' }` for `surfaceUpdate` / `beginRendering` /
+   `dataModelUpdate` whatever happened, and
+   [processor.ts:12](../../src/lib/core/processor.ts#L12) silently `continue`s
+   past a malformed component — so a model can emit garbage, be told it worked,
+   and never find out.
+4. Export `validateSurface(json)` from `a2ui-svelte/core` for users who want it
+   in CI. One function, no package — and it is the Rule 8 public shape, so the
+   severity field lands now rather than as a later breaking change.
 
 **Fix these defects from the staged version wherever it lands:**
 
@@ -1237,11 +1288,14 @@ Split the checks by who can break them:
 - Name it `validateSurface`, not `validateSurfaceJson`; fold
   `assertValidSurface` in or drop it — one exported function.
 
-**Tests.** Keep the staged cases; add: the dev warning fires on a bad surface and
-is silent on a good one; the derived catalog set matches `DEFAULT_CATALOG`; every
-repo fixture validates clean.
+**Tests.** Keep the staged cases, each asserting its severity; add: a bad static
+surface throws and a good one is silent; a warning-only surface warns and does
+not throw; a malformed `surfaceUpdate` is rejected, leaves the previous tree
+standing, and returns a tool result whose `issues` name the offending component;
+a dynamic surface is validated after its update, not at mount; the derived
+catalog set matches `DEFAULT_CATALOG`; every repo fixture validates clean.
 
-**Commit:** `feat(renderer): warn on non-compliant surfaces in dev`
+**Commit:** `feat(renderer): validate surfaces and report non-compliance`
 
 ---
 
@@ -1336,7 +1390,8 @@ Phase 1   WP1  WP1b  WP2  WP3  WP4  WP5   independent, parallel, separate fix: c
 Phase 2   WP6 (needs WP3)   WP7   WP5c (needs WP5, WP5b, WP7; deletes most of WP5)
                             WP8 (needs WP7)   WP9   WP9b   WP9c (simplifies WP9b)
                      ↓
-Phase 3   WP10        (independent — can start any time after WP0)
+Phase 3   WP10        (needs WP2 for the `action.name === id` check; otherwise
+                       independent — can start any time after WP0)
                      ↓
 Phase 4   WP11 (needs WP3, WP6, WP7, WP9)
                      ↓
@@ -1614,3 +1669,15 @@ text, what the next WP must know. The diff holds everything else.)_
 - Closure: `extensions.md` pointer example, `a2ui-compatibility.md` tool note,
   `skills/integrate-agent.md` status paragraph.
 - `pnpm test` 307; `pnpm check` 0 errors.
+
+### WP10 — DONE (2026-09-11, branch `develop`)
+
+- `core/validate-surface.ts`: `validateSurface(json, { catalog? })`, issues carry
+  `severity` + `scope`; on `./core` with `formatSurfaceIssues`.
+- `scope` fixes a wrong premise: components arrive before the root, so `wiring`
+  (root, refs, reachability) applies from `beginRendering` on, `shape` always.
+- Dropped `action.name === id` (spec lets a model name actions; ours is
+  synthesised). Empty single-child slot = warning, not error.
+- `processMessage` validates the prospective tree and returns `ProcessResult`;
+  the `Agent` forwards it. `<StaticSurface>` throws on error at mount.
+- `pnpm test` 341; `pnpm check` 0 errors.

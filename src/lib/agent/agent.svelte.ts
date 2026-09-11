@@ -976,8 +976,10 @@ export class Agent {
 					call.name === 'beginRendering' ||
 					call.name === 'dataModelUpdate'
 				) {
-					processMessage({ [call.name]: call.args } as never);
-					result = { status: 'success' };
+					// `processMessage` reports what it did: a tree that fails
+					// validation is rejected, and the model gets the issues back
+					// instead of a success it can't learn from.
+					result = processMessage({ [call.name]: call.args } as never);
 				} else {
 					result = await toolRegistry.execute(call.name, call.args);
 				}

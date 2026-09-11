@@ -2,6 +2,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { SurfaceRegistry, setSurfaceContext, setParentId } from '../core/surface-registry';
 	import { actionRegistry } from '../core/registries/action-registry';
+	import { validateSurface, formatSurfaceIssues } from '../core/validate-surface';
 	import {
 		registerSurface,
 		unregisterSurface,
@@ -36,7 +37,38 @@
 		getJson: () => registry.toJSON(),
 		getDataModel: () => registry.getDataModel()
 	};
-	onMount(() => registerSurface(handle));
+	onMount(() => {
+		validateOnMount();
+		return registerSurface(handle);
+	});
+
+	/**
+	 * Check the serialized tree once the whole surface has mounted (every
+	 * descendant has registered by then, so this is the first moment the JSON
+	 * is complete).
+	 *
+	 * An error here is a deterministic bug — in our serializer or in the
+	 * author's markup — that would make the agent misread the page, so it
+	 * fails loudly instead of shipping a surface the agent can't drive. Runs
+	 * in production too: a surface that confuses the agent confuses it there
+	 * as well, and behaviour that differs between dev and prod is behaviour
+	 * nobody can reason about.
+	 */
+	function validateOnMount(): void {
+		const issues = validateSurface(handle.getJson());
+		const errors = issues.filter((i) => i.severity === 'error');
+		const warnings = issues.filter((i) => i.severity === 'warning');
+		if (warnings.length > 0) {
+			console.warn(
+				`[A2UI] Surface "${surfaceId}" — ${warnings.length} validation warning(s):\n${formatSurfaceIssues(warnings)}`
+			);
+		}
+		if (errors.length > 0) {
+			const detail = `[A2UI] Surface "${surfaceId}" is not A2UI-compliant:\n${formatSurfaceIssues(errors)}`;
+			console.error(detail);
+			throw new Error(detail);
+		}
+	}
 
 	// Clean up this surface's registry entries on destroy: its actions and its
 	// entry in the surface index (which drops the built-in tools when this was

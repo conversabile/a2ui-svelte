@@ -69,6 +69,13 @@ Container property contracts (these are spec-mandated, the helpers enforce them)
 - `Column` / `Row` / `List` use `children: { explicitList: [...] }`.
 - `Button` has a single `child` (its label) — pass it via `label` prop.
 
+The surface checks itself when it mounts. A structural error — a component
+in the tree that nothing on screen points at, a malformed slot — throws, in
+production as well as in dev: the agent would misread the page, so it fails
+loudly instead. Conventions the agent depends on but that are still legal
+(kebab-case ids, types outside the standard 16) log a warning. To assert it
+in a test: `expect(validateSurface(surface.getJson())).toEqual([])`.
+
 ### 3. Publish the page's context
 
 The surface itself needs no publishing: `<StaticSurface>` joins the

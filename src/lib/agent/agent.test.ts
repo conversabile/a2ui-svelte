@@ -873,6 +873,61 @@ describe("Agent with a neutral mock transport", () => {
       await agent.stop();
     });
 
+    it("hands a rejected surfaceUpdate back to the model instead of reporting success", async () => {
+      const surfaceId = "reject-canvas";
+      const transport = new MockAgentTransport();
+      const agent = new Agent(
+        {
+          mode: "dynamic",
+          surfaces: () => [
+            {
+              id: surfaceId,
+              type: "dynamic",
+              getJson: () => serializeSurface(surfaceId) ?? { surfaceId },
+            },
+          ],
+          contextInstructions: () => "",
+          instructions: "persona",
+          surfaceWatchTuning: NO_POLL as never,
+        },
+        transport,
+      );
+
+      await agent.start();
+      flushSync();
+
+      transport.emit("tool-call", {
+        calls: [
+          {
+            id: "c1",
+            name: "surfaceUpdate",
+            args: {
+              surfaceId,
+              components: [
+                { id: "two-types", component: { Text: {}, Button: {} } },
+              ],
+            },
+          },
+        ],
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      flushSync();
+
+      const result = transport.toolResults[0].result as {
+        status: string;
+        issues: Array<{ componentId: string; message: string }>;
+      };
+      expect(result.status).toBe("error");
+      expect(result.issues[0].componentId).toBe("two-types");
+      // Nothing was committed, so the model's next read shows the old tree.
+      expect(a2uiState.getSurface(surfaceId)?.components["two-types"]).toBe(
+        undefined,
+      );
+
+      a2uiState.deleteSurface(surfaceId);
+      await agent.stop();
+    });
+
     it("defaults to sync mode when no surfaceWatchTuning is given", async () => {
       vi.useFakeTimers();
       try {

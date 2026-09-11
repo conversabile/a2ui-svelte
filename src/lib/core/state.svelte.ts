@@ -50,6 +50,12 @@ class Surface implements ISurfaceState {
     data = $state<Record<string, any>>({});
     isRendering = $state(false);
     catalogId = $state<string | undefined>(undefined);
+    /**
+     * The component types the surface can actually render, published by
+     * `<DynamicSurface>` from its resolved catalog. The validator uses it so a
+     * custom catalog's own types don't warn as unknown.
+     */
+    catalogTypes = $state<ReadonlySet<string> | undefined>(undefined);
 
     constructor(id: string) {
         this.id = id;
@@ -101,6 +107,15 @@ class A2UIStateManager {
         console.log(`[A2UI] Setting catalogId for ${surfaceId} to ${catalogId}`);
         const surface = this.getOrCreateSurface(surfaceId);
         surface.catalogId = catalogId;
+    }
+
+    /**
+     * Record which component types this surface's catalog can render, so
+     * validation judges an agent's tree against the catalog the page actually
+     * has rather than the standard 16.
+     */
+    setCatalogTypes(surfaceId: string, types: ReadonlySet<string>) {
+        this.getOrCreateSurface(surfaceId).catalogTypes = types;
     }
 
     updateData(

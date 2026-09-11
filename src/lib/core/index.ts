@@ -1,7 +1,16 @@
 export * from './types';
 export { a2uiState } from './state.svelte';
-export { processMessage } from './processor';
+export { processMessage, type ProcessResult } from './processor';
 export { serializeSurface } from './serializer';
+export {
+    validateSurface,
+    formatSurfaceIssues,
+    STANDARD_CATALOG_TYPES,
+    type SurfaceValidationIssue,
+    type SurfaceIssueSeverity,
+    type SurfaceIssueScope,
+    type ValidateSurfaceOptions
+} from './validate-surface';
 export {
     SurfaceRegistry,
     setSurfaceContext,

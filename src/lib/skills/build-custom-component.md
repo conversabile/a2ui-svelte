@@ -140,17 +140,26 @@ Always re-export the three properties from the handle. They're what the
 composite-component pattern (and tests) use to reach into your component
 from outside.
 
-### 6. Verify the JSON via `SurfaceRegistry.toJSON()`
+### 6. Verify the JSON
 
-Drop the component into a `<StaticSurface>` and call `surfaceRef.toJSON()`.
-The output should validate against the spec — exactly one type wrapper,
-no Svelte-only fields leaking through, BoundValue envelopes intact.
+Drop the component into a `<StaticSurface>` and mount it. The surface
+validates itself on mount: a structural error (an orphan node, a malformed
+slot) throws, and a convention warning (a non-kebab id, a type outside the
+standard catalog — which yours is) logs. Your own type name will warn; that
+is the reminder to register it in the catalog you hand `<DynamicSurface>`.
 
-A quick spot-check in the browser console:
+To assert it in a test, or to check a tree by hand:
+
+```ts
+import { validateSurface } from 'a2ui-svelte/core';
+
+expect(validateSurface(surfaceRef.getJson())).toEqual([]);
+```
+
+In the browser (dev builds install `window.__a2ui`):
 
 ```js
-const json = document.querySelector('[data-a2ui-surface]')?.__surface?.toJSON();
-console.log(JSON.stringify(json, null, 2));
+console.log(JSON.stringify(window.__a2ui.json(), null, 2));
 ```
 
 ## Common variations

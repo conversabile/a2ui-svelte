@@ -102,8 +102,14 @@ a `<DynamicSurface>`:
   the gap.
 - **No `Video` or `AudioPlayer`.** The default catalog ships 16 of the 18
   standard component types; the two media components aren't included.
-- **Best-effort, not strict.** `web_core` validates every message against a
-  schema and throws on malformed input. `a2ui-svelte` renders what it can and
-  logs warnings, so bad agent output degrades quietly instead of erroring.
+- **Validated, but never fatal.** Every `surfaceUpdate` / `beginRendering` is
+  checked before it is committed: a tree that would leave the agent misreading
+  the page is rejected, the last good tree stays on screen, and the issues go
+  back in the tool result so the model can fix them. `web_core` throws on
+  malformed input instead — taking the page down on a bad generation is worse
+  than a retry. The checks that need a finished tree (a root, resolvable
+  references, reachability) apply from `beginRendering` on, since the
+  components arrive before the root does.
+  `validateSurface()` from `a2ui-svelte/core` runs the same checks in CI.
 
 These differences only affect `<DynamicSurface>`.
