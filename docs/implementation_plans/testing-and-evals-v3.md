@@ -1,7 +1,7 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
 **Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3, WP4,
-WP5, WP5b, WP6, WP7, WP5c, WP8, WP9 and WP9b done. **WP9c is next.** See §5.
+WP5, WP5b, WP6, WP7, WP5c, WP8, WP9, WP9b and WP9c done. **WP10 is next.** See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
 `src/lib/testing/` changeset (see WP0).
@@ -1594,3 +1594,23 @@ text, what the next WP must know. The diff holds everything else.)_
 - Closure: `./testing` in `exports` + Rule 8 (subpath list + placement rule);
   `@testing-library/user-event` devDep; `Button.test.ts` off `fireEvent`.
 - `pnpm test` 304; `pnpm check` 0 errors; `pnpm package` green.
+
+### WP9c — DONE (2026-09-11, branch `develop`)
+
+- `point_to_elements` now reports `success` / `error` (+ an `error` message
+  naming the missing id); `SUCCESS_STATUSES` in `testing/agent-actor.ts` is gone,
+  replaced by `status !== 'success'`.
+- The prompt rule is **unconditional**, not a clause on the echo rule: under
+  `STRICT` the echo block isn't emitted at all, so the model was told nothing
+  about `results` while the tools still returned them. New **TOOL RESULTS** rule
+  always present; the extension-gated envelope rules are unchanged.
+- The drift test pulls the status union **out of the generated prompt** by regex
+  instead of restating it, so a reworded rule is caught too, and compares it to
+  what every registered tool actually emits. Verified red by re-emitting
+  `'pointed'`.
+- The table-driven test builds each call **from the tool's own parameter schema**
+  (`element_id` / `element_ids` get the id, other strings a placeholder), so a
+  tool added later is driven with no edit here.
+- Closure: `extensions.md` pointer example, `a2ui-compatibility.md` tool note,
+  `skills/integrate-agent.md` status paragraph.
+- `pnpm test` 307; `pnpm check` 0 errors.

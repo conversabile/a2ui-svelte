@@ -71,7 +71,7 @@ describe('agentCall — a swallowed tool failure fails the test', () => {
 		render(LifecycleSurface, { surfaceId: 's', buttonId: 'here-btn' });
 
 		expect(await agentCall('point_to_elements', { element_ids: ['here-btn'] })).toEqual({
-			results: [{ element_id: 'here-btn', status: 'pointed' }]
+			results: [{ element_id: 'here-btn', status: 'success' }]
 		});
 	});
 
@@ -80,7 +80,8 @@ describe('agentCall — a swallowed tool failure fails the test', () => {
 		render(LifecycleSurface, { surfaceId: 's', buttonId: 'here-btn' });
 
 		await expect(agentCall('point_to_elements', { element_ids: ['ghost'] })).rejects.toThrow(
-			/not_found/
+			// The id is inside a JSON-stringified result, so the quotes are escaped.
+			/No element \\"ghost\\"/
 		);
 	});
 });

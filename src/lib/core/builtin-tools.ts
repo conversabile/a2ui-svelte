@@ -92,8 +92,10 @@ async function runUpdates(items: Array<{ element_id: string; value: string }>) {
 
 /**
  * On-demand pointer gesture (`point_to_elements`). Reveals + glows the targets
- * so the agent can draw the user's eye to on-screen data, then reports which
- * IDs were found.
+ * so the agent can draw the user's eye to on-screen data, then reports per id
+ * whether it resolved: `status: 'success'`, or `'error'` with a message when
+ * nothing on screen carries that id — pointing at an id that isn't there is a
+ * failure, and the model can act on the message.
  *
  * Unlike the click/update tools this mutates NOTHING, so it is deliberately
  * NOT marked `mutatesSurface`: echoing the whole serialized surface back on a
@@ -105,10 +107,15 @@ function runPointer(ids: string[]) {
 	revealElements(ids);
 	const found = new Set(highlightElements(ids));
 	return {
-		results: ids.map((element_id) => ({
-			element_id,
-			status: found.has(element_id) ? 'pointed' : 'not_found'
-		}))
+		results: ids.map((element_id) =>
+			found.has(element_id)
+				? { element_id, status: 'success' }
+				: {
+						element_id,
+						status: 'error',
+						error: `No element "${element_id}" on any mounted surface`
+					}
+		)
 	};
 }
 

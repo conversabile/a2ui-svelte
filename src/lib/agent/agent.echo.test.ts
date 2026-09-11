@@ -126,7 +126,7 @@ describe("Agent — the tool-result echo ('full')", () => {
 		const { transport } = await connectedAgent();
 
 		const result = await call(transport, 'point_to_elements', { element_ids: ['a-btn'] });
-		expect(result).toEqual({ results: [{ element_id: 'a-btn', status: 'pointed' }] });
+		expect(result).toEqual({ results: [{ element_id: 'a-btn', status: 'success' }] });
 		expect(result).not.toHaveProperty('extensions');
 	});
 

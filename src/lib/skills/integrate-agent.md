@@ -212,6 +212,12 @@ import { toolRegistry } from 'a2ui-svelte/core';
 await toolRegistry.execute('click_button', { element_id: 'save-btn' });
 ```
 
+Every tool reports each element as `{ element_id, status: 'success' | 'error' }`
+— those two values only, with a message in `error` when it failed. Nothing
+throws: a bad element id comes back as an `error` item so the model can
+recover. In a test use `agentClick` / `agentFill` / `agentCall` from
+`a2ui-svelte/testing`, which throw on exactly that.
+
 ### 6. Test with `ScriptedTransport` (no model, no network)
 
 ```ts

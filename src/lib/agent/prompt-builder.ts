@@ -150,6 +150,13 @@ export function staticSurfacesBlock(
     ruleNo++;
   }
 
+  // Always taught, extension or not: every UI tool returns `results`, and the
+  // two-value `status` vocabulary is the contract `builtin-tools.test.ts`
+  // holds every registered tool to.
+  out +=
+    `${ruleNo}. **TOOL RESULTS**: Every UI tool returns \`{"results": [ { "element_id": "...", "status": "success" | "error" }, ... ]}\` — one entry per element you targeted. \`status\` is EXACTLY \`"success"\` or \`"error"\`, never any other word, and a failed element always carries an \`error\` string saying why. Read it before telling the user the action worked.\n`;
+  ruleNo++;
+
   if (surfaceEcho === "changed") {
     out +=
       `${ruleNo}. **TOOL-RESULT ENVELOPE (changed-only)**: Every \`click_button\` / \`update_text_field\` (and their batched variants) returns a \`results\` array, plus — under \`extensions["a2ui-svelte"]\` — ONLY what the action actually changed:\n` +

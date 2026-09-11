@@ -5,6 +5,8 @@ import ButtonHarness from '../renderer/__fixtures__/ButtonHarness.svelte';
 import StaticSurface from '../renderer/StaticSurface.svelte';
 import { toolRegistry } from './registries/tool-registry';
 import { STRICT, ALL_EXTRAS, configureExtensions } from './extensions';
+import FieldSurface from '../renderer/__fixtures__/FieldSurface.svelte';
+import { staticSurfacesBlock } from '../agent/prompt-builder';
 
 // The extensions are one app-wide record, so every test that changes it
 // restores the default — `configureExtensions` is an absolute set, so `{}`
@@ -164,8 +166,12 @@ describe('built-in tools — results carry no echo', () => {
 		});
 		expect(result).toEqual({
 			results: [
-				{ element_id: 'save-btn', status: 'pointed' },
-				{ element_id: 'does-not-exist', status: 'not_found' }
+				{ element_id: 'save-btn', status: 'success' },
+				{
+					element_id: 'does-not-exist',
+					status: 'error',
+					error: 'No element "does-not-exist" on any mounted surface'
+				}
 			]
 		});
 	});
@@ -176,5 +182,77 @@ describe('built-in tools — results carry no echo', () => {
 			element_id: 'no-such-button'
 		})) as { results: Array<{ status: string }> };
 		expect(result.results[0].status).toBe('error');
+	});
+});
+
+describe('built-in tools — one success signal for every tool', () => {
+	/**
+	 * Build a call for any tool straight from its declared parameter schema, so
+	 * a tool added later is driven by this suite without anyone remembering to
+	 * add it. Every string named `element_id` / `element_ids` gets `elementId`;
+	 * any other string gets a placeholder.
+	 */
+	function argsFor(tool: { parameters: Record<string, any> }, elementId: string) {
+		const value = (key: string, schema: any): unknown => {
+			if (schema?.type === 'array') return [value(key, schema.items ?? { type: 'string' })];
+			if (schema?.type === 'object') {
+				const out: Record<string, unknown> = {};
+				for (const k of schema.required ?? Object.keys(schema.properties ?? {}))
+					out[k] = value(k, schema.properties?.[k]);
+				return out;
+			}
+			return key === 'element_id' || key === 'element_ids' ? elementId : 'x';
+		};
+		return value('', tool.parameters) as Record<string, unknown>;
+	}
+
+	const statusesOf = (result: unknown) =>
+		((result as { results?: Array<{ status?: string }> })?.results ?? []).map((r) => r.status);
+
+	it('every registered tool reports status error — with a message — for an unknown id', async () => {
+		render(FieldSurface, { surfaceId: 'all-tools-bad', prefix: 'bad' });
+		for (const tool of toolRegistry.getDeclarations()) {
+			const result = (await toolRegistry.execute(
+				tool.name,
+				argsFor(tool, 'no-such-id')
+			)) as { results: Array<{ status: string; error?: string }> };
+			expect(result.results, tool.name).toHaveLength(1);
+			expect(result.results[0].status, tool.name).toBe('error');
+			expect(result.results[0].error, tool.name).toBeTruthy();
+		}
+	});
+
+	it('the statuses the tools emit are EXACTLY the ones the prompt promises', async () => {
+		render(FieldSurface, { surfaceId: 'vocab', prefix: 'v' });
+
+		// What the model is told: pull the union out of the generated prompt
+		// rather than restating it here, so a reworded rule is caught too.
+		const prompt = staticSurfacesBlock([{ id: 'vocab', getJson: () => ({}) }]);
+		const documented = new Set(
+			[...prompt.matchAll(/"status":\s*((?:"\w+"\s*\|\s*)*"\w+")/g)].flatMap((m) =>
+				[...m[1].matchAll(/"(\w+)"/g)].map((q) => q[1])
+			)
+		);
+		expect(documented.size, 'the prompt documents no statuses at all').toBeGreaterThan(0);
+
+		// What the tools actually emit: every tool on a bad id, plus each one
+		// on an id it can really act on.
+		const emitted = new Set<string | undefined>();
+		for (const tool of toolRegistry.getDeclarations())
+			statusesOf(await toolRegistry.execute(tool.name, argsFor(tool, 'no-such-id'))).forEach((s) =>
+				emitted.add(s)
+			);
+		for (const [name, id] of [
+			['click_button', 'v-btn'],
+			['click_buttons', 'v-btn'],
+			['update_text_field', 'v-name'],
+			['update_text_fields', 'v-name'],
+			['point_to_elements', 'v-btn']
+		] as const) {
+			const tool = toolRegistry.get(name)!;
+			statusesOf(await toolRegistry.execute(name, argsFor(tool, id))).forEach((s) => emitted.add(s));
+		}
+
+		expect([...emitted].sort()).toEqual([...documented].sort());
 	});
 });

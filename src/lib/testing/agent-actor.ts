@@ -12,19 +12,15 @@
 import { toolRegistry } from '../core/registries/tool-registry';
 
 /**
- * Statuses that count as success. Fail-closed: anything not in this set — a
- * status added later, a renamed one, a missing one — throws. Keep it small.
- */
-const SUCCESS_STATUSES = new Set(['success', 'pointed']);
-
-/**
  * Call any registered tool and throw unless every result item succeeded.
  * Returns the whole result object, so `expect(await agentClick('save-btn'))
  * .toMatchObject({ … })` still works.
  *
- * The check is negative (`!SUCCESS_STATUSES.has(status)`), never
- * `status === 'error'`: the day a tool grows a `'rejected'` status, a positive
- * check turns every affected test green while the feature is broken.
+ * The check is negative (`status !== 'success'`), never `status === 'error'`:
+ * the day a tool grows a `'rejected'` status, a positive check turns every
+ * affected test green while the feature is broken. Every tool emits exactly
+ * `'success'` or `'error'` — the prompt promises the model that, and
+ * `builtin-tools.test.ts` drives every registered tool to prove it.
  */
 export async function agentCall(
 	name: string,
@@ -33,7 +29,7 @@ export async function agentCall(
 	const result = await toolRegistry.execute(name, args);
 	if (result?.error) throw new Error(`Tool "${name}" failed: ${result.error}`);
 	for (const r of result?.results ?? [])
-		if (!SUCCESS_STATUSES.has(r?.status))
+		if (r?.status !== 'success')
 			throw new Error(`${name} did not succeed: ${JSON.stringify(r)}`);
 	return result;
 }

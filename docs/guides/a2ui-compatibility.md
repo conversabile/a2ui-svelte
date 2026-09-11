@@ -77,6 +77,8 @@ spec-conformant:
 *driving* the UI — the spec has only the human→agent direction (`userAction`,
 §5). So `click_button({element_id})` / `update_text_field({element_id, value})`
 and their `{ results }` envelope are ours; a spec-only agent won't know them.
+Every tool's result items carry `status: "success" | "error"` — those two
+values and nothing else, with a message in `error` when it failed.
 
 Library-specific extras (surface-change polling, batched tools, richer
 tool-result envelope, an on-demand `point_to_elements` highlight tool,

@@ -180,6 +180,18 @@ describe('prompt-builder', () => {
 			expect(out).toContain('point_to_elements');
 		});
 
+		it('teaches the two-value status vocabulary whatever the extensions say', () => {
+			for (const ext of [{}, STRICT, ALL_EXTRAS, { toolResultSurfaceEcho: 'none' as const }]) {
+				configureExtensions(ext);
+				const out = staticSurfacesBlock([{ id: 'main', getJson: () => ({}) }]);
+				// The envelope rule is an extension; the status contract is not —
+				// every tool emits it even under STRICT, so the model is always told.
+				expect(out).toContain('TOOL RESULTS');
+				expect(out).toContain('"status": "success" | "error"');
+				expect(out).toContain('never any other word');
+			}
+		});
+
 		it('ALL_EXTRAS explicit: identical content to the default', () => {
 			configureExtensions(ALL_EXTRAS);
 			const out = staticSurfacesBlock([{ id: 'main', getJson: () => ({}) }]);

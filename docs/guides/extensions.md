@@ -176,8 +176,9 @@ tool is the working vehicle.
 
 ```jsonc
 { "results": [
-  { "element_id": "order-total", "status": "pointed" },
-  { "element_id": "typo-id",     "status": "not_found" }
+  { "element_id": "order-total", "status": "success" },
+  { "element_id": "typo-id",     "status": "error",
+    "error": "No element \"typo-id\" on any mounted surface" }
 ] }
 ```
 
@@ -185,7 +186,10 @@ A purely visual "look here" call leaves the agent's surface understanding
 unchanged, so echoing the whole (potentially 100 KB+) surface back would be
 pure token waste. `status` tells the agent which IDs resolved to a real
 on-screen element, so it can avoid claiming it pointed at something that
-isn't there.
+isn't there — pointing at an id that isn't on screen **is** a failure, so it
+reports `error` like every other tool. The status vocabulary is exactly
+`success` / `error` for every tool we ship, which is what the system prompt
+promises the model.
 
 ## `userAction` transport
 
