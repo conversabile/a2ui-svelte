@@ -45,7 +45,7 @@ A2UI_EVAL_QUIESCE_MS=4000             # live only: quiet window after turn-compl
 `A2UI_EVAL_TRANSPORT=live` drives the same scenarios through `GeminiLiveTransport`
 — the streaming socket whose per-turn context re-billing the optimizations
 target. The session generates audio exactly as in production (that bill is the
-point); the harness masks the audio *capabilities* so the `Agent` runs headless
+point); `withoutAudio` masks the audio *capabilities* so the `Agent` runs headless
 under jsdom, and assertions ride the output transcription. Live results persist
 under `llm-scenarios-live-*` so text-loop history stays comparable.
 

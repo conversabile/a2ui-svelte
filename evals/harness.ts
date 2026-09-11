@@ -13,8 +13,7 @@ import type {
 	AgentTransport,
 	AgentTransportConnectOptions,
 	AgentTransportEventMap,
-	AgentUsage,
-	TransportCapabilities
+	AgentUsage
 } from '../src/lib/agent/transport';
 import type { Agent } from '../src/lib/agent/agent.svelte';
 import type { Extensions } from '../src/lib/core/extensions';
@@ -22,6 +21,7 @@ import { toolRegistry } from '../src/lib/core/registries/tool-registry';
 import { actionRegistry } from '../src/lib/core/registries/action-registry';
 import { GeminiTextTransport } from '../src/lib/agent/gemini/text-transport';
 import { GeminiLiveTransport } from '../src/lib/agent/gemini/live-transport';
+import { withoutAudio } from '../src/lib/agent/forward-transport';
 
 /**
  * Which Gemini transport family the scenarios drive (`A2UI_EVAL_TRANSPORT`):
@@ -31,7 +31,7 @@ import { GeminiLiveTransport } from '../src/lib/agent/gemini/live-transport';
  *   server runs the tool loop and every turn re-bills the whole session
  *   context, so this is the family the context optimizations exist for.
  *   The session still generates audio (+ output transcription — that is the
- *   realistic production load and its token bill); the harness masks the
+ *   realistic production load and its token bill); `withoutAudio` masks the
  *   audio *capabilities* so the `Agent` never starts mic/speaker I/O, which
  *   jsdom cannot provide. Assertions ride the output transcription.
  */
@@ -114,55 +114,6 @@ export function clearRegistries(): void {
 type EventName = keyof AgentTransportEventMap;
 
 /**
- * Capability mask for running an audio transport headless (jsdom has no
- * mic/speaker): presents the inner transport with `'audio'` stripped from the
- * input/output modalities and without `sendAudioChunk`, so the `Agent` — which
- * adapts to capabilities, never identity — runs it as a text-in/text-out
- * streaming session. The Live model still *speaks* (audio generation and its
- * token bill are unchanged — exactly the production load); the audio frames
- * are simply dropped and the output transcription carries the model text.
- */
-class HeadlessTextMask implements AgentTransport {
-	#inner: AgentTransport;
-
-	constructor(inner: AgentTransport) {
-		this.#inner = inner;
-		if (typeof inner.sendContextUpdate === 'function') {
-			this.sendContextUpdate = (text: string) => inner.sendContextUpdate!(text);
-		}
-		if (typeof inner.sendUserAction === 'function') {
-			this.sendUserAction = ((a) => inner.sendUserAction!(a)) as AgentTransport['sendUserAction'];
-		}
-	}
-
-	get capabilities(): TransportCapabilities {
-		const caps = this.#inner.capabilities;
-		return {
-			...caps,
-			input: caps.input.filter((m) => m !== 'audio'),
-			output: caps.output.filter((m) => m !== 'audio')
-		};
-	}
-	connect(opts: AgentTransportConnectOptions) {
-		return this.#inner.connect(opts);
-	}
-	sendText(text: string) {
-		this.#inner.sendText(text);
-	}
-	sendToolResult(callId: string, name: string, result: unknown) {
-		this.#inner.sendToolResult(callId, name, result);
-	}
-	sendContextUpdate?: (text: string) => void;
-	sendUserAction?: AgentTransport['sendUserAction'];
-	on<E extends EventName>(event: E, handler: (p: AgentTransportEventMap[E]) => void) {
-		return this.#inner.on(event, handler);
-	}
-	close() {
-		this.#inner.close();
-	}
-}
-
-/**
  * Build the transport under test (see {@link EVAL_TRANSPORT}). Inter-turn
  * pacing lives in the harness either way; `maxRetries` is the text loop's
  * 429 safety net (the Live socket has no client-side retry — a quota error
@@ -170,9 +121,7 @@ class HeadlessTextMask implements AgentTransport {
  */
 export function makeEvalTransport(): AgentTransport {
 	if (EVAL_TRANSPORT === 'live') {
-		return new HeadlessTextMask(
-			new GeminiLiveTransport({ token: API_KEY!, model: EVAL_MODEL })
-		);
+		return withoutAudio(new GeminiLiveTransport({ token: API_KEY!, model: EVAL_MODEL }));
 	}
 	return new GeminiTextTransport({
 		apiKey: API_KEY!,

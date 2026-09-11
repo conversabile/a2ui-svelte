@@ -36,6 +36,7 @@ export {
 	type PromptSurface
 } from './prompt-builder';
 export { ScriptedTransport, type ScriptedReaction } from './scripted-transport';
+export { withoutAudio, type ForwardedTransport } from './forward-transport';
 export { AudioRecorder } from './audio-recorder';
 export { AudioPlayer } from './audio-player';
 export { default as AgentShell } from './AgentShell.svelte';

@@ -1,7 +1,7 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
 **Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3, WP4,
-WP5, WP5b, WP6, WP7, WP5c and WP8 done. **WP9 is next.** See §5.
+WP5, WP5b, WP6, WP7, WP5c, WP8 and WP9 done. **WP9b is next.** See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
 `src/lib/testing/` changeset (see WP0).
@@ -1568,3 +1568,16 @@ text, what the next WP must know. The diff holds everything else.)_
   example app's client bundle after `pnpm --filter minimal-app build`.
 - `pnpm test` 283 (+`dev-global.test.ts`); `pnpm check` 0 errors; `pnpm package`
   green (publint clean).
+
+### WP9 — DONE (2026-09-11, branch `develop`)
+
+- `agent/forward-transport.ts`: module-local `forwardTransport(inner, overrides?)`
+  + `withoutAudio()` on `./agent`, returning `ForwardedTransport` (+ `dispose()`).
+- A `Proxy`, as predicted: the `has` trap tracks `inner`'s optionality, getters
+  read through live, a new contract member forwards with no edit here. `get`
+  **binds to inner** (its `#private` fields throw on a Proxy `this`); an override
+  valued `undefined` *hides* a member.
+- Took WP11's "replace `HeadlessTextMask`" bullet too — `evals/harness.ts` is 40
+  lines lighter; `RecordingTransport` (same hand-copy bug) stays WP11's.
+- The biting test: an `Agent` on a voice fake, **no** Web Audio mocks — a leaking
+  mask lands in `configIssue`. Verified red. `pnpm test` 296, `pnpm check` clean.

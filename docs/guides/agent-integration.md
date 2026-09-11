@@ -708,6 +708,25 @@ events from your test. The library's own `agent.test.ts` defines
 speaker player, so tests in jsdom should either stub
 `./audio-recorder`/`./audio-player` or advertise text-only modalities.
 
+### `withoutAudio(transport)` — a real voice transport, headless
+
+To drive a **real** voice transport where there is no mic or speaker
+(node/jsdom evals, a headless deployment), wrap it:
+
+```ts
+import { Agent, withoutAudio } from 'a2ui-svelte/agent';
+import { GeminiLiveTransport } from 'a2ui-svelte/agent/gemini';
+
+const agent = new Agent(definition, withoutAudio(new GeminiLiveTransport({ token })));
+```
+
+It strips `'audio'` from `capabilities.input`/`output` and hides
+`sendAudioChunk`, so the `Agent` runs the session text-in/text-out and
+starts no recorder or player. Everything else forwards untouched. **The
+model still generates audio, so the token bill is unchanged — exactly the
+production load**; the frames are dropped and the output transcription
+carries the text.
+
 ## Extending the agent
 
 The extension axis is the **transport** (new providers, wrappers like

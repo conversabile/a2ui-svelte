@@ -236,7 +236,12 @@ is the deprecated fire-and-forget form; don't write new code against it.)
 
 For finer control, stub `AgentTransport` yourself and emit synthetic
 events; advertise text-only modalities in `capabilities` unless your
-test environment can construct Web Audio objects.
+test environment can construct Web Audio objects. To drive a **real**
+voice transport where there is no mic or speaker (node/jsdom evals, a
+headless deployment), wrap it in `withoutAudio` from `a2ui-svelte/agent`:
+it strips the `'audio'` modality and hides `sendAudioChunk`, so the agent
+runs the session text-in/text-out. The model still generates audio — the
+token bill is the production one; only the frames are dropped.
 
 ## Common variations
 
