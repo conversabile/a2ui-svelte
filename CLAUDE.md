@@ -220,10 +220,17 @@ serializer path, extension, or transport behaviour ships with a test. Run
 The package's surface is the `exports` map in [package.json](package.json)
 (`./core`, `./components`, `./renderer`, `./authoring`, `./agent`,
 `./agent/gemini`, `./agent/anthropic`, `./agent/openai`, `./agent/deepgram`,
-`./agent/hume`, `./transport`, `./skills`). Adding to it is cheap; **changing
-or removing an export is a breaking change** — flag it, don't do it silently.
-The package is pre-1.0 and experimental, but breakage should still be deliberate
-and noted.
+`./agent/hume`, `./transport`, `./testing`, `./skills`). Adding to it is cheap;
+**changing or removing an export is a breaking change** — flag it, don't do it
+silently. The package is pre-1.0 and experimental, but breakage should still be
+deliberate and noted.
+
+**Where a new export goes.** `./testing` holds *only* what is useless or harmful
+in a running app — `agentCall` throws where production must fold the failure
+into `{ status: 'error' }` so the model can recover. Everything a consumer could
+build their app with stays in the framework subpaths, even when tests are its
+only user today. That split is what lets consumers lint the boundary
+(`no-restricted-imports` on `a2ui-svelte/testing` outside `*.test.ts`).
 
 ---
 

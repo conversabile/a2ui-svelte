@@ -1,4 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/svelte';
+import { render, screen } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 import { tick } from 'svelte';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { actionRegistry } from '../core/registries/action-registry';
@@ -31,7 +32,7 @@ describe('Button — actions without an action prop', () => {
 	it('runs onclick on a human click with no action prop declared', async () => {
 		const api = await mountHarness();
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		await userEvent.click(screen.getByRole('button', { name: 'Save' }));
 
 		expect(api.clicks()['plain-btn']).toBe(1);
 	});

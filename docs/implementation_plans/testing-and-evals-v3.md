@@ -1,7 +1,7 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
 **Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3, WP4,
-WP5, WP5b, WP6, WP7, WP5c, WP8 and WP9 done. **WP9b is next.** See §5.
+WP5, WP5b, WP6, WP7, WP5c, WP8, WP9 and WP9b done. **WP9c is next.** See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
 `src/lib/testing/` changeset (see WP0).
@@ -1581,3 +1581,16 @@ text, what the next WP must know. The diff holds everything else.)_
   lines lighter; `RecordingTransport` (same hand-copy bug) stays WP11's.
 - The biting test: an `Agent` on a voice fake, **no** Web Audio mocks — a leaking
   mask lands in `configIssue`. Verified red. `pnpm test` 296, `pnpm check` clean.
+
+### WP9b — DONE (2026-09-11, branch `develop`)
+
+- `src/lib/testing/{agent-actor,index}.ts`: `agentCall` / `agentClick` /
+  `agentFill` on the new `./testing` subpath, index headed by the charter
+  comment. Negative status check against `SUCCESS_STATUSES`, as written.
+- The tools moved to `core/builtin-tools.ts` in f0fa02e, so the plan's
+  `StaticSurface.svelte` line refs are stale; behaviour is unchanged.
+- Extra test beyond the list: `point_to_elements` on an **unmounted** id throws
+  (`not_found`) — the pointer's silent miss is the same trap as a typo'd click.
+- Closure: `./testing` in `exports` + Rule 8 (subpath list + placement rule);
+  `@testing-library/user-event` devDep; `Button.test.ts` off `fireEvent`.
+- `pnpm test` 304; `pnpm check` 0 errors; `pnpm package` green.
