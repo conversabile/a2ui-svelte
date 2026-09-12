@@ -145,7 +145,7 @@ export function staticSurfacesBlock(
       "   For EITHER kind:\n" +
       "   - Do NOT speak or generate audio in response, unless the user is clearly waiting for your commentary on the change\n" +
       "   - Never read the XML tags or raw payload aloud\n" +
-      "   - `updatedContext`, when present, is the current page-specific knowledge (staff list, assignments, current week, …)\n" +
+      "   - `updatedContext`, when present, is the current page-specific knowledge (the visible list, the selected item, the current filter, …)\n" +
       "   - `updatedSurfaces` (kind `surfaceUpdated`) is the full JSON of the static surfaces, in the same shape as the static-surface JSON at session start; `availableElementIds` lists the component IDs you can target with `click_button` / `update_text_field`\n";
     ruleNo++;
   }
@@ -185,7 +185,7 @@ export function staticSurfacesBlock(
   }
 
   if (batchToolsEnabled) {
-    out += `${ruleNo}. **BATCH OPERATIONS**: When you need to perform multiple operations of the same type (e.g., assigning shifts to many employees), always batch them into a single \`click_buttons\` / \`update_text_fields\` call. Do NOT call the tool once per item. This is critical for performance and reliability.\n`;
+    out += `${ruleNo}. **BATCH OPERATIONS**: When you need to perform multiple operations of the same type (e.g., setting the same value on many rows), always batch them into a single \`click_buttons\` / \`update_text_fields\` call. Do NOT call the tool once per item. This is critical for performance and reliability.\n`;
     ruleNo++;
   }
 
@@ -199,69 +199,69 @@ export function staticSurfacesBlock(
   if (batchToolsEnabled) {
     out += `
 **Scenario 1: Navigation**
-User: "Vorrei rivedere il regolamento base del servizio"
-Surface JSON has a Button with id "go_my_restaurant".
-Agent Action: Call click_button({element_id: "go_my_restaurant"}) and say "Certamente, ti porto subito a Il Mio Ristorante."
+User: "I'd like to look at the archived tasks"
+Surface JSON has a Button with id "go-archive".
+Agent Action: Call click_button({element_id: "go-archive"}) and say "Sure, opening the archive."
 
 **Scenario 2: Content Update**
-User: "Scrivi la ricetta della carbonara nel campo ricetta"
-Surface JSON has a TextField with id "recipe".
-Agent Action: Call update_text_field({element_id: "recipe", value: "## Spaghetti alla Carbonara\\n1. Bollire l'acqua..."}) and say "Fatto!"
+User: "Put the shopping list in the notes for Groceries"
+Surface JSON has a TextField with id "todo-groceries-notes".
+Agent Action: Call update_text_field({element_id: "todo-groceries-notes", value: "Milk, bread, coffee"}) and say "Done!"
 
 **Scenario 3: Form Filling**
-User: "Aggiungi un cameriere"
-Surface JSON has TextFields with ids "add-staff-name" and "add-staff-role", and a Button with id "add-staff-btn".
-Agent Action: Call update_text_field({element_id: "add-staff-role", value: "Cameriere"}), then ask "Come si chiama?" and wait for the user's response before filling the name and clicking save.
+User: "Add a work task"
+Surface JSON has TextFields with ids "add-todo-title" and "add-todo-tag", and a Button with id "add-todo-btn".
+Agent Action: Call update_text_field({element_id: "add-todo-tag", value: "Work"}), then ask "What should I call it?" and wait for the user's response before filling the title and clicking add.
 
-**Scenario 4: Bulk Shift Assignment**
-User: "Assegna il turno Mattina a tutto il personale per lunedì"
-Surface JSON has shift cells for each employee on Monday.
-Agent Action: Call update_text_fields({updates: [{element_id: "shift-abc123-2026-04-06", value: "Mattina"}, {element_id: "shift-def456-2026-04-06", value: "Mattina"}, {element_id: "shift-ghi789-2026-04-06", value: "Mattina"}]}) — all in one call. Say "Fatto! Ho assegnato il turno Mattina a tutti per lunedì."
+**Scenario 4: Bulk Update**
+User: "Set every task to High priority"
+Surface JSON has a priority cell for each task.
+Agent Action: Call update_text_fields({updates: [{element_id: "todo-invoices-priority", value: "High"}, {element_id: "todo-laundry-priority", value: "High"}, {element_id: "todo-gym-priority", value: "High"}]}) — all in one call. Say "Done! Every task is High priority now."
 
 **Scenario 5: Chained Form Submissions (Multiple Items)**
-User: "Aggiungi due cuochi: Mario e Paolo"
-Surface JSON has TextFields with ids "add-staff-name" and "add-staff-role", and a Button with id "add-staff-btn".
+User: "Add two tasks: Groceries and Laundry"
+Surface JSON has TextFields with ids "add-todo-title" and "add-todo-tag", and a Button with id "add-todo-btn".
 Agent Action (First item):
-  1. Call update_text_fields({updates: [{element_id: "add-staff-name", value: "Mario"}, {element_id: "add-staff-role", value: "Cuoco"}]})
-  2. Call click_button({element_id: "add-staff-btn"})
+  1. Call update_text_fields({updates: [{element_id: "add-todo-title", value: "Groceries"}, {element_id: "add-todo-tag", value: "Home"}]})
+  2. Call click_button({element_id: "add-todo-btn"})
   3. WAIT for the successful tool result, stop if there's an error
   4. Now fill and submit for the second item without asking for confirmation, the user should see a smooth flow of adding both items one after the other:
-  5. Call update_text_fields({updates: [{element_id: "add-staff-name", value: "Paolo"}, {element_id: "add-staff-role", value: "Cuoco"}]})
-  6. Call click_button({element_id: "add-staff-btn"})
-  7. Inform the user that the operation is complete: "Fatto! Ho aggiunto Mario e Paolo come cuochi."
+  5. Call update_text_fields({updates: [{element_id: "add-todo-title", value: "Laundry"}, {element_id: "add-todo-tag", value: "Home"}]})
+  6. Call click_button({element_id: "add-todo-btn"})
+  7. Inform the user that the operation is complete: "Done! I added Groceries and Laundry."
 
 **KEY**: Always wait between submissions. After clicking save, wait for the form to reset (or for a SURFACE_UPDATED event) before filling the same form again. Do NOT fill multiple items into the same form at once — that will overwrite previous entries.
 `;
   } else {
     out += `
 **Scenario 1: Navigation**
-User: "Vorrei rivedere il regolamento base del servizio"
-Surface JSON has a Button with id "go_my_restaurant".
-Agent Action: Call click_button({element_id: "go_my_restaurant"}) and say "Certamente, ti porto subito a Il Mio Ristorante."
+User: "I'd like to look at the archived tasks"
+Surface JSON has a Button with id "go-archive".
+Agent Action: Call click_button({element_id: "go-archive"}) and say "Sure, opening the archive."
 
 **Scenario 2: Content Update**
-User: "Scrivi la ricetta della carbonara nel campo ricetta"
-Surface JSON has a TextField with id "recipe".
-Agent Action: Call update_text_field({element_id: "recipe", value: "## Spaghetti alla Carbonara\\n1. Bollire l'acqua..."}) and say "Fatto!"
+User: "Put the shopping list in the notes for Groceries"
+Surface JSON has a TextField with id "todo-groceries-notes".
+Agent Action: Call update_text_field({element_id: "todo-groceries-notes", value: "Milk, bread, coffee"}) and say "Done!"
 
 **Scenario 3: Form Filling**
-User: "Aggiungi un cameriere"
-Surface JSON has TextFields with ids "add-staff-name" and "add-staff-role", and a Button with id "add-staff-btn".
-Agent Action: Call update_text_field({element_id: "add-staff-role", value: "Cameriere"}), then ask "Come si chiama?" and wait for the user's response before filling the name and clicking save.
+User: "Add a work task"
+Surface JSON has TextFields with ids "add-todo-title" and "add-todo-tag", and a Button with id "add-todo-btn".
+Agent Action: Call update_text_field({element_id: "add-todo-tag", value: "Work"}), then ask "What should I call it?" and wait for the user's response before filling the title and clicking add.
 
 **Scenario 4: Chained Form Submissions (Multiple Items)**
-User: "Aggiungi due cuochi: Mario e Paolo"
-Surface JSON has TextFields with ids "add-staff-name" and "add-staff-role", and a Button with id "add-staff-btn".
+User: "Add two tasks: Groceries and Laundry"
+Surface JSON has TextFields with ids "add-todo-title" and "add-todo-tag", and a Button with id "add-todo-btn".
 Agent Action (First item):
-  1. Call update_text_field({element_id: "add-staff-name", value: "Mario"})
-  2. Call update_text_field({element_id: "add-staff-role", value: "Cuoco"})
-  3. Call click_button({element_id: "add-staff-btn"})
+  1. Call update_text_field({element_id: "add-todo-title", value: "Groceries"})
+  2. Call update_text_field({element_id: "add-todo-tag", value: "Home"})
+  3. Call click_button({element_id: "add-todo-btn"})
   4. WAIT for the successful tool result, stop if there's an error
   5. Now fill and submit for the second item without asking for confirmation:
-  6. Call update_text_field({element_id: "add-staff-name", value: "Paolo"})
-  7. Call update_text_field({element_id: "add-staff-role", value: "Cuoco"})
-  8. Call click_button({element_id: "add-staff-btn"})
-  9. Inform the user that the operation is complete: "Fatto! Ho aggiunto Mario e Paolo come cuochi."
+  6. Call update_text_field({element_id: "add-todo-title", value: "Laundry"})
+  7. Call update_text_field({element_id: "add-todo-tag", value: "Home"})
+  8. Call click_button({element_id: "add-todo-btn"})
+  9. Inform the user that the operation is complete: "Done! I added Groceries and Laundry."
 
 **KEY**: Always wait between submissions. After clicking save, wait for the form to reset (or for a SURFACE_UPDATED event) before filling the same form again. Do NOT fill multiple items into the same form at once — that will overwrite previous entries.
 `;
@@ -270,14 +270,14 @@ Agent Action (First item):
   if (pointerToolEnabled) {
     out += `
 **Scenario: Pointing something out (no change)**
-User: "Dove salvo le modifiche?"
+User: "Where do I save my changes?"
 Surface JSON has a Button with id "save-btn".
-Agent Action: Call point_to_elements({element_ids: ["save-btn"]}) and say "Il pulsante Salva è qui in basso."
+Agent Action: Call point_to_elements({element_ids: ["save-btn"]}) and say "The Save button is down here."
 
 **Scenario: Show me a value**
-User: "Mostrami il totale dell'ordine"
+User: "Show me the order total"
 Surface JSON has a Text with id "order-total".
-Agent Action: Call point_to_elements({element_ids: ["order-total"]}) and say "Eccolo, te lo evidenzio."
+Agent Action: Call point_to_elements({element_ids: ["order-total"]}) and say "Here it is, let me highlight it."
 `;
   }
   return out;
@@ -311,8 +311,8 @@ Every text/number/boolean property on a component MUST be wrapped in a **value o
 - \`{ "literalNumber": 42 }\` or \`{ "literalBoolean": true }\`
 - \`{ "path": "/some/pointer" }\` — a **data binding** to a JSON-Pointer path in the surface's data model
 
-**WRONG** (do NOT do this): \`{ "Text": { "text": "Hello" } }\` or \`{ "TextField": { "text": "{{mise-en-place-text}}" } }\`
-**RIGHT**: \`{ "Text": { "text": { "literalString": "Hello" } } }\` or \`{ "TextField": { "text": { "path": "/mise-en-place-text" } } }\`
+**WRONG** (do NOT do this): \`{ "Text": { "text": "Hello" } }\` or \`{ "TextField": { "text": "{{notes-text}}" } }\`
+**RIGHT**: \`{ "Text": { "text": { "literalString": "Hello" } } }\` or \`{ "TextField": { "text": { "path": "/notes-text" } } }\`
 
 Never invent mustache/handlebars placeholders like \`{{foo}}\` — A2UI does not interpolate strings. If you want a dynamic value, use \`{ "path": "/foo" }\` and push the value with \`dataModelUpdate\`.
 
@@ -342,13 +342,13 @@ The full A2UI v0.8 standard catalog (16 component types). Component definitions 
 - \`path\` (optional): JSON-Pointer location inside the data model (e.g. \`"/user"\`). **If omitted, \`contents\` REPLACES the entire data model for the surface** — so prefer a path for incremental updates.
 - \`contents\`: an adjacency list. Each entry has a \`key\` and exactly ONE typed value: \`valueString\`, \`valueNumber\`, \`valueBoolean\`, or \`valueMap\` (an array of further entries to build a nested object).
 
-**Example** — set \`/mise-en-place-text\` at the root:
+**Example** — set \`/notes-text\` at the root:
 \`\`\`
 dataModelUpdate(
   surfaceId: "${fallbackId}",
   path: "/",
   contents: [
-    { key: "mise-en-place-text", valueString: "**Linee guida**\\n1. ..." }
+    { key: "notes-text", valueString: "**Shopping list**\\n1. ..." }
   ]
 )
 \`\`\`
@@ -369,8 +369,8 @@ surfaceUpdate(
   surfaceId: "${fallbackId}",
   components: [
     { id: "main-col", component: { Column: { children: { explicitList: ["title", "editor"] } } } },
-    { id: "title",    component: { Text: { text: { literalString: "Mise en Place" }, usageHint: "h2" } } },
-    { id: "editor",   component: { TextField: { label: { literalString: "Contenuto" }, text: { path: "/mise-en-place-text" }, textFieldType: "longText" } } }
+    { id: "title",    component: { Text: { text: { literalString: "Notes" }, usageHint: "h2" } } },
+    { id: "editor",   component: { TextField: { label: { literalString: "Content" }, text: { path: "/notes-text" }, textFieldType: "longText" } } }
   ]
 )
 \`\`\`
@@ -379,7 +379,7 @@ surfaceUpdate(
 dataModelUpdate(
   surfaceId: "${fallbackId}",
   path: "/",
-  contents: [ { key: "mise-en-place-text", valueString: "**Linee guida**\\n1. Tovagliato ..." } ]
+  contents: [ { key: "notes-text", valueString: "**Shopping list**\\n1. Milk ..." } ]
 )
 \`\`\`
 3. Begin rendering:
@@ -389,7 +389,7 @@ beginRendering(
   root: "main-col"
 )
 \`\`\`
-Because the TextField's \`text\` is bound via \`{ "path": "/mise-en-place-text" }\`, any later \`dataModelUpdate\` to that path will reactively refresh the field — you do NOT need to re-push the component.
+Because the TextField's \`text\` is bound via \`{ "path": "/notes-text" }\`, any later \`dataModelUpdate\` to that path will reactively refresh the field — you do NOT need to re-push the component.
 
 ### Interactivity — Button actions and \`USER_ACTION\` events (A2UI v0.8)
 To make a Button clickable, declare an \`action\` on it. The action has a \`name\` (an arbitrary identifier YOU choose to recognise later) and an optional \`context\` — an adjacency list of \`{ key, value }\` entries where each \`value\` is a value object (\`literalString\`/\`path\`/…). The client will resolve any \`path\` bindings in the context against the current data model **at the moment of click**, then forward a \`userAction\` payload to you as a text event.
@@ -403,17 +403,17 @@ To make a Button clickable, declare an \`action\` on it. The action has a \`name
       primary: true,
       child: "save-btn-label",
       action: {
-        name: "save_mise_en_place",
+        name: "save_notes",
         context: [
-          { key: "text",         value: { path: "/mise-en-place-text" } },
-          { key: "restaurantId", value: { path: "/restaurant-id" } }
+          { key: "text",   value: { path: "/notes-text" } },
+          { key: "listId", value: { path: "/list-id" } }
         ]
       }
     }
   }
 }
 \`\`\`
-(Don't forget to also push \`{ id: "save-btn-label", component: { Text: { text: { literalString: "Salva" } } } }\`.)
+(Don't forget to also push \`{ id: "save-btn-label", component: { Text: { text: { literalString: "Save" } } } }\`.)
 
 **What you receive when the user clicks it:**
 You will get a realtime text message shaped like:
@@ -422,13 +422,13 @@ You will get a realtime text message shaped like:
 <payload>
 {
   "userAction": {
-    "name": "save_mise_en_place",
+    "name": "save_notes",
     "surfaceId": "${fallbackId}",
     "sourceComponentId": "save-btn",
     "timestamp": "2026-05-16T14:32:07.000Z",
     "context": {
-      "text": "**Linee guida**\\n1. Tovagliato …",
-      "restaurantId": "abc123"
+      "text": "Milk, bread, coffee",
+      "listId": "abc123"
     }
   }
 }
@@ -437,7 +437,7 @@ You will get a realtime text message shaped like:
 When you receive a \`USER_ACTION\` event:
 - Do NOT read the XML tags or payload aloud.
 - Look at \`userAction.name\` to decide what to do. The \`context\` object already has every \`path\` binding resolved to its current data-model value, so you can use it directly as tool arguments.
-- Typically you will chain it to a backend call (e.g. call an API tool with values from \`context\`) and then, if appropriate, update the UI via \`dataModelUpdate\` / \`surfaceUpdate\` and speak a short acknowledgement ("Salvato!").
+- Typically you will chain it to a backend call (e.g. call an API tool with values from \`context\`) and then, if appropriate, update the UI via \`dataModelUpdate\` / \`surfaceUpdate\` and speak a short acknowledgement ("Saved!").
 - If the action name is something you don't recognise, ask the user briefly what they expected.
 
 **RULES:**

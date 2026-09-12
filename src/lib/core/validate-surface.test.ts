@@ -116,13 +116,13 @@ describe('validateSurface', () => {
 	it('warns on a non-kebab id, including the root', () => {
 		const json = surface(
 			[
-				comp('Main_Root', 'Column', { children: { explicitList: ['staff_notes'] } }),
-				comp('staff_notes', 'Text')
+				comp('Main_Root', 'Column', { children: { explicitList: ['todo_notes'] } }),
+				comp('todo_notes', 'Text')
 			],
 			'Main_Root'
 		);
 		const nonKebab = validateSurface(json).filter((i) => i.message === 'id is not kebab-case');
-		expect(nonKebab.map((i) => i.componentId).sort()).toEqual(['Main_Root', 'staff_notes']);
+		expect(nonKebab.map((i) => i.componentId).sort()).toEqual(['Main_Root', 'todo_notes']);
 		expect(nonKebab.every((i) => i.severity === 'warning')).toBe(true);
 	});
 

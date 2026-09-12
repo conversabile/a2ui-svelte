@@ -357,8 +357,8 @@ and it has two amplifiers:
 1. **The whole serialized surface is in the system prompt.** `staticSurfacesBlock`
    embeds `JSON.stringify(surface.getJson(), null, 2)` — *pretty-printed*, which
    inflates the byte size by ~60% over compact. A grid with a few hundred inputs
-   (a week × N staff × shift slots × start/end) can be **100–200 KB ≈ 50k+
-   tokens** on its own, re-counted on every turn of the session.
+   (N rows × several editable cells each) can be **100–200 KB ≈ 50k+ tokens**
+   on its own, re-counted on every turn of the session.
 2. **Every tool result echoes the full surface back.** With
    `toolResultSurfaceEcho: 'full'` (the default), each `click_button` /
    `update_text_field` result carries `updatedSurface` = the whole surface JSON
@@ -449,9 +449,9 @@ The two amplifiers above have matching, A2UI-compliant mitigations:
    actually changed. See the
    [extensions guide](extensions.md#changed-only-tool-results-toolresultsurfaceecho-changed).
 
-On the eval suite's 6-row shift planner, a realistic 7-call task bills
-~179k input tokens across the request/response loop with the defaults and
-~63k with both knobs on — with identical task outcomes. The `evals/` suite
+On the eval suite's 6-row todo list, a realistic 7-call task bills
+~169k input tokens across the request/response loop with the defaults and
+~61k with both knobs on — with identical task outcomes. The `evals/` suite
 (`pnpm eval`, see [evals/README.md](../../evals/README.md)) measures this
 hermetically and runs live LLM A/B scenarios so you can verify the agent
 stays stable before flipping the flags in your app.
@@ -678,6 +678,10 @@ Whether any mode does anything is still decided per-surface: a surface with
 `surfaceWatch: false` is never watched.
 
 ## Testing
+
+The full picture — component tests, end-to-end, what is not worth
+asserting — is in [testing.md](testing.md); running the agent against a
+real model is in [evals.md](evals.md). What follows is the agent half.
 
 For deterministic, network-free tests, use the built-in
 `ScriptedTransport` — a queue of programmed model reactions:

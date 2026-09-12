@@ -44,12 +44,12 @@ export const EVAL_TURN_GAP_MS = Number(process.env.A2UI_EVAL_TURN_GAP_MS ?? 30_0
 export const EVAL_MAX_RETRIES = Number(process.env.A2UI_EVAL_MAX_RETRIES ?? 1);
 
 /**
- * Roster rows on the static fixture (`A2UI_EVAL_STAFF_COUNT`, default 6).
+ * Task rows on the static fixture (`A2UI_EVAL_TODO_COUNT`, default 6).
  * Surface density is the variable the context optimizations exist for — raise
- * it to measure how each profile's token bill scales. The first six members
- * are a fixed seed, so scenario assertions hold at any count ≥ 6.
+ * it to measure how each profile's token bill scales. The first six tasks are
+ * a fixed seed, so scenario assertions hold at any count ≥ 6.
  */
-export const EVAL_STAFF_COUNT = Number(process.env.A2UI_EVAL_STAFF_COUNT ?? 6);
+export const EVAL_TODO_COUNT = Number(process.env.A2UI_EVAL_TODO_COUNT ?? 6);
 
 /** One experimental arm: how the surface + agent are configured. */
 export interface EvalProfile {

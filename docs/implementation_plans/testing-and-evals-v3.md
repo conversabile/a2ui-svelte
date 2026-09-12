@@ -1,8 +1,7 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
-**Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3, WP4,
-WP5, WP5b, WP6, WP7, WP5c, WP8, WP9, WP9b, WP9c, WP10 and WP11 done.
-**WP12 is next.** See §5.
+**Status:** done — WP0 (changeset stashed), WP1, WP1b, WP2, WP3, WP4, WP5, WP5b,
+WP6, WP7, WP5c, WP8, WP9, WP9b, WP9c, WP10, WP11 and WP12 all done. See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
 `src/lib/testing/` changeset (see WP0).
@@ -1347,7 +1346,7 @@ say "primitives and a worked example", not "eval framework".
 
 ## PHASE 5 — Documentation
 
-### WP12 — The new guides and the skill
+### WP12 — The new guides and the skill — DONE
 
 **Depends on:** the WPs it documents. Can land incrementally. Doc *fixes* now
 live in the WP that invalidated them (WP1, WP2, WP6, WP9c); this WP holds only
@@ -1705,3 +1704,31 @@ text, what the next WP must know. The diff holds everything else.)_
   either, so a type error there ships silently. Checked by hand: 0 errors.
 - `pnpm test` 341 / 1 skipped; `pnpm check` 0 errors; `pnpm eval` identical
   numbers (179k → 63k billed chars).
+
+### WP12 — DONE (2026-09-11, branch `develop`)
+
+- New `docs/guides/testing.md` (§1.1–§1.3) and `docs/guides/evals.md` (§1.4),
+  both linked from README and the CLAUDE.md doc map.
+- testing.md opens with the two import paths, the placement rule and the
+  `no-restricted-imports` snippet, then the jsdom "stub nothing" note.
+- New skill `test-a2ui-app.md`, registered in `index.json` and cross-linked
+  from `integrate-agent.md`; carries the placement rule.
+- `agent-integration.md` §Testing now points at both guides and keeps only the
+  agent half (`ScriptedTransport`, `withoutAudio`).
+- Snippets use `surface(id)!.getDataModel!()` — both handle members are
+  optional, so the plan's bare form doesn't type-check.
+
+### Post-plan note — example domain changed (2026-09-12)
+
+The shift-planner example this plan is written against is gone: it belonged to
+a private app. Everything above still describes the design; only the domain
+moved. `ShiftPlannerPage.svelte` → `TodoListPage.svelte`,
+`shift-planner-agent.ts` → `todo-list-agent.ts` (`shiftPlanner` → `todoList`),
+surface `shift-planner` → `todo-list`, ids `shift-<name>-<day>` →
+`todo-<slug>-<field>` / `add-staff-*` → `add-todo-*` / `save-week-btn` →
+`save-list-btn`, scenario `add-staff-then-edit` → `add-task-then-edit`, env knob
+`A2UI_EVAL_STAFF_COUNT` → `A2UI_EVAL_TODO_COUNT`. Same shape (N rows × per-row
+cells, an append-a-row form, a save that mutates page context), so the line
+links above point at the renamed file. New hermetic numbers: 169k → 61k billed
+chars. The prompt builder's few-shot examples were neutralised in the same pass
+(Italian restaurant scenarios → English todo scenarios).

@@ -7,5 +7,5 @@
 </script>
 
 <StaticSurface surfaceId="off_convention">
-	<TextField id="staff_notes" label="Notes" bind:value />
+	<TextField id="todo_notes" label="Notes" bind:value />
 </StaticSurface>

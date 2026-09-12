@@ -32,9 +32,9 @@ pnpm eval
 # Full run including LLM scenarios:
 GEMINI_API_KEY=… pnpm eval
 
-# …or put GEMINI_API_KEY (and any A2UI_EVAL_* knob) in a repo-root .env —
-# the eval config loads it into process.env. A var set on the command line
-# always wins over the .env file.
+# …or `cp .env.template .env` in the repo root and fill it in — the eval
+# config loads every var there into process.env (GEMINI_API_KEY and any
+# A2UI_EVAL_* knob). A var set on the command line always wins.
 
 # Knobs:
 A2UI_EVAL_TRANSPORT=text              # transport family: text (request/response) | live (Live API)

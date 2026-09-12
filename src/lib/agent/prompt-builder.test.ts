@@ -95,10 +95,10 @@ describe('prompt-builder', () => {
 	it('joins blocks with a blank line and skips empty ones', () => {
 		const out = buildSystemPrompt({
 			...baseInputs,
-			contextInstructions: 'Page is the staff page.'
+			contextInstructions: 'Page is the todo page.'
 		});
 		expect(out).toBe(
-			'You are a helpful assistant.\n\n## Page-Specific Expert Knowledge\nPage is the staff page.'
+			'You are a helpful assistant.\n\n## Page-Specific Expert Knowledge\nPage is the todo page.'
 		);
 	});
 

@@ -293,6 +293,8 @@ Read the relevant docs before starting any implementation task.
 | Work on the agent, transports, or `<AgentShell>` | [docs/guides/agent-integration.md](docs/guides/agent-integration.md) |
 | Pick a model/voice provider (free tiers, selection criteria, rejected candidates) | [docs/guides/transport-providers.md](docs/guides/transport-providers.md) |
 | Add or change a namespaced extension | [docs/guides/extensions.md](docs/guides/extensions.md) |
+| Test an app built on the library | [docs/guides/testing.md](docs/guides/testing.md) |
+| Run an app's agent against a real model | [docs/guides/evals.md](docs/guides/evals.md) |
 | Generalise the agent across voice/text transports | [docs/implementation_plans/transport-neutral-agent-framework.md](docs/implementation_plans/transport-neutral-agent-framework.md) |
 | Understand A2UI spec / compliance | [v0.8 spec](https://a2ui.org/) + [docs/reference/components.md](docs/reference/components.md) |
 

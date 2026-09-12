@@ -74,7 +74,7 @@ describe('wrapA2A / unwrapA2A', () => {
 		const event: A2UIClientEvent = {
 			userAction: {
 				name: 'submit',
-				surfaceId: 'staff-form',
+				surfaceId: 'todo-form',
 				sourceComponentId: 'save-btn',
 				timestamp: '2026-05-27T00:00:00.000Z',
 				context: {}
@@ -86,7 +86,7 @@ describe('wrapA2A / unwrapA2A', () => {
 			},
 			clientDataModel: {
 				version: 'v0.9',
-				surfaces: { 'staff-form': { 'add-staff-name': 'Mario' } }
+				surfaces: { 'todo-form': { 'add-todo-title': 'Groceries' } }
 			}
 		});
 		expect(env.metadata).toEqual({
@@ -97,7 +97,7 @@ describe('wrapA2A / unwrapA2A', () => {
 			},
 			a2uiClientDataModel: {
 				version: 'v0.9',
-				surfaces: { 'staff-form': { 'add-staff-name': 'Mario' } }
+				surfaces: { 'todo-form': { 'add-todo-title': 'Groceries' } }
 			}
 		});
 	});
@@ -129,15 +129,15 @@ describe('getClientDataModel', () => {
 				surfaceId: 'cdm-surface',
 				path: '/',
 				contents: [
-					{ key: 'name', valueString: 'Mario' },
-					{ key: 'role', valueString: 'Cuoco' }
+					{ key: 'title', valueString: 'Groceries' },
+					{ key: 'tag', valueString: 'Home' }
 				]
 			}
 		} as never);
 
 		expect(getClientDataModel(['cdm-surface'])).toEqual({
 			version: 'v0.9',
-			surfaces: { 'cdm-surface': { name: 'Mario', role: 'Cuoco' } }
+			surfaces: { 'cdm-surface': { title: 'Groceries', tag: 'Home' } }
 		});
 	});
 

@@ -8,17 +8,17 @@
 import type { ToolDefinition } from './registries/tool-registry';
 
 export interface ApiToolConfig {
-	/** Tool name as seen by the agent (e.g., "add_staff") */
+	/** Tool name as seen by the agent (e.g., "add_todo") */
 	name: string;
 	/** Human-readable description for the LLM */
 	description: string;
-	/** API endpoint path (e.g., "/api/staff") */
+	/** API endpoint path (e.g., "/api/todos") */
 	endpoint: string;
 	/** HTTP method */
 	method: 'GET' | 'POST' | 'PUT' | 'DELETE';
 	/** JSON Schema describing the tool parameters for Gemini */
 	parameters: Record<string, any>;
-	/** Optional: build a custom request from args (for parameterized URLs like /api/staff/[id]) */
+	/** Optional: build a custom request from args (for parameterized URLs like /api/todos/[id]) */
 	buildRequest?: (args: Record<string, any>) => { url: string; body?: any };
 }
 

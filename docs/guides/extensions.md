@@ -88,8 +88,8 @@ a dense surface every `click_button` / `update_text_field` result re-ships the
 whole serialized tree (tens of KB ≈ thousands of tokens), it stays in the
 conversation context forever, and on a request/response transport it is
 re-billed on every subsequent loop request. The `evals/` context-cost
-measurement puts a 7-call task on a 6-row planner at ~179k billed input tokens
-with the full echo vs ~63k with `'changed'`.
+measurement puts a 7-call task on a 6-row todo list at ~169k billed input
+tokens with the full echo vs ~61k with `'changed'`.
 
 `toolResultSurfaceEcho: 'changed'` keeps the model informed while shipping only
 deltas. The envelope is still `{ results, extensions: { 'a2ui-svelte': … } }`, but the
@@ -100,7 +100,7 @@ last-known state (the system prompt at connect, or the previous tool result):
 // a value edit — a few hundred bytes instead of the whole tree
 { "results": [ ... ],
   "extensions": { "a2ui-svelte": {
-    "updatedDataModel": { "shift-planner": { "shift-anna-wed": "10:00-18:00" } }
+    "updatedDataModel": { "todo-list": { "todo-invoices-due": "2026-04-15" } }
   } } }
 
 // a structural change (a component appeared/disappeared, navigation) —

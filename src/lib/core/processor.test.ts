@@ -15,9 +15,9 @@ function render(surfaceId: string, root: string) {
 
 describe('processMessage — dynamic surface validation', () => {
 	beforeEach(() => {
+		vi.spyOn(console, 'log').mockImplementation(() => {});
 		vi.spyOn(console, 'warn').mockImplementation(() => {});
 		vi.spyOn(console, 'error').mockImplementation(() => {});
-		vi.spyOn(console, 'log').mockImplementation(() => {});
 	});
 	afterEach(() => {
 		vi.restoreAllMocks();

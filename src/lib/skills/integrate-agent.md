@@ -262,8 +262,8 @@ token bill is the production one; only the frames are dropped.
   JSON, ~30% smaller prompt) and, once at startup,
   `configureExtensions({ toolResultSurfaceEcho: 'changed' })` from
   `a2ui-svelte/core` (results report only what changed; the full tree
-  only when the structure actually changed). On a 6-row roster fixture a
-  7-call task drops from ~179k to ~63k billed input tokens with both on,
+  only when the structure actually changed). On a 6-row todo-list fixture
+  a 7-call task drops from ~169k to ~61k billed input tokens with both on,
   with identical outcomes.
 - **Custom prompt.** Pass `buildPrompt: (inputs) => string` in the
   definition to override the assembled system prompt entirely. Use
@@ -278,3 +278,5 @@ token bill is the production one; only the frames are dropped.
 
 - `build-a2ui-page` — making a page the agent can read.
 - `style-and-theme` — restyling the default `<AgentShell>`.
+- `test-a2ui-app` — testing the wiring: agent actions, `ScriptedTransport`,
+  evals.

@@ -1276,7 +1276,6 @@ describe("Agent with a neutral mock transport", () => {
     });
 
     it("rejects when the transport closes during the turn", async () => {
-      const log = vi.spyOn(console, "log").mockImplementation(() => {});
       const { transport, agent } = connected();
       await agent.start();
       flushSync();
@@ -1285,7 +1284,6 @@ describe("Agent with a neutral mock transport", () => {
       transport.emit("close", { reason: "server hung up" });
       await expect(turn).rejects.toThrow(/server hung up/);
 
-      log.mockRestore();
     });
 
     it("rejects when the session is stopped mid-turn", async () => {
@@ -1380,7 +1378,6 @@ describe("Agent with a neutral mock transport", () => {
     });
 
     it("does not report an error for a close we asked for", async () => {
-      const log = vi.spyOn(console, "log").mockImplementation(() => {});
       const { transport, agent } = connected();
       const seen: string[] = [];
       agent.on("error", (p) => seen.push(p.message));
@@ -1395,7 +1392,6 @@ describe("Agent with a neutral mock transport", () => {
       expect(seen).toEqual([]);
       expect(agent.status).toBe("idle");
 
-      log.mockRestore();
     });
   });
 

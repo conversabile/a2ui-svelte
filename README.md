@@ -319,7 +319,7 @@ The agent sees the standard tree; the user sees your custom HTML.
 
 ## Skills
 
-Five Markdown skills ship with the library for agentic IDEs (Claude
+Six Markdown skills ship with the library for agentic IDEs (Claude
 Code, Cursor, …):
 
 - `build-a2ui-page` — add a new page that the agent can read.
@@ -327,6 +327,7 @@ Code, Cursor, …):
 - `build-composite-component` — bespoke HTML, agent sees a clean tree.
 - `integrate-agent` — wire `Agent` + a transport + `<AgentShell>` in a layout.
 - `style-and-theme` — token overrides + custom catalog.
+- `test-a2ui-app` — component tests, `ScriptedTransport`, Playwright, evals.
 
 Manual install (a CLI is deferred):
 
@@ -345,6 +346,20 @@ cp node_modules/a2ui-svelte/dist/skills/*.md .claude/skills/
 - [Composite components](docs/guides/composite-components.md)
 - [Theming](docs/guides/theming.md)
 - [Agent integration](docs/guides/agent-integration.md)
+- [Testing](docs/guides/testing.md)
+- [Evals — testing against a real model](docs/guides/evals.md)
+
+## Testing and evaluation
+
+```bash
+pnpm test            # unit tests (Vitest) — never the evals
+pnpm eval            # context-cost evals; add GEMINI_API_KEY for live A/B scenarios
+pnpm check           # svelte-check
+
+cp .env.template .env   # GEMINI_API_KEY + A2UI_EVAL_* knobs, picked up by pnpm eval
+```
+
+See [Testing](docs/guides/testing.md) and [Evals](docs/guides/evals.md).
 
 ## Releasing
 
