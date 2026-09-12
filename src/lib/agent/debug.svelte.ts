@@ -6,7 +6,7 @@ import type { AgentUsage } from './transport';
  * A live agent session can quietly accumulate an enormous token bill: the whole
  * serialized surface is embedded in the system prompt, and (with the
  * `toolResultSurfaceEcho: 'full'` extension) **every tool result echoes it
- * again** — both re-billed each turn. On a dense surface (a shift planner with
+ * again** — both re-billed each turn. On a dense surface (a todo list with
  * hundreds of inputs) one batch edit can push a single turn past a hundred
  * thousand tokens and trip a provider `RESOURCE_EXHAUSTED` quota error, with no
  * built-in signal as to why.
@@ -126,15 +126,18 @@ export class AgentDebugStats {
 	 * Provider-reported usage. `last` is the most recent report; `peakTotal`
 	 * tracks the high-water `totalTokenCount` (= the running session total when
 	 * the provider reports cumulatively, as Gemini Live does); `reports` counts
-	 * how many usage messages arrived; `sumResponseTokens` accumulates the
-	 * per-report response counts.
+	 * how many usage messages arrived; `sumPromptTokens` / `sumResponseTokens`
+	 * accumulate the per-report input and output counts — on a request/response
+	 * transport that sum is the whole tool loop's bill, which no single report
+	 * shows.
 	 */
 	usage = $state<{
 		last: AgentUsage | null;
 		peakTotal: number;
 		reports: number;
+		sumPromptTokens: number;
 		sumResponseTokens: number;
-	}>({ last: null, peakTotal: 0, reports: 0, sumResponseTokens: 0 });
+	}>({ last: null, peakTotal: 0, reports: 0, sumPromptTokens: 0, sumResponseTokens: 0 });
 
 	/** Rolling event log, newest last. Reactive. */
 	events = $state<DebugEvent[]>([]);
@@ -208,6 +211,7 @@ export class AgentDebugStats {
 	recordUsage(u: AgentUsage): void {
 		this.usage.last = u;
 		this.usage.reports += 1;
+		this.usage.sumPromptTokens += u.promptTokenCount ?? 0;
 		this.usage.sumResponseTokens += u.responseTokenCount ?? 0;
 		if ((u.totalTokenCount ?? 0) > this.usage.peakTotal) {
 			this.usage.peakTotal = u.totalTokenCount ?? 0;
@@ -240,7 +244,13 @@ export class AgentDebugStats {
 			this.inbound[k] = emptyStat();
 		}
 		this.toolCount = 0;
-		this.usage = { last: null, peakTotal: 0, reports: 0, sumResponseTokens: 0 };
+		this.usage = {
+			last: null,
+			peakTotal: 0,
+			reports: 0,
+			sumPromptTokens: 0,
+			sumResponseTokens: 0
+		};
 		this.events = [];
 	}
 

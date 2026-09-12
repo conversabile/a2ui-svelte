@@ -379,7 +379,9 @@ Always present, reactive, and cheap. It tracks two things:
   (The `audio-*` categories simply stay empty on a text transport.)
 - **Authoritative provider usage** — Gemini's `usageMetadata`, folded in via
   the transport's `'usage'` event: `usage.last`, `usage.peakTotal` (the running
-  session total — the figure the quota is measured against), `usage.reports`.
+  session total — the figure the quota is measured against), `usage.reports`,
+  and `usage.sumPromptTokens` / `usage.sumResponseTokens` (the whole tool
+  loop's bill on a request/response transport, which no single report shows).
 
 Handy reads:
 

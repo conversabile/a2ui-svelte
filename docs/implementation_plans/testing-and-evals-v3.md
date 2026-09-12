@@ -1,8 +1,8 @@
 # Implementation Plan — Testing & evals for consumer apps (v3)
 
 **Status:** in progress — WP0 done (changeset stashed), WP1, WP1b, WP2, WP3, WP4,
-WP5, WP5b, WP6, WP7, WP5c, WP8, WP9, WP9b, WP9c and WP10 done. **WP11 is next.**
-See §5.
+WP5, WP5b, WP6, WP7, WP5c, WP8, WP9, WP9b, WP9c, WP10 and WP11 done.
+**WP12 is next.** See §5.
 **Supersedes:** [testing-and-evals-v2.md](testing-and-evals-v2.md) and
 [testing-and-evals-v1.md](testing-and-evals-v1.md), plus the staged-but-uncommitted
 `src/lib/testing/` changeset (see WP0).
@@ -23,7 +23,7 @@ working tree on 2026-08-27; WP1 and WP2 were reproduced with a live test.
 | a deterministic model | `ScriptedTransport` — `a2ui-svelte/agent` |
 | record what the model got | `ScriptedTransport.textsSent` / `.toolResults` / `.connectOpts` |
 | the assembled system prompt | `ScriptedTransport.connectOpts.systemInstruction` |
-| token accounting | `agent.debug.usage` (`last`, `peakTotal`, `reports`, `sumResponseTokens`) |
+| token accounting | `agent.debug.usage` (`last`, `peakTotal`, `reports`, `sumPromptTokens`, `sumResponseTokens`) |
 | the human actor | `@testing-library/user-event` |
 
 So **this plan ships almost no new API.** It fixes the bugs that make the
@@ -1681,3 +1681,27 @@ text, what the next WP must know. The diff holds everything else.)_
 - `processMessage` validates the prospective tree and returns `ProcessResult`;
   the `Agent` forwards it. `<StaticSurface>` throws on error at mount.
 - `pnpm test` 341; `pnpm check` 0 errors.
+
+### WP11 — DONE (2026-09-11, branch `develop`)
+
+- `evals/harness.ts` → `evals/setup.ts` (303 → 109 lines): profiles, model/env
+  knobs, `makeEvalTransport`. Gone: `clearRegistries`, `RecordingTransport`,
+  `EVAL_QUIESCE_MS`, `sendAndWait`'s fingerprint polling. `sendAndWait` (56
+  lines) → `sendPaced` (11) in the scenario file — pace, then `agent.send`;
+  `startSession` (22) → `startAgent` (9). `evals/` is 181 lines lighter.
+- **Added `usage.sumPromptTokens`** to `AgentDebugStats`. The report's headline
+  is Σ input tokens and `debug.usage` summed only responses; the plan forbids a
+  bespoke counter, so the field is the fix (additive, symmetric).
+- Definitions moved to `fixtures/{shift-planner,dynamic-canvas}-agent.ts`. The
+  page installs `plannerContext.read` synchronously — an `$effect` flushes
+  after `agent.start()` builds the prompt, so the first turn would be stale.
+- Assertions off the fixtures' accessors: shifts via `getDataModel()`, names /
+  roles via `[data-a2ui-id]`, the model's answer via `agent.transcript`.
+- **Decision: `evals/` stays our internal suite.** A shipped runner (scenarios,
+  rubrics, retries, comparison) is its own plan. README now says "primitives and
+  a worked example" in as many words.
+- **Found, out of scope:** nothing type-checks `evals/` — the SvelteKit tsconfig
+  includes only `src/`, `test/`, `tests/`. The live scenarios never run in CI
+  either, so a type error there ships silently. Checked by hand: 0 errors.
+- `pnpm test` 341 / 1 skipped; `pnpm check` 0 errors; `pnpm eval` identical
+  numbers (179k → 63k billed chars).

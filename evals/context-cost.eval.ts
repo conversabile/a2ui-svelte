@@ -2,7 +2,7 @@
  * Hermetic context-cost measurement (no model, no network — always runs).
  *
  * Validates the verbosity hypothesis quantitatively: it mounts the real
- * shift-planner fixture, builds the real system prompt, executes a realistic
+ * todo-list fixture, builds the real system prompt, executes a realistic
  * scripted 7-call tool sequence through the real tool registry, and measures
  * what every configuration would feed the model:
  *
@@ -18,7 +18,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
+import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import { toolRegistry } from '../src/lib/core/registries/tool-registry';
 import { Agent } from '../src/lib/agent/agent.svelte';
@@ -26,38 +26,28 @@ import { ScriptedTransport } from '../src/lib/agent/scripted-transport';
 import { buildSystemPrompt } from '../src/lib/agent/prompt-builder';
 import { configureExtensions, type Extensions } from '../src/lib/core/extensions';
 import {
-	mountedSurfaces,
 	surface as mountedSurface,
 	type AgentSurface
 } from '../src/lib/core/registries/surface-index';
-import { clearRegistries, estTokens } from './harness';
-import ShiftPlannerPage from './fixtures/ShiftPlannerPage.svelte';
+import { estTokens } from './report';
+import { todoList } from './fixtures/todo-list-agent';
+import TodoListPage from './fixtures/TodoListPage.svelte';
 
-interface PlannerExports {
-	contextInstructions(): string;
-	getStaff(): Array<{ name: string; role: string; shifts: Record<string, string> }>;
-}
-
-const INSTRUCTIONS =
-	'You are the shift-planner assistant for a small restaurant team. ' +
-	'You operate the on-screen UI through the available tools. Be concise.';
-
-function mountPlanner(extensions: Partial<Extensions>, staffCount = 6) {
+function mountList(extensions: Partial<Extensions>, todoCount = 6): AgentSurface {
 	configureExtensions(extensions);
-	const { component } = render(ShiftPlannerPage, { staffCount });
-	const page = component as unknown as PlannerExports;
-	const surface = mountedSurface('shift-planner');
+	render(TodoListPage, { todoCount });
+	const surface = mountedSurface('todo-list');
 	if (!surface) throw new Error('fixture surface did not mount');
-	return { page, surface };
+	return surface;
 }
 
-function buildPrompt(page: PlannerExports, surface: AgentSurface, compact: boolean): string {
+function buildPrompt(surface: AgentSurface, compact: boolean): string {
 	return buildSystemPrompt({
-		systemInstruction: INSTRUCTIONS,
+		systemInstruction: todoList.instructions,
 		staticSurfaces: [surface],
 		dynamicSurfaces: [],
 		toolDeclarations: toolRegistry.getDeclarations(),
-		contextInstructions: page.contextInstructions(),
+		contextInstructions: todoList.contextInstructions!(),
 		includeDynamicGuide: false,
 		compactSurfaceJson: compact
 	});
@@ -65,45 +55,36 @@ function buildPrompt(page: PlannerExports, surface: AgentSurface, compact: boole
 
 /** The 7-call task, one tool call per model turn. */
 const SCRIPTED_CALLS: Array<{ name: string; args: Record<string, unknown> }> = [
-	{ name: 'update_text_field', args: { element_id: 'shift-anna-wed', value: '10:00-18:00' } },
+	{ name: 'update_text_field', args: { element_id: 'todo-invoices-due', value: '2026-04-15' } },
 	{
 		name: 'update_text_fields',
 		args: {
 			updates: [
-				{ element_id: 'shift-carla-thu', value: 'Morning' },
-				{ element_id: 'shift-lucia-thu', value: 'Morning' },
-				{ element_id: 'shift-marco-thu', value: 'Morning' }
+				{ element_id: 'todo-laundry-priority', value: 'High' },
+				{ element_id: 'todo-dentist-priority', value: 'High' },
+				{ element_id: 'todo-gym-priority', value: 'High' }
 			]
 		}
 	},
-	{ name: 'update_text_field', args: { element_id: 'add-staff-name', value: 'Bruno' } },
-	{ name: 'update_text_field', args: { element_id: 'add-staff-role', value: 'Waiter' } },
-	{ name: 'click_button', args: { element_id: 'add-staff-btn' } },
-	{ name: 'update_text_field', args: { element_id: 'shift-bruno-fri', value: 'Evening' } },
-	{ name: 'click_button', args: { element_id: 'save-week-btn' } }
+	{ name: 'update_text_field', args: { element_id: 'add-todo-title', value: 'Groceries' } },
+	{ name: 'update_text_field', args: { element_id: 'add-todo-tag', value: 'Home' } },
+	{ name: 'click_button', args: { element_id: 'add-todo-btn' } },
+	{ name: 'update_text_field', args: { element_id: 'todo-groceries-due', value: '2026-04-20' } },
+	{ name: 'click_button', args: { element_id: 'save-list-btn' } }
 ];
 
 /**
- * A realistic multi-step task, executed through the real `Agent` (three shift
- * edits, a structural change adding a staff member, an edit on the new row,
- * and a save that mutates the page context). The agent is what builds the
+ * A realistic multi-step task, executed through the real `Agent` (four detail
+ * edits, a structural change adding a task, an edit on the new row, and a save
+ * that mutates the page context). The agent is what builds the
  * tool-result echo, so the sizes measured here are exactly what a model would
  * be billed for.
  */
-async function runScriptedTask(page: PlannerExports, compact: boolean): Promise<number[]> {
+async function runScriptedTask(compact: boolean): Promise<number[]> {
 	const transport = new ScriptedTransport(
 		SCRIPTED_CALLS.map((c) => ({ calls: [c], text: 'done' }))
 	);
-	const agent = new Agent(
-		{
-			instructions: INSTRUCTIONS,
-			surfaces: mountedSurfaces,
-			contextInstructions: () => page.contextInstructions(),
-			compactSurfaceJson: compact,
-			mode: 'static'
-		},
-		transport
-	);
+	const agent = new Agent({ ...todoList, compactSurfaceJson: compact }, transport);
 	await agent.start();
 	for (let i = 0; i < SCRIPTED_CALLS.length; i++) await agent.send(`step ${i + 1}`);
 	agent.stop();
@@ -141,31 +122,27 @@ interface ModeRow {
 const rows: ModeRow[] = [];
 let prettyPromptChars = 0;
 let compactPromptChars = 0;
-let scaledPromptChars: Array<{ staff: number; chars: number }> = [];
+let scaledPromptChars: Array<{ todos: number; chars: number }> = [];
 
 describe('context-cost measurement (hermetic)', () => {
-	beforeEach(() => {
-		clearRegistries();
-	});
 	afterEach(() => cleanup());
 
 	it('measures prompt size, pretty vs compact', () => {
-		const { page, surface } = mountPlanner({});
-		prettyPromptChars = buildPrompt(page, surface, false).length;
-		compactPromptChars = buildPrompt(page, surface, true).length;
+		const surface = mountList({});
+		prettyPromptChars = buildPrompt(surface, false).length;
+		compactPromptChars = buildPrompt(surface, true).length;
 		// Compaction must save at least 30% — it historically saves ~half of the
 		// surface block, which dominates the prompt.
 		expect(compactPromptChars).toBeLessThan(prettyPromptChars * 0.7);
 	});
 
 	it('measures how prompt size scales with surface density', () => {
-		for (const staff of [3, 6, 12]) {
-			clearRegistries();
+		for (const todos of [3, 6, 12]) {
 			cleanup();
-			const { page, surface } = mountPlanner({}, staff);
-			scaledPromptChars.push({ staff, chars: buildPrompt(page, surface, false).length });
+			const surface = mountList({}, todos);
+			scaledPromptChars.push({ todos, chars: buildPrompt(surface, false).length });
 		}
-		// Density scaling is roughly linear in roster rows.
+		// Density scaling is roughly linear in task rows.
 		expect(scaledPromptChars[2].chars).toBeGreaterThan(scaledPromptChars[0].chars * 2);
 	});
 
@@ -175,10 +152,10 @@ describe('context-cost measurement (hermetic)', () => {
 		["no-echo ('none')", { toolResultSurfaceEcho: 'none' as const }]
 	] as Array<[string, Partial<Extensions>]>) {
 		it(`measures tool-result sizes with ${mode}`, async () => {
-			const { page, surface } = mountPlanner(extensions);
+			const surface = mountList(extensions);
 			const compact = mode !== "full-echo ('full')";
-			const promptChars = buildPrompt(page, surface, compact).length;
-			const resultSizes = await runScriptedTask(page, compact);
+			const promptChars = buildPrompt(surface, compact).length;
+			const resultSizes = await runScriptedTask(compact);
 			rows.push({
 				mode,
 				promptChars,
@@ -187,7 +164,7 @@ describe('context-cost measurement (hermetic)', () => {
 				peakSessionChars: promptChars + sum(resultSizes)
 			});
 			// The task itself must succeed identically in every mode.
-			expect(page.getStaff().find((s) => s.name === 'Bruno')?.shifts.fri).toBe('Evening');
+			expect(surface.getDataModel!()['todo-groceries-due']).toBe('2026-04-20');
 		});
 	}
 
@@ -208,11 +185,11 @@ describe('context-cost measurement (hermetic)', () => {
 		const fmt = (chars: number) => `${chars.toLocaleString()}ch (~${estTokens(chars).toLocaleString()} tok)`;
 		const lines: string[] = [];
 		lines.push('');
-		lines.push('══ Context-cost measurement — shift planner, 6 staff, 7-call task ══');
+		lines.push('══ Context-cost measurement — todo list, 6 tasks, 7-call task ══');
 		lines.push(`system prompt, pretty JSON : ${fmt(prettyPromptChars)}`);
 		lines.push(`system prompt, compact JSON: ${fmt(compactPromptChars)} (${Math.round((1 - compactPromptChars / prettyPromptChars) * 100)}% smaller)`);
 		for (const s of scaledPromptChars) {
-			lines.push(`  prompt @ ${String(s.staff).padStart(2)} staff rows : ${fmt(s.chars)}`);
+			lines.push(`  prompt @ ${String(s.todos).padStart(2)} task rows : ${fmt(s.chars)}`);
 		}
 		lines.push('');
 		for (const r of rows) {

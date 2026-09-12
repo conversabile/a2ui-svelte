@@ -6,6 +6,12 @@ suite). A real Gemini text model drives real mounted surfaces through the real
 `Agent` + `GeminiTextTransport`, and scenarios assert on tool results and the
 resulting UI state.
 
+**This is our suite, not a shipped product.** The library ships no eval runner —
+no scenario DSL, no rubric scoring, no retries, no comparison CLI. What it ships
+is the primitives these files are built from (`Agent`, `agent.send`,
+`agent.debug`, `withoutAudio`, `mountedSurfaces`, `surface`), and this directory
+as the worked example to copy. A real runner would be its own plan.
+
 ## Why it exists
 
 A2UI's JSON representation is verbose, and the library's historical defaults
@@ -34,10 +40,9 @@ GEMINI_API_KEY=… pnpm eval
 A2UI_EVAL_TRANSPORT=text              # transport family: text (request/response) | live (Live API)
 A2UI_EVAL_MODEL=gemini-3.5-flash      # model under test (live default: gemini-3.1-flash-live-preview)
 A2UI_EVAL_PROFILES=baseline,optimized # subset of the profile matrix
-A2UI_EVAL_STAFF_COUNT=6               # roster rows on the static fixture (surface density)
+A2UI_EVAL_TODO_COUNT=6                # task rows on the static fixture (surface density)
 A2UI_EVAL_TURN_GAP_MS=30000           # min gap between conversation turns (quota pacing)
 A2UI_EVAL_MAX_RETRIES=1               # 429 retries (exponential backoff) before failing (text only)
-A2UI_EVAL_QUIESCE_MS=4000             # live only: quiet window after turn-complete before verify
 ```
 
 ### Running against Gemini Live
@@ -55,7 +60,7 @@ invocation and give the per-minute token window time to reset between runs:
 
 ```bash
 A2UI_EVAL_TRANSPORT=live A2UI_EVAL_PROFILES=optimized \
-  pnpm exec vitest run --config evals/vitest.config.ts llm-scenarios -t add-staff-then-edit
+  pnpm exec vitest run --config evals/vitest.config.ts llm-scenarios -t add-task-then-edit
 ```
 
 Each row's `notes` column carries `session total N tok` — the Live API's
@@ -68,9 +73,9 @@ A full matrix run sends a lot of turns in a short window and free-tier keys hit
 the per-minute quota partway through, after which calls return HTTP 429. Two
 mechanisms keep a run alive:
 
-- **Turn gap** (`A2UI_EVAL_TURN_GAP_MS`, default `30000`) — the harness waits at
+- **Turn gap** (`A2UI_EVAL_TURN_GAP_MS`, default `30000`) — the scenarios wait at
   least this long between consecutive conversation turns (spanning scenarios),
-  pacing the run proactively. This lives in the eval harness, not the transport,
+  pacing the run proactively. This lives in the eval file, not the transport,
   so the live agent is never slowed. The per-test timeout scales with it.
 - **Backoff retries** (`A2UI_EVAL_MAX_RETRIES`, default `1`) — any 429 that still
   slips through (e.g. a burst within a single turn's tool loop) is retried with
@@ -96,16 +101,22 @@ Each LLM scenario runs once per **profile**:
   transport families. Always runs; doubles as a regression test of the
   optimization claims.
 - `llm-scenarios.eval.ts` — live A/B scenarios (skipped without
-  `GEMINI_API_KEY`): single-field edit, batch edit, *add-staff-then-edit*
+  `GEMINI_API_KEY`): single-field edit, batch edit, *add-task-then-edit*
   (the stability probe — the model must target a field that only exists after
   its own structural change), a read-only comprehension question, and a
   dynamic-surface build+update task.
-- `fixtures/ShiftPlannerPage.svelte` — dense, realistic static surface
-  (roster of N staff × 7 day TextFields, an add-staff form that appends a
-  row, a save button that mutates the page context).
+- `fixtures/TodoListPage.svelte` — dense, realistic static surface (N tasks ×
+  a done CheckBox + 5 detail TextFields, an add-task form that appends a row,
+  a save button that mutates the page context).
 - `fixtures/DynamicCanvasPage.svelte` — minimal dynamic-surface host.
-- `harness.ts` — profiles, registry cleanup, the `RecordingTransport`
-  wrapper (captures tool calls/results/usage), turn-completion waiting.
+- `fixtures/todo-list-agent.ts`, `fixtures/dynamic-canvas-agent.ts` — each
+  fixture's `AgentDefinition`, declared once and imported by both evals. The
+  page mounts the surface, the definition names the persona; `surfaces:
+  mountedSurfaces` joins them. The evals override only `compactSurfaceJson`,
+  which is the experiment's variable, not the app's.
+- `setup.ts` — the run's configuration: transport family, model, env knobs, and
+  the profile matrix. Nothing else: the `Agent` is the harness, `agent.send`
+  waits for the turn, `agent.debug.usage` meters the tokens.
 - `report.ts` — per-scenario result rows + the comparison summary table;
   raw results persist to `results/` (gitignored).
 
@@ -115,6 +126,6 @@ The summary table prints per scenario × profile: pass/fail, loop request
 count, tool calls, billed input/output tokens (provider-reported), and wall
 time. The per-profile aggregate at the bottom is the headline: compare the
 pass rate and Σ input tokens of `optimized` (and `bare`) against `baseline`.
-A pass-rate drop on `add-staff-then-edit` under `bare` is the expected
+A pass-rate drop on `add-task-then-edit` under `bare` is the expected
 instability signal; `optimized` is designed to keep that scenario green while
 still cutting the bill.

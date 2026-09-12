@@ -21,6 +21,14 @@ export interface ScenarioRecord {
 
 const records: ScenarioRecord[] = [];
 
+/**
+ * Estimated tokens at the library's standard 4-chars/token heuristic — for the
+ * hermetic report, which measures characters and has no provider count to show.
+ */
+export function estTokens(chars: number): number {
+	return Math.ceil(chars / 4);
+}
+
 export function record(r: ScenarioRecord): void {
 	records.push(r);
 }

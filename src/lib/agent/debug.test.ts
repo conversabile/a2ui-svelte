@@ -52,7 +52,7 @@ describe('AgentDebugStats', () => {
 		expect(d.events).toHaveLength(0);
 	});
 
-	it('folds provider usage: last, peak total, report count, summed response tokens', () => {
+	it('folds provider usage: last, peak total, report count, summed prompt/response tokens', () => {
 		const d = new AgentDebugStats();
 		const u1: AgentUsage = { promptTokenCount: 60000, responseTokenCount: 200, totalTokenCount: 60200 };
 		const u2: AgentUsage = { promptTokenCount: 95000, responseTokenCount: 300, totalTokenCount: 95300 };
@@ -62,6 +62,9 @@ describe('AgentDebugStats', () => {
 		expect(d.usage.last).toEqual(u2);
 		expect(d.usage.peakTotal).toBe(95300);
 		expect(d.usage.reports).toBe(2);
+		// The loop's whole bill: each request is billed for its own prompt, so
+		// the sum is the number to compare across runs — `last` only shows one.
+		expect(d.usage.sumPromptTokens).toBe(155000);
 		expect(d.usage.sumResponseTokens).toBe(500);
 		expect(d.inbound.usage.count).toBe(2);
 		// Usage reports ARE logged (low-volume, high-signal).
@@ -94,7 +97,13 @@ describe('AgentDebugStats', () => {
 		d.reset();
 
 		expect(d.outbound['system-prompt']).toEqual({ count: 0, bytes: 0, lastBytes: 0, estTokens: 0 });
-		expect(d.usage).toEqual({ last: null, peakTotal: 0, reports: 0, sumResponseTokens: 0 });
+		expect(d.usage).toEqual({
+			last: null,
+			peakTotal: 0,
+			reports: 0,
+			sumPromptTokens: 0,
+			sumResponseTokens: 0
+		});
 		expect(d.toolCount).toBe(0);
 		expect(d.events).toHaveLength(0);
 		expect(d.estOutboundTokens).toBe(0);

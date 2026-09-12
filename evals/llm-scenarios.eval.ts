@@ -1,45 +1,42 @@
 /**
- * LLM eval scenarios — a real Gemini model drives real mounted surfaces
- * through the real `Agent`, and we assert on the resulting UI state / tool
- * results. Each scenario runs once per profile (baseline / optimized / bare —
- * see `PROFILES` in harness.ts) so the report answers the question: do the
- * context optimizations make the agent unstable?
+ * LLM eval scenarios — a real Gemini model drives real mounted surfaces through
+ * the real `Agent`, and we assert on the resulting UI state. Each scenario runs
+ * once per profile (baseline / optimized / bare — see `PROFILES` in setup.ts)
+ * so the report answers the question: do the context optimizations make the
+ * agent unstable?
  *
  * The transport family is selectable (`A2UI_EVAL_TRANSPORT=text|live`, see
- * harness.ts): the request/response text loop, or the streaming Live API —
- * the family whose per-turn context re-billing the optimizations target.
+ * setup.ts): the request/response text loop, or the streaming Live API — the
+ * family whose per-turn context re-billing the optimizations target.
  *
  * Requires GEMINI_API_KEY (skips cleanly without it):
  *
  *   GEMINI_API_KEY=… pnpm eval
  *
  * Env knobs: A2UI_EVAL_TRANSPORT (default text),
- *            A2UI_EVAL_MODEL (default per transport — see harness.ts),
+ *            A2UI_EVAL_MODEL (default per transport — see setup.ts),
  *            A2UI_EVAL_PROFILES (comma list, default all).
  */
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
+import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import { Agent } from '../src/lib/agent/agent.svelte';
 import { a2uiState } from '../src/lib/core/state.svelte';
 import { configureExtensions } from '../src/lib/core/extensions';
+import { surface } from '../src/lib/core/registries/surface-index';
 import {
 	API_KEY,
 	EVAL_MODEL,
 	EVAL_TRANSPORT,
-	EVAL_STAFF_COUNT,
+	EVAL_TODO_COUNT,
+	EVAL_TURN_GAP_MS,
 	type EvalProfile,
 	selectedProfiles,
-	clearRegistries,
-	makeEvalTransport,
-	RecordingTransport,
-	sendAndWait
-} from './harness';
+	makeEvalTransport
+} from './setup';
 import { record, printSummary } from './report';
-import {
-	surface as mountedSurface,
-	type AgentSurface
-} from '../src/lib/core/registries/surface-index';
-import ShiftPlannerPage from './fixtures/ShiftPlannerPage.svelte';
+import { todoList } from './fixtures/todo-list-agent';
+import { dynamicCanvas } from './fixtures/dynamic-canvas-agent';
+import TodoListPage from './fixtures/TodoListPage.svelte';
 import DynamicCanvasPage from './fixtures/DynamicCanvasPage.svelte';
 
 const describeLive = API_KEY ? describe : describe.skip;
@@ -49,189 +46,183 @@ if (!API_KEY) {
 	);
 }
 
-interface PlannerExports {
-	contextInstructions(): string;
-	getStaff(): Array<{ name: string; role: string; shifts: Record<string, string> }>;
+/**
+ * Per-turn budget. A live turn can run well past `send()`'s 60 s default —
+ * the model speaks its whole answer — so the eval carries its own deadline.
+ */
+const TURN_TIMEOUT_MS = 150_000;
+
+/** Wall-clock of the last completed turn, so pacing spans scenarios too. */
+let lastTurnEndedAt = 0;
+
+/**
+ * One user turn, paced against the provider's per-minute quota: wait out the
+ * remainder of {@link EVAL_TURN_GAP_MS} since the previous turn, then send.
+ * `agent.send` resolves at the turn boundary and rejects on transport error,
+ * close, or timeout — there is nothing to poll.
+ */
+async function sendPaced(agent: Agent, text: string): Promise<void> {
+	const sinceLast = Date.now() - lastTurnEndedAt;
+	if (lastTurnEndedAt > 0 && sinceLast < EVAL_TURN_GAP_MS) {
+		await new Promise((r) => setTimeout(r, EVAL_TURN_GAP_MS - sinceLast));
+	}
+	try {
+		await agent.send(text, { timeoutMs: TURN_TIMEOUT_MS });
+	} finally {
+		lastTurnEndedAt = Date.now();
+	}
 }
 
-const STATIC_INSTRUCTIONS =
-	'You are the shift-planner assistant for a small restaurant team. ' +
-	'You operate the on-screen UI through the available tools. Be concise.';
-
-const DYNAMIC_INSTRUCTIONS =
-	'You are a UI-building assistant. Render what the user asks for on the dynamic surface ' +
-	'using the A2UI tools. Be concise in your replies.';
-
-async function startSession(opts: {
-	profile: EvalProfile;
-	surface: AgentSurface;
-	contextInstructions?: () => string;
-	instructions: string;
-	mode: 'static' | 'dynamic';
-}) {
-	const rec = new RecordingTransport(makeEvalTransport());
+/** The app's definition plus this arm's experimental knob and a fresh transport. */
+async function startAgent(definition: typeof todoList, profile: EvalProfile): Promise<Agent> {
 	const agent = new Agent(
-		{
-			instructions: opts.instructions,
-			surfaces: () => [opts.surface],
-			contextInstructions: opts.contextInstructions,
-			mode: opts.mode,
-			compactSurfaceJson: opts.profile.compactSurfaceJson
-		},
-		rec
+		{ ...definition, compactSurfaceJson: profile.compactSurfaceJson },
+		makeEvalTransport()
 	);
 	await agent.start();
 	if (agent.configIssue) throw new Error(`agent failed to start: ${agent.configIssue}`);
-	return { agent, rec };
+	return agent;
 }
 
 /**
- * Run one scenario: send the turns, collect failures from `verify`, record
- * the row for the report, and assert at the end so a behavioural regression
- * is visible as a test failure without aborting the rest of the matrix.
+ * Run one scenario: send the turns, collect failures from `verify`, record the
+ * row for the report, and assert at the end so a behavioural regression is
+ * visible as a test failure without aborting the rest of the matrix.
  */
 async function runScenario(opts: {
 	scenario: string;
 	profile: EvalProfile;
 	agent: Agent;
-	rec: RecordingTransport;
 	turns: string[];
 	verify: () => string[];
 }): Promise<void> {
-	const { scenario, profile, agent, rec, turns, verify } = opts;
+	const { scenario, profile, agent, turns, verify } = opts;
 	const t0 = Date.now();
 	const failures: string[] = [];
 	try {
-		for (const turn of turns) await sendAndWait(agent, rec, turn);
+		for (const turn of turns) await sendPaced(agent, turn);
 		failures.push(...verify());
 	} catch (e) {
 		failures.push((e as Error).message);
 	}
-	const { prompt, response, requests } = rec.billedTokens;
+	const { usage } = agent.debug;
 	// On Gemini Live the high-water session `totalTokenCount` is the number the
 	// quota (RESOURCE_EXHAUSTED) is measured against — surface it per row.
-	const info = rec.peakTotalTokens > 0 ? [`session total ${rec.peakTotalTokens} tok`] : [];
+	const info = usage.peakTotal > 0 ? [`session total ${usage.peakTotal} tok`] : [];
 	record({
 		scenario,
 		profile: profile.name,
 		pass: failures.length === 0,
 		notes: [...failures, ...info],
-		requests,
-		toolCalls: rec.toolCalls.length,
-		promptTokens: prompt,
-		responseTokens: response,
+		requests: usage.reports,
+		toolCalls: agent.debug.outbound['tool-result'].count,
+		promptTokens: usage.sumPromptTokens,
+		responseTokens: usage.sumResponseTokens,
 		ms: Date.now() - t0
 	});
 	await agent.stop();
 	expect(failures, `${scenario} [${profile.name}]`).toEqual([]);
 }
 
-const norm = (s: string | undefined) => (s ?? '').trim().toLowerCase();
+const norm = (s: unknown) => String(s ?? '').trim().toLowerCase();
 
-describeLive('LLM evals — static shift planner', () => {
-	beforeEach(() => {
-		clearRegistries();
-	});
+/** What the model said this session — the same text a user would have read. */
+const modelSaid = (agent: Agent) =>
+	agent.transcript
+		.filter((m) => m.role === 'model')
+		.map((m) => m.text)
+		.join(' ');
+
+/** The list's data model — every task cell, as the agent sees it. */
+const todos = () => surface('todo-list')!.getDataModel!();
+
+/** Rendered text of a component, by the id the agent targets it with. */
+const shown = (id: string) =>
+	document.querySelector(`[data-a2ui-id="${id}"]`)?.textContent?.trim() ?? '';
+
+describeLive('LLM evals — static todo list', () => {
 	afterEach(() => cleanup());
 
 	for (const profile of selectedProfiles()) {
 		describe(`[${profile.name}]`, () => {
 			async function start() {
 				configureExtensions(profile.extensions);
-				const { component } = render(ShiftPlannerPage, {
-					staffCount: EVAL_STAFF_COUNT
-				});
-				const page = component as unknown as PlannerExports;
-				const surface = mountedSurface('shift-planner')!;
-				const session = await startSession({
-					profile,
-					surface,
-					contextInstructions: () => page.contextInstructions(),
-					instructions: STATIC_INSTRUCTIONS,
-					mode: 'static'
-				});
-				return { page, ...session };
+				render(TodoListPage, { todoCount: EVAL_TODO_COUNT });
+				return startAgent(todoList, profile);
 			}
 
 			it('single-field-update', async () => {
-				const { page, agent, rec } = await start();
+				const agent = await start();
 				await runScenario({
 					scenario: 'single-field-update',
 					profile,
 					agent,
-					rec,
-					turns: ["Set Anna's shift on Wednesday to 10:00-18:00."],
+					turns: ['Set the due date of the Invoices task to 2026-04-15.'],
 					verify: () => {
-						const anna = page.getStaff().find((s) => s.name === 'Anna');
-						return anna?.shifts.wed === '10:00-18:00'
-							? []
-							: [`anna.wed = "${anna?.shifts.wed}"`];
+						const value = todos()['todo-invoices-due'];
+						return value === '2026-04-15' ? [] : [`invoices.due = "${value}"`];
 					}
 				});
 			});
 
 			it('batch-update', async () => {
-				const { page, agent, rec } = await start();
+				const agent = await start();
 				await runScenario({
 					scenario: 'batch-update',
 					profile,
 					agent,
-					rec,
-					turns: ['Give every staff member the Morning shift on Thursday.'],
+					turns: ['Set the priority of every task to High.'],
 					verify: () => {
-						const missing = page
-							.getStaff()
-							.filter((s) => norm(s.shifts.thu) !== 'morning')
-							.map((s) => `${s.name}.thu = "${s.shifts.thu}"`);
-						return missing;
+						const model = todos();
+						return Object.keys(model)
+							.filter((id) => id.endsWith('-priority') && norm(model[id]) !== 'high')
+							.map((id) => `${id} = "${model[id]}"`);
 					}
 				});
 			});
 
-			// The stability probe: clicking add-staff-btn changes the surface
-			// STRUCTURE (a new roster row appears). With the full/diff echo the
+			// The stability probe: clicking add-todo-btn changes the surface
+			// STRUCTURE (a new task row appears). With the full/diff echo the
 			// model is told the new field ids; with `bare` it must guess them.
-			it('add-staff-then-edit', async () => {
-				const { page, agent, rec } = await start();
+			it('add-task-then-edit', async () => {
+				const agent = await start();
 				await runScenario({
-					scenario: 'add-staff-then-edit',
+					scenario: 'add-task-then-edit',
 					profile,
 					agent,
-					rec,
 					turns: [
-						'Add a new staff member named Bruno with role Waiter, then give Bruno the Evening shift on Friday.'
+						'Add a new task titled Groceries tagged Home, then set the Groceries priority to High.'
 					],
 					verify: () => {
-						const bruno = page.getStaff().find((s) => s.name === 'Bruno');
-						if (!bruno) return ['Bruno was not added'];
+						if (shown('title-groceries') !== 'Groceries') return ['Groceries was not added'];
 						const fails: string[] = [];
-						if (norm(bruno.role) !== 'waiter') fails.push(`bruno.role = "${bruno.role}"`);
-						if (norm(bruno.shifts.fri) !== 'evening')
-							fails.push(`bruno.fri = "${bruno.shifts.fri}"`);
+						const tag = shown('tag-groceries');
+						if (norm(tag) !== 'home') fails.push(`groceries.tag = "${tag}"`);
+						const priority = todos()['todo-groceries-priority'];
+						if (norm(priority) !== 'high') fails.push(`groceries.priority = "${priority}"`);
 						return fails;
 					}
 				});
 			});
 
 			it('read-only-question', async () => {
-				const { page, agent, rec } = await start();
-				const before = JSON.stringify(page.getStaff());
+				const agent = await start();
+				const before = JSON.stringify(todos());
 				await runScenario({
 					scenario: 'read-only-question',
 					profile,
 					agent,
-					rec,
-					turns: ['Which days is Sara working this week, and what hours?'],
+					turns: ['Which tasks are tagged Health, and who is each one assigned to?'],
 					verify: () => {
 						const fails: string[] = [];
-						const text = rec.modelText.toLowerCase();
-						// Sara works mon/tue/wed 08:00-16:00 in the seed data.
-						if (!text.includes('08:00') || !text.includes('16:00'))
-							fails.push(`answer lacks the hours: "${rec.modelText.slice(0, 200)}"`);
-						for (const day of ['monday', 'tuesday', 'wednesday']) {
-							if (!text.includes(day)) fails.push(`answer lacks ${day}`);
+						const answer = modelSaid(agent);
+						const text = answer.toLowerCase();
+						// Dentist (Lena) and Gym (Ivan) are the Health tasks in the seed data.
+						for (const token of ['dentist', 'gym', 'lena', 'ivan']) {
+							if (!text.includes(token))
+								fails.push(`answer lacks ${token}: "${answer.slice(0, 200)}"`);
 						}
-						if (JSON.stringify(page.getStaff()) !== before)
+						if (JSON.stringify(todos()) !== before)
 							fails.push('a read-only question mutated the surface');
 						return fails;
 					}
@@ -242,29 +233,22 @@ describeLive('LLM evals — static shift planner', () => {
 });
 
 describeLive('LLM evals — dynamic surface', () => {
-	beforeEach(() => {
-		clearRegistries();
+	afterEach(() => {
+		cleanup();
 		a2uiState.deleteSurface('ai-canvas');
 	});
-	afterEach(() => cleanup());
 
 	// Dynamic tool results are already lean ({status:'success'}); the profiles
 	// only differ in prompt formatting here, so run the two main arms.
 	for (const profile of selectedProfiles(['baseline', 'optimized'])) {
 		it(`build-form-then-update [${profile.name}]`, async () => {
+			configureExtensions(profile.extensions);
 			render(DynamicCanvasPage, { surfaceId: 'ai-canvas' });
-			const surface = mountedSurface('ai-canvas')!;
-			const { agent, rec } = await startSession({
-				profile,
-				surface,
-				instructions: DYNAMIC_INSTRUCTIONS,
-				mode: 'dynamic'
-			});
+			const agent = await startAgent(dynamicCanvas, profile);
 			await runScenario({
 				scenario: 'build-form-then-update',
 				profile,
 				agent,
-				rec,
 				turns: [
 					"Create a feedback form titled 'Visit feedback' with a short text field for the visitor name, a long text field for comments, and a submit button labelled 'Send'.",
 					"Now prefill the visitor name field with 'Mario Rossi'."
