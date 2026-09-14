@@ -4,9 +4,9 @@ import type { AgentUsage } from './transport';
  * Agent-session debug telemetry.
  *
  * A live agent session can quietly accumulate an enormous token bill: the whole
- * serialized surface is embedded in the system prompt, and (with the
- * `toolResultSurfaceEcho: 'full'` extension) **every tool result echoes it
- * again** — both re-billed each turn. On a dense surface (a todo list with
+ * serialized surface is embedded in the system prompt, and — under
+ * `toolResultSurfaceEcho: 'full'` — **every tool result echoes it again** —
+ * both re-billed each turn. On a dense surface (a todo list with
  * hundreds of inputs) one batch edit can push a single turn past a hundred
  * thousand tokens and trip a provider `RESOURCE_EXHAUSTED` quota error, with no
  * built-in signal as to why.

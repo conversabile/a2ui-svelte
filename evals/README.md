@@ -15,13 +15,13 @@ as the worked example to copy. A real runner would be its own plan.
 ## Why it exists
 
 A2UI's JSON representation is verbose, and the library's historical defaults
-amplify it: the whole serialized surface rides in the system prompt
-(pretty-printed), and — with `toolResultSurfaceEcho: 'full'` — every tool
+amplified it: the whole serialized surface rides in the system prompt
+(pretty-printed), and — under `toolResultSurfaceEcho: 'full'` — every tool
 result echoes the full surface again. On dense surfaces this exhausts provider
 quotas and slows dynamic generation. The evals quantify that cost and answer
 the follow-up question: **do the context optimizations
-(`toolResultSurfaceEcho: 'changed'`, `compactSurfaceJson`) make the agent
-unstable?**
+(`toolResultSurfaceEcho: 'changed'` — now the default — and
+`compactSurfaceJson`) make the agent unstable?**
 
 ## Running
 
@@ -89,7 +89,7 @@ Each LLM scenario runs once per **profile**:
 
 | Profile     | Extensions                             | Agent options              |
 |-------------|----------------------------------------|----------------------------|
-| `baseline`  | defaults (full surface echo)           | pretty JSON                |
+| `baseline`  | `toolResultSurfaceEcho: 'full'`        | pretty JSON                |
 | `optimized` | `toolResultSurfaceEcho: 'changed'`     | `compactSurfaceJson: true` |
 | `bare`      | `toolResultSurfaceEcho: 'none'`        | `compactSurfaceJson: true` |
 

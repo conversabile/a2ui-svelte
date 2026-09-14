@@ -197,12 +197,13 @@ Size it with the app-wide `toolResultSurfaceEcho` extension:
 import { configureExtensions } from 'a2ui-svelte/core';
 
 // once, at startup, before any surface mounts
-configureExtensions({ toolResultSurfaceEcho: 'changed' }); // 'full' | 'changed' | 'none'
+configureExtensions({ toolResultSurfaceEcho: 'full' }); // 'full' | 'changed' | 'none'
 ```
 
-`'full'` (default) re-ships the whole tree on every call — the library's
-biggest token amplifier on a dense surface. `'changed'` ships only what the
-action changed. `'none'` is spec-strict: exactly `{ results }`.
+`'changed'` (default): the result contains only the values the action changed.
+`'full'`: every result contains the whole surface JSON again — on a big
+surface that is what makes the token count explode. `'none'`: the result is
+exactly `{ results }` and nothing else, which is what the spec defines.
 
 Driving a surface without an `Agent` (tests, or an external agent) goes
 through the registry and gets no echo. The tool names are ours, not A2UI's:
@@ -255,15 +256,13 @@ token bill is the production one; only the frames are dropped.
   and dynamic surfaces. The prompt builder will include guidance for
   both. `'dynamic'` only registers the `surfaceUpdate` /
   `dataModelUpdate` / `beginRendering` tools.
-- **Dense surfaces / quota pressure.** The defaults are token-hungry:
-  the prompt embeds the surface pretty-printed and every tool result
-  echoes the whole surface back. Two opt-in, spec-compliant fixes — set
-  `compactSurfaceJson: true` on the definition (single-line surface
-  JSON, ~30% smaller prompt) and, once at startup,
-  `configureExtensions({ toolResultSurfaceEcho: 'changed' })` from
-  `a2ui-svelte/core` (results report only what changed; the full tree
-  only when the structure actually changed). On a 6-row todo-list fixture
-  a 7-call task drops from ~169k to ~61k billed input tokens with both on,
+- **Dense surfaces / quota pressure.** Tool results already report only
+  what changed (`toolResultSurfaceEcho: 'changed'` is the default), but
+  the prompt still embeds the surface pretty-printed. Set
+  `compactSurfaceJson: true` on the definition (single-line surface JSON,
+  ~30% smaller prompt) — it is the one token-saving option still off by
+  default. On a 6-row todo-list fixture a 7-call task drops from ~169k
+  (full echo + pretty JSON) to ~61k billed input tokens with both on,
   with identical outcomes.
 - **Custom prompt.** Pass `buildPrompt: (inputs) => string` in the
   definition to override the assembled system prompt entirely. Use

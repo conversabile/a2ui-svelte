@@ -61,14 +61,20 @@ export interface EvalProfile {
 }
 
 /**
- * The experiment matrix. `baseline` is the library's historical default
- * (pretty JSON + full surface echo on every tool result); `optimized` is the
- * context-economy configuration ('changed' echo + compact JSON); `bare` removes
- * the echo entirely (spec-strict results) — the maximal-removal arm that
- * probes whether the agent destabilises without post-action feedback.
+ * The experiment matrix. `baseline` is the library's historical configuration
+ * (pretty JSON + full surface echo on every tool result) — spelled out
+ * explicitly, NOT as `{}`, because `'changed'` is now the shipped default and
+ * an empty record would silently turn the control arm into the treatment arm;
+ * `optimized` is the low-token configuration ('changed' echo + compact JSON); `bare` removes the echo entirely (spec-strict results) — the
+ * maximal-removal arm that probes whether the agent destabilises without
+ * post-action feedback.
  */
 export const PROFILES: Record<string, EvalProfile> = {
-	baseline: { name: 'baseline', extensions: {}, compactSurfaceJson: false },
+	baseline: {
+		name: 'baseline',
+		extensions: { toolResultSurfaceEcho: 'full' },
+		compactSurfaceJson: false
+	},
 	optimized: {
 		name: 'optimized',
 		extensions: { toolResultSurfaceEcho: 'changed' },

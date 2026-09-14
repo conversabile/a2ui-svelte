@@ -1035,15 +1035,15 @@ export class Agent {
 	 * Attach the surface echo to a tool result, per the app-wide
 	 * `toolResultSurfaceEcho` extension:
 	 *
-	 *   `'full'` (default): the whole serialized page under
-	 *                       `extensions['a2ui-svelte']`, so a 3P consumer that
-	 *                       doesn't know the namespace drops the blob and still
-	 *                       still sees a clean `results` array.
-	 *   `'changed'`:        only what changed vs `#echoBaseline` —
+	 *   `'changed'` (default): only what changed vs `#echoBaseline` —
 	 *                       `updatedSurface` on a structural change,
 	 *                       `updatedDataModel` for value changes,
 	 *                       context/ids only when they moved. Nothing changed ⇒
 	 *                       the result is returned untouched.
+	 *   `'full'`:           the whole serialized page under
+	 *                       `extensions['a2ui-svelte']`, so a 3P consumer that
+	 *                       doesn't know the namespace drops the blob and still
+	 *                       sees a clean `results` array.
 	 *   `'none'` (STRICT):  untouched.
 	 *
 	 * Only tools that declare `mutatesSurface` get one: a purely visual gesture

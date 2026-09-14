@@ -41,11 +41,11 @@ describe('extension presets', () => {
 		});
 	});
 
-	it('ALL_EXTRAS enables every extension', () => {
+	it('ALL_EXTRAS enables every extension, with the changed-only echo', () => {
 		expect(ALL_EXTRAS).toEqual({
 			surfaceWatch: true,
 			batchTools: true,
-			toolResultSurfaceEcho: 'full',
+			toolResultSurfaceEcho: 'changed',
 			pointerTool: true
 		});
 	});
@@ -59,8 +59,8 @@ describe('the app-wide extension record', () => {
 	});
 
 	it('merges a partial over ALL_EXTRAS', () => {
-		configureExtensions({ toolResultSurfaceEcho: 'changed' });
-		expect(getExtensions()).toEqual({ ...ALL_EXTRAS, toolResultSurfaceEcho: 'changed' });
+		configureExtensions({ toolResultSurfaceEcho: 'full' });
+		expect(getExtensions()).toEqual({ ...ALL_EXTRAS, toolResultSurfaceEcho: 'full' });
 	});
 
 	it('is an absolute set, not an accumulation — {} restores the defaults', () => {

@@ -24,7 +24,7 @@
  * <!-- src/routes/+layout.svelte -->
  * <script>
  *   import { configureExtensions } from 'a2ui-svelte/core';
- *   configureExtensions({ toolResultSurfaceEcho: 'changed' });
+ *   configureExtensions({ pointerTool: false });
  * </script>
  * ```
  *
@@ -94,17 +94,17 @@ export interface Extensions {
 	 * `a2ui-svelte` extension namespace. The `results` array is
 	 * byte-identical in all three modes.
 	 *
-	 *  - `'full'` (default): every result echoes the FULL post-action state —
-	 *    `updatedSurface`, `updatedContext`, `availableElementIds`. Maximally
-	 *    informative, but the single biggest token amplifier on dense
-	 *    surfaces: the whole tree is re-billed on every tool call.
-	 *  - `'changed'`: results carry **only what changed** since the model's
-	 *    last known state — `updatedSurface` only when the component STRUCTURE
-	 *    changed (a delta cannot convey new structure, so that case still
-	 *    sends the whole tree); `updatedDataModel`
+	 *  - `'changed'` (default): results carry **only what changed** since the
+	 *    model's last known state — `updatedSurface` only when the component
+	 *    STRUCTURE changed (a delta cannot convey new structure, so that case
+	 *    still sends the whole tree); `updatedDataModel`
 	 *    (`{ surfaceId: { fieldId: value } }`) when field values changed; the
 	 *    rest only when changed. An unchanged surface returns just
 	 *    `{ results }`.
+	 *  - `'full'`: every result carries the FULL post-action state —
+	 *    `updatedSurface`, `updatedContext`, `availableElementIds`. Nothing the
+	 *    delta leaves out, but on a dense surface the whole tree is sent, and
+	 *    paid for, again on every tool call.
 	 *  - `'none'` (STRICT): always just `{ results: [...] }` — no echo.
 	 */
 	toolResultSurfaceEcho: 'none' | 'full' | 'changed';
@@ -131,13 +131,17 @@ export const STRICT: Extensions = Object.freeze({
 });
 
 /**
- * All extensions enabled — the historical behaviour of this library.
- * Default for backwards compatibility.
+ * Every extension on, each at its best setting — the default record.
+ *
+ * Note the echo is `'changed'`, not `'full'`: the delta keeps the model just as
+ * current, without sending the whole tree again on every tool call. `'full'`
+ * stays available as an explicit opt-in for consumers who want the full
+ * snapshot every time.
  */
 export const ALL_EXTRAS: Extensions = Object.freeze({
 	surfaceWatch: true,
 	batchTools: true,
-	toolResultSurfaceEcho: 'full' as const,
+	toolResultSurfaceEcho: 'changed' as const,
 	pointerTool: true
 });
 

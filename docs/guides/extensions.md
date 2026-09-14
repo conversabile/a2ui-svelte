@@ -46,11 +46,13 @@ tool name exists.
 |-------------------------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `surfaceWatch`          | `true`   | The `Agent` keeps the model aware of user-driven surface changes. Delivery is governed by `surfaceWatchTuning.mode`: a silent, idle-timed A2UI v0.9 data-model delta (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`) — payload wrapped in `extensions['a2ui-svelte']` either way. Off → the agent is never told a surface changed. See the [agent-integration guide](agent-integration.md#surface-change-delivery-surfacewatchtuning). |
 | `batchTools`            | `true`   | Declares the batched siblings `click_buttons({clicks})` / `update_text_fields({updates})` to the model **instead of** the singular pair. The singulars stay registered either way. Off → the model sees the singulars.                                                  |
-| `toolResultSurfaceEcho` | `'full'` | How much of the post-action surface the `Agent` echoes onto a tool result under `extensions['a2ui-svelte']`. `'full'` → `updatedSurface`, `updatedContext`, `availableElementIds`. `'changed'` → **only what changed** (see [Changed-only tool results](#changed-only-tool-results-toolresultsurfaceecho-changed)). `'none'` → results are exactly `{ results: [...] }`.                                                          |
+| `toolResultSurfaceEcho` | `'changed'` | How much of the post-action surface the `Agent` echoes onto a tool result under `extensions['a2ui-svelte']`. `'changed'` (default) → **only what changed** (see [Changed-only tool results](#changed-only-tool-results-toolresultsurfaceecho-changed)). `'full'` → the unconditional snapshot: `updatedSurface`, `updatedContext`, `availableElementIds`. `'none'` → results are exactly `{ results: [...] }`.                                                          |
 | `pointerTool`           | `true`   | Registers `point_to_elements({element_ids})` — a non-spec tool that makes components glow and scrolls them into view so the agent can *point at* on-screen data without changing it. Off → the tool is not offered (components still glow as a side effect of the agent editing them). See [On-demand pointing](#on-demand-pointing-point_to_elements). |
 
-Presets: `ALL_EXTRAS` (all on, default) and `STRICT` (all off).
-Both are exported from `a2ui-svelte/core`.
+Presets: `ALL_EXTRAS` (every extension on, default) and `STRICT` (all off).
+Both are exported from `a2ui-svelte/core`. `toolResultSurfaceEcho` is the one
+extension that isn't a boolean, so "on" means its best setting, `'changed'` —
+`'full'` is an explicit opt-in.
 
 ## Setting them
 
@@ -58,7 +60,7 @@ Both are exported from `a2ui-svelte/core`.
 <!-- src/routes/+layout.svelte — once, at startup -->
 <script lang="ts">
   import { configureExtensions } from 'a2ui-svelte/core';
-  configureExtensions({ toolResultSurfaceEcho: 'changed' }); // or configureExtensions(STRICT)
+  configureExtensions({ pointerTool: false }); // or configureExtensions(STRICT)
 </script>
 ```
 
@@ -78,21 +80,24 @@ but is one more reason to set it at startup rather than per request.
   `configureExtensions(STRICT)`.
 - You're auditing wire conformance: run under `STRICT` and assert no
   `extensions['a2ui-svelte']` leakage.
-- Your surface is huge and the full echo dominates the token bill:
-  `toolResultSurfaceEcho: 'changed'` (below).
+- You want the unconditional post-action snapshot on every tool result
+  (more tokens, nothing the delta leaves out):
+  `toolResultSurfaceEcho: 'full'` (below).
 
 ## Changed-only tool results (`toolResultSurfaceEcho: 'changed'`)
 
-The default full echo is the library's single biggest **token amplifier**: on
-a dense surface every `click_button` / `update_text_field` result re-ships the
-whole serialized tree (tens of KB ≈ thousands of tokens), it stays in the
-conversation context forever, and on a request/response transport it is
-re-billed on every subsequent loop request. The `evals/` context-cost
-measurement puts a 7-call task on a 6-row todo list at ~169k billed input
-tokens with the full echo vs ~61k with `'changed'`.
+This is the **default**. The alternative is `'full'`, where every
+`click_button` / `update_text_field` result carries the whole serialized tree.
+That costs more tokens than anything else the library does: each result adds
+tens of KB (thousands of tokens), the text stays in the conversation context
+for the rest of the session, and on a request/response transport it is paid for
+again on every following request. The `evals/` context-cost measurement puts a
+7-call task on a 6-row todo list at ~169k billed input tokens with the full
+echo and pretty-printed JSON, vs ~61k with `'changed'` plus
+`compactSurfaceJson`.
 
-`toolResultSurfaceEcho: 'changed'` keeps the model informed while shipping only
-deltas. The envelope is still `{ results, extensions: { 'a2ui-svelte': … } }`, but the
+With `'changed'` the model stays just as current and the result carries only
+what changed. The envelope is still `{ results, extensions: { 'a2ui-svelte': … } }`, but the
 extras now report what the action **changed** relative to the model's
 last-known state (the system prompt at connect, or the previous tool result):
 

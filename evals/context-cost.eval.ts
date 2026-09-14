@@ -147,7 +147,9 @@ describe('context-cost measurement (hermetic)', () => {
 	});
 
 	for (const [mode, extensions] of [
-		["full-echo ('full')", {}],
+		// Spelled out: `'changed'` is the shipped default, so `{}` would measure
+		// the changed-only arm twice.
+		["full-echo ('full')", { toolResultSurfaceEcho: 'full' as const }],
 		["changed-only ('changed')", { toolResultSurfaceEcho: 'changed' as const }],
 		["no-echo ('none')", { toolResultSurfaceEcho: 'none' as const }]
 	] as Array<[string, Partial<Extensions>]>) {

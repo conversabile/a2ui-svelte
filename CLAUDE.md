@@ -247,6 +247,22 @@ version from them — so when you propose a commit message, use the right type.
 reason it exists; skip the worked argument. An essay per concept is how these
 files become an unmaintainable, context-overflowing mess.
 
+**Write plainly. No figurative language.** Docs, comments, commit messages and
+replies are read by coders who are busy. Say what the code does, in what
+situation, and what it costs. Do not make the reader decode a metaphor. If a
+sentence needs interpretation, rewrite it.
+
+- Name the thing: "every tool result contains the whole surface JSON again",
+  not "the single biggest token amplifier".
+- Use the plain verb: "the result contains", "the prompt includes", "the
+  transport sends" — not "ships", "rides", "carries the story", "injects".
+- No marketing or consultant vocabulary: "context economy", "knob", "lever",
+  "unlock", "leverage", "first-class", "seamless", "trenchcoat".
+- Give the number or the condition, not an intensifier: "~169k input tokens on
+  a 6-row list", not "an enormous bill".
+- Say "should I" and "yes/no" in replies. Not "it warrants", "you may wish to
+  consider".
+
 **Be opinionated; surface what you find.** If something doesn't add up, stop and
 say so. Report a bug or refactor you spot outside the current task instead of
 silently fixing or working around it — this library is built for the long term,

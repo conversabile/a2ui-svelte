@@ -1,5 +1,5 @@
 import { render } from '@testing-library/svelte';
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { Agent } from './agent.svelte';
 import type {
 	AgentTransport,
@@ -89,6 +89,9 @@ async function call(
 const extras = (result: any) => result?.extensions?.[A2UI_EXTENSION_NAMESPACE];
 
 describe("Agent — the tool-result echo ('full')", () => {
+	// `'full'` is an opt-in since ALL_EXTRAS moved to `'changed'`.
+	beforeEach(() => configureExtensions({ toolResultSurfaceEcho: 'full' }));
+
 	it('carries ONE echo built from every surface the definition declares', async () => {
 		render(FieldSurface, { surfaceId: 'a', prefix: 'a' });
 		render(FieldSurface, { surfaceId: 'b', prefix: 'b' });
@@ -174,6 +177,18 @@ describe("Agent — the tool-result echo ('changed')", () => {
 		});
 		expect(again).not.toHaveProperty('extensions');
 		expect(again.results[0].status).toBe('success');
+	});
+
+	it('is the DEFAULT: an unconfigured app gets deltas, not the whole tree', async () => {
+		render(FieldSurface, { surfaceId: 'a', prefix: 'a' });
+		const { transport } = await connectedAgent();
+
+		const result = await call(transport, 'update_text_field', {
+			element_id: 'a-name',
+			value: 'John'
+		});
+		expect(extras(result).updatedDataModel).toEqual({ a: { name: 'John' } });
+		expect(extras(result)).not.toHaveProperty('updatedSurface');
 	});
 
 	it('a structural change (a surface unmounting) echoes the full tree', async () => {

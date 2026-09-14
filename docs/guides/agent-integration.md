@@ -302,8 +302,8 @@ the model — the system prompt's surface blocks and the `SURFACE_UPDATED` sync
 payloads — instead of pretty-printing it. Same JSON, same spec compliance;
 on the eval fixture it shrinks the prompt by ~30%, and the saving recurs on
 **every** turn of the session. Default `false` (pretty) for backwards
-compatibility. Pair it with `toolResultSurfaceEcho: 'changed'` (below) for the
-full context-economy setup.
+compatibility — it is the one token-saving option still off by default;
+`toolResultSurfaceEcho: 'changed'` is already on.
 
 ### Reactive state
 
@@ -349,24 +349,26 @@ whether to render the mic.
 
 ## Debugging token usage
 
-A live session can quietly run up an enormous token bill, and providers
-answer with an opaque `RESOURCE_EXHAUSTED` quota error that gives no hint
-as to *why*. On a **dense static surface** the cause is usually structural,
-and it has two amplifiers:
+A live session can run up a very large token bill, and the provider answers
+with a `RESOURCE_EXHAUSTED` quota error that does not say which part of your
+payload was too big. On a **dense static surface** there are two places the
+tokens come from:
 
 1. **The whole serialized surface is in the system prompt.** `staticSurfacesBlock`
    embeds `JSON.stringify(surface.getJson(), null, 2)` — *pretty-printed*, which
    inflates the byte size by ~60% over compact. A grid with a few hundred inputs
    (N rows × several editable cells each) can be **100–200 KB ≈ 50k+ tokens**
    on its own, re-counted on every turn of the session.
-2. **Every tool result echoes the full surface back.** With
-   `toolResultSurfaceEcho: 'full'` (the default), each `click_button` /
-   `update_text_field` result carries `updatedSurface` = the whole surface JSON
-   again (see [The tool-result echo](#the-tool-result-echo)). One batched edit
-   ⇒ one more full-surface copy injected into context.
+2. **Every tool result can echo the full surface back.** Under
+   `toolResultSurfaceEcho: 'full'`, each `click_button` / `update_text_field`
+   result carries `updatedSurface` = the whole surface JSON again (see
+   [The tool-result echo](#the-tool-result-echo)). One batched edit adds one
+   more copy of the whole surface to the conversation. The default `'changed'` sends only
+   what changed, but still sends the whole tree when the structure changes.
 
-So even a *single* 20-field batch update on a large grid can push one turn well
-past a hundred thousand tokens. `agent.debug` makes that visible.
+So a single 20-field batch update on a large grid can push one turn past a
+hundred thousand tokens. `agent.debug` reports the byte size of each thing the
+agent sends, so you can see which of the two it was.
 
 ### `agent.debug` (`AgentDebugStats`)
 
@@ -436,33 +438,36 @@ can render the debug toggle wherever your own controls live.
 To turn measurement off entirely, pass `debug: false` in the definition (the
 `agent.debug` instance still exists, it just stays empty).
 
-### Context economy — the two opt-in knobs
+### Two settings that cut the token count
 
-The two amplifiers above have matching, A2UI-compliant mitigations:
+One setting addresses each of the two sources above. Both keep the JSON
+A2UI-compliant:
 
 1. **`compactSurfaceJson: true`** on the `AgentDefinition` — single-line
    surface JSON in the prompt and sync payloads (~30% smaller prompt on the
-   eval fixture; see [`Agent` construction](#compactsurfacejson)).
-2. **`configureExtensions({ toolResultSurfaceEcho: 'changed' })`** — tool
-   results echo **only what changed**: a tiny `updatedDataModel` delta for
-   value edits, the full `updatedSurface` only when the component structure
-   actually changed. See the
+   eval fixture; see [`Agent` construction](#compactsurfacejson)). **Off by
+   default** — this is the one you still have to set.
+2. **`toolResultSurfaceEcho: 'changed'`** — a tool result carries **only what
+   changed**: a small `updatedDataModel` for value edits, and the whole
+   `updatedSurface` only when the component structure changed. **On by
+   default**; set it only if you want `'full'` back. See the
    [extensions guide](extensions.md#changed-only-tool-results-toolresultsurfaceecho-changed).
 
-On the eval suite's 6-row todo list, a realistic 7-call task bills
-~169k input tokens across the request/response loop with the defaults and
-~61k with both knobs on — with identical task outcomes. The `evals/` suite
-(`pnpm eval`, see [evals/README.md](../../evals/README.md)) measures this
-hermetically and runs live LLM A/B scenarios so you can verify the agent
-stays stable before flipping the flags in your app.
+On the eval suite's 6-row todo list, a 7-call task costs ~169k input tokens
+across the request/response loop with the full echo and pretty-printed JSON,
+and ~61k with both settings applied. The task result is the same either way.
+The `evals/` suite (`pnpm eval`, see [evals/README.md](../../evals/README.md))
+measures this without calling a model, and also runs live A/B scenarios against
+a real model so you can check that the agent still behaves correctly before you
+change the settings in your app.
 
-If even the structural echo is too much, `toolResultSurfaceEcho: 'none'`
-(STRICT) removes it entirely — but then nothing tells the model about components that
-appear as a result of its own actions; on transports without `surfaceWatch`
-delivery (request/response text) the model is blind to structure changes
-until the next user turn. Splitting a huge grid into smaller per-day /
-per-department surfaces and publishing only the visible one remains the best
-structural fix.
+`toolResultSurfaceEcho: 'none'` (STRICT) removes the echo completely, at a
+cost: nothing then tells the model about components that appeared because of
+its own action. On transports that do not deliver `surfaceWatch` updates
+(request/response text), the model will not know the structure changed until
+the next user turn. If the surface itself is the problem, the better fix is to
+split a large grid into smaller surfaces (one per day, one per department) and
+mount only the one currently on screen.
 
 ## `<AgentShell>` mounting
 
@@ -561,10 +566,11 @@ they're not extensions.)
 |-------------------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `surfaceWatch`          | `true`   | The `Agent` keeps the model aware of user-driven changes to the mounted surfaces. *How* the change is delivered is governed by `surfaceWatchTuning.mode` — a silent, idle-timed data-model sync (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`). See "Surface-change delivery" below. The payload is wrapped under `extensions['a2ui-svelte']`. |
 | `batchTools`            | `true`   | Registers batched variants `click_buttons({clicks: […]})` and `update_text_fields({updates: […]})` alongside the single-element `click_button` / `update_text_field`. The agent prompt is taught to prefer batching when many ops fall together. |
-| `toolResultSurfaceEcho` | `'full'` | How much of the post-action surface a click / update result echoes back under `extensions['a2ui-svelte']`. `'full'` — the whole snapshot (`updatedSurface`, `updatedContext`, `availableElementIds`). `'changed'` — only what the action changed. `'none'` — results are just `{ results: [...] }`, exactly what the spec promises. |
+| `toolResultSurfaceEcho` | `'changed'` | How much of the post-action surface a click / update result echoes back under `extensions['a2ui-svelte']`. `'changed'` (default) — only what the action changed. `'full'` — the whole snapshot (`updatedSurface`, `updatedContext`, `availableElementIds`), every call. `'none'` — results are just `{ results: [...] }`, exactly what the spec promises. |
 | `pointerTool`           | `true`   | Registers `point_to_elements({element_ids})`, a non-spec gesture that scrolls components into view and glows them so the agent can point at on-screen data without changing it. |
 
-`STRICT` is the all-off preset; `ALL_EXTRAS` is the all-on default.
+`STRICT` is the all-off preset; `ALL_EXTRAS` is the all-on default (where "on"
+for `toolResultSurfaceEcho` means `'changed'`, not `'full'`).
 Both are exported from `a2ui-svelte/core`.
 
 ### Setting them
@@ -573,7 +579,7 @@ Both are exported from `a2ui-svelte/core`.
 <!-- src/routes/+layout.svelte — once, at startup -->
 <script lang="ts">
   import { configureExtensions } from 'a2ui-svelte/core';
-  configureExtensions({ toolResultSurfaceEcho: 'changed' });
+  configureExtensions({ pointerTool: false });
 </script>
 ```
 
