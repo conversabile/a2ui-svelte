@@ -1,16 +1,16 @@
-import type { AgentTransport, TransportCapabilities } from './transport';
+import type { AgentModel, AgentModelCapabilities } from './model';
 
-/** An {@link AgentTransport} wrapper, plus the teardown for what it subscribed. */
-export interface ForwardedTransport extends AgentTransport {
+/** An {@link AgentModel} wrapper, plus the teardown for what it subscribed. */
+export interface ForwardedModel extends AgentModel {
 	/**
 	 * Drop every subscription opened through this wrapper's `on()`. Does not
-	 * close the inner transport — the owner of the inner still calls `close()`.
+	 * close the inner model — the owner of the inner still calls `close()`.
 	 */
 	dispose(): void;
 }
 
 /**
- * Wrap a transport, forwarding the whole {@link AgentTransport} contract to it
+ * Wrap a model, forwarding the whole {@link AgentModel} contract to it
  * and replacing only what `overrides` names.
  *
  * A `Proxy`, not a hand-written class, for one reason: **optionality is
@@ -27,15 +27,15 @@ export interface ForwardedTransport extends AgentTransport {
  * Internal on purpose — export it from `./agent` the day a second wrapper needs
  * it (Rule 8: adding an export later is cheap, removing one is breaking).
  */
-export function forwardTransport(
-	inner: AgentTransport,
-	overrides: Partial<AgentTransport> = {}
-): ForwardedTransport {
+export function forwardModel(
+	inner: AgentModel,
+	overrides: Partial<AgentModel> = {}
+): ForwardedModel {
 	const subscriptions = new Set<() => void>();
 	// Keyed by the unbound method, so a re-assigned member never serves a stale bind.
 	const boundMethods = new WeakMap<object, unknown>();
 
-	const on: AgentTransport['on'] = (event, handler) => {
+	const on: AgentModel['on'] = (event, handler) => {
 		const off = inner.on(event, handler);
 		const unsubscribe = () => {
 			if (subscriptions.delete(unsubscribe)) off();
@@ -68,14 +68,14 @@ export function forwardTransport(
 			if (overridden(prop)) return overrideOf(prop) !== undefined;
 			return Reflect.has(target, prop);
 		}
-	}) as ForwardedTransport;
+	}) as ForwardedModel;
 }
 
 /**
- * Mask a transport's audio modality: `'audio'` stripped from
+ * Mask a model's audio modality: `'audio'` stripped from
  * `capabilities.input`/`output` and `sendAudioChunk` hidden, everything else
  * forwarded untouched. The `Agent` — which adapts to capabilities, never to a
- * transport's identity — then runs it text-in/text-out and starts no mic
+ * model's identity — then runs it text-in/text-out and starts no mic
  * recorder or speaker player.
  *
  * For evals and any headless deployment (node/jsdom have no audio devices).
@@ -83,10 +83,10 @@ export function forwardTransport(
  * the production load.** Only the frames are dropped; the output transcription
  * carries the text.
  */
-export function withoutAudio(transport: AgentTransport): ForwardedTransport {
-	return forwardTransport(transport, {
-		get capabilities(): TransportCapabilities {
-			const caps = transport.capabilities;
+export function withoutAudio(model: AgentModel): ForwardedModel {
+	return forwardModel(model, {
+		get capabilities(): AgentModelCapabilities {
+			const caps = model.capabilities;
 			return {
 				...caps,
 				input: caps.input.filter((m) => m !== 'audio'),

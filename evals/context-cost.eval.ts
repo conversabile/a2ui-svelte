@@ -11,9 +11,9 @@
  *    (`toolResultSurfaceEcho: 'full'`), the changed-only echo (`'changed'`),
  *    and no echo (`'none'`);
  *  - the cumulative billed input across the agentic loop on a client-history
- *    (request/response) transport, where every tool result is re-sent on
+ *    (request/response) model, where every tool result is re-sent on
  *    every subsequent request;
- *  - the peak session context on a server-history (live/voice) transport,
+ *  - the peak session context on a server-history (live/voice) model,
  *    where every tool result permanently grows the billed session context.
  */
 import fs from 'node:fs';
@@ -22,7 +22,7 @@ import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import { toolRegistry } from '../src/lib/core/registries/tool-registry';
 import { Agent } from '../src/lib/agent/agent.svelte';
-import { ScriptedTransport } from '../src/lib/agent/scripted-transport';
+import { ScriptedModel } from '../src/lib/agent/scripted-model';
 import { buildSystemPrompt } from '../src/lib/agent/prompt-builder';
 import { configureExtensions, type Extensions } from '../src/lib/core/extensions';
 import {
@@ -81,18 +81,18 @@ const SCRIPTED_CALLS: Array<{ name: string; args: Record<string, unknown> }> = [
  * be billed for.
  */
 async function runScriptedTask(compact: boolean): Promise<number[]> {
-	const transport = new ScriptedTransport(
+	const model = new ScriptedModel(
 		SCRIPTED_CALLS.map((c) => ({ calls: [c], text: 'done' }))
 	);
-	const agent = new Agent({ ...todoList, compactSurfaceJson: compact }, transport);
+	const agent = new Agent({ ...todoList, compactSurfaceJson: compact }, model);
 	await agent.start();
 	for (let i = 0; i < SCRIPTED_CALLS.length; i++) await agent.send(`step ${i + 1}`);
 	agent.stop();
-	return transport.toolResults.map((r) => JSON.stringify(r.result).length);
+	return model.toolResults.map((r) => JSON.stringify(r.result).length);
 }
 
 /**
- * Cumulative input a client-history transport bills for the loop: request k
+ * Cumulative input a client-history model bills for the loop: request k
  * re-sends the system prompt, the user turn, and every prior tool result.
  * (Function-call echoes and model text are small; ignored — this is a floor.)
  */
@@ -199,7 +199,7 @@ describe('context-cost measurement (hermetic)', () => {
 			lines.push(`  per call: [${r.resultSizes.map((s) => s.toLocaleString()).join(', ')}]`);
 			lines.push(`  total   : ${fmt(sum(r.resultSizes))}`);
 			lines.push(`  whole-task billed input, request/response loop (8 requests): ${fmt(r.billedChars)}`);
-			lines.push(`  peak session context, live/voice transport               : ${fmt(r.peakSessionChars)}`);
+			lines.push(`  peak session context, live/voice model                     : ${fmt(r.peakSessionChars)}`);
 		}
 		lines.push('');
 		const text = lines.join('\n');

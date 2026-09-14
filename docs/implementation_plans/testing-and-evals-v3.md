@@ -19,9 +19,9 @@ working tree on 2026-08-27; WP1 and WP2 were reproduced with a live test.
 | need | use |
 |---|---|
 | make the agent click/type | `toolRegistry.execute('click_button', { element_id })` — `a2ui-svelte/core` |
-| a deterministic model | `ScriptedTransport` — `a2ui-svelte/agent` |
-| record what the model got | `ScriptedTransport.textsSent` / `.toolResults` / `.connectOpts` |
-| the assembled system prompt | `ScriptedTransport.connectOpts.systemInstruction` |
+| a deterministic model | `ScriptedModel` — `a2ui-svelte/agent` |
+| record what the model got | `ScriptedModel.textsSent` / `.toolResults` / `.connectOpts` |
+| the assembled system prompt | `ScriptedModel.connectOpts.systemInstruction` |
 | token accounting | `agent.debug.usage` (`last`, `peakTotal`, `reports`, `sumPromptTokens`, `sumResponseTokens`) |
 | the human actor | `@testing-library/user-event` |
 
@@ -34,9 +34,9 @@ wrong:
 
 | don't build | use |
 |---|---|
-| `conversation()` / `chat` | `new Agent(def, transport)` **is** the conversation |
-| `scriptedModel()` | `new ScriptedTransport([...])` |
-| `RecordingTransport` | `ScriptedTransport` already records — `textsSent`, `toolResults`, `connectOpts` |
+| `conversation()` / `chat` | `new Agent(def, model)` **is** the conversation |
+| `scriptedModel()` | `new ScriptedModel([...])` |
+| `RecordingModel` | `ScriptedModel` already records — `textsSent`, `toolResults`, `connectOpts` |
 | an `agent` / `assistant` actor beyond WP9b's three functions | `Agent`'s own dispatch *is* `toolRegistry.execute` ([agent.svelte.ts:839](../../src/lib/agent/agent.svelte.ts#L839)); WP9b adds only the throw-on-failure those three need |
 | an `a2ui-svelte/evals` subpath | `agent.debug.usage` for tokens; `withoutAudio` ships from `./agent` (WP9) |
 | `clearRegistries`, `stubJsdomGaps`, `sendAndWait`, `estTokens` | each is a bug wearing a helper costume — fix it at the source: WP4, WP5, WP6 |
@@ -51,8 +51,8 @@ tests are its only user today:
 |---|---|---|
 | `mountedSurfaces()`, `surface(id)` (WP7) | `./core` | `surfaces: mountedSurfaces` is production `AgentDefinition` wiring |
 | `validateSurface()` (WP10) | `./core` | the surfaces call it on mount/update, in production too |
-| `withoutAudio()` (WP9) | `./agent` | a real `AgentTransport` wrapper; valid in any headless deployment |
-| `ScriptedTransport` | `./agent` (unchanged) | implements the production contract faithfully — usable for demos and offline mode |
+| `withoutAudio()` (WP9) | `./agent` | a real `AgentModel` wrapper; valid in any headless deployment |
+| `ScriptedModel` | `./agent` (unchanged) | implements the production contract faithfully — usable for demos and offline mode |
 | `agentCall`, `agentClick`, `agentFill` (WP9b) | `./testing` | invert production behaviour; dangerous in app code |
 | `window.__a2ui` (WP8) | neither — installed, never imported | |
 
@@ -103,7 +103,7 @@ is the spec for the docs (WP12).
 ### 1.1 Component tests — Vitest + jsdom
 
 **What you're testing:** that when the agent acts, your app reacts — and that
-what a human does is visible to the agent. No model, no transport: you call the
+what a human does is visible to the agent. No model, no network: you call the
 same tool registry a real model hits.
 
 ```ts
@@ -187,29 +187,29 @@ The regex is crude. Declaring the ids once as a const and referencing it from
 both the template and the instructions deletes the failure mode instead of
 testing for it; keep the test for surfaces whose instructions are prose.
 
-### 1.2 Tests that need a live `Agent` — `ScriptedTransport`
+### 1.2 Tests that need a live `Agent` — `ScriptedModel`
 
 **What you're testing:** your code that only runs with an agent attached — UI
 bound to `agent.status` or `agent.transcript`, a `userActionBus.emit` you fire
 yourself, a `buildPrompt` override. Same runner and tier as §1.1.
 
-**What we give you:** [`ScriptedTransport`](../../src/lib/agent/scripted-transport.ts),
+**What we give you:** [`ScriptedModel`](../../src/lib/agent/scripted-model.ts),
 a deterministic stand-in model that replies from a script and records what it was
-sent (`textsSent`, `toolResults`, `connectOpts`). Don't hand-roll a transport:
-its `TransportCapabilities` decide which `Agent` paths run (`streaming`,
+sent (`textsSent`, `toolResults`, `connectOpts`). Don't hand-roll a model:
+its `AgentModelCapabilities` decide which `Agent` paths run (`streaming`,
 `interruptible`, `historyOwnership`, `canInitiateTurn`), and one wrong value
 makes the test green against a configuration your app never runs.
 
 ```ts
 import { render, screen } from '@testing-library/svelte';
-import { Agent, ScriptedTransport } from 'a2ui-svelte/agent';
+import { Agent, ScriptedModel } from 'a2ui-svelte/agent';
 import { shiftPlanner } from './agent-definition';   // your app's own definition — §1.4
 import PlannerPage from './PlannerPage.svelte';
 
 // The app disables its own Save button while the agent is mid-turn, so the
 // human and the agent can't both write the week.
 test('the human Save button locks while the agent is working', async () => {
-	const model = new ScriptedTransport([
+	const model = new ScriptedModel([
 		{ on: 'save', calls: [{ name: 'click_button', args: { element_id: 'save-week-btn' } }] }
 	]);
 	const agent = new Agent(shiftPlanner, model);
@@ -232,7 +232,7 @@ match the calls you scripted is the script echoing itself.
 **The other two cases:**
 
 - an event you emit yourself (`userActionBus.emit`, a route change, a domain
-  event): script nothing — `new ScriptedTransport()` is then a pure recorder —
+  event): script nothing — `new ScriptedModel()` is then a pure recorder —
   and assert on `model.textsSent`, the agent's output rather than yours;
 - a `buildPrompt` override
   ([agent.svelte.ts:169](../../src/lib/agent/agent.svelte.ts#L169)): assert on
@@ -296,20 +296,20 @@ test: it costs money and is non-deterministic.
 
 **What you're testing:** whether a real model, given the prompt your app ships,
 actually does what the user asked — and what that costs. Render your page, attach
-your agent to a real transport, send a message, assert. Your own `*.eval.ts`
+your agent to a real model, send a message, assert. Your own `*.eval.ts`
 files with your own runner (ours: [evals/](../../evals/)), never `pnpm test`:
 they cost money and are non-deterministic.
 
 ```ts
 import { render, screen } from '@testing-library/svelte';
 import { Agent } from 'a2ui-svelte/agent';
-import { GeminiTextTransport } from 'a2ui-svelte/agent/gemini';
+import { GeminiTextModel } from 'a2ui-svelte/agent/gemini';
 import { shiftPlanner } from '../src/lib/agent-definition';    // your app's agent
 import PlannerPage from '../src/routes/planner/+page.svelte';  // your app's page
 
 it('sets a shift', async () => {
 	render(PlannerPage);
-	const agent = new Agent(shiftPlanner, new GeminiTextTransport({ apiKey, model }));
+	const agent = new Agent(shiftPlanner, new GeminiTextModel({ apiKey, model }));
 	await agent.start();
 
 	await agent.send("Set Anna's Wednesday shift to 10:00-18:00");    // WP6
@@ -320,8 +320,8 @@ it('sets a shift', async () => {
 });
 ```
 
-**It is your agent.** An `Agent` is your definition plus a transport, and the
-eval changes only the transport — node has no browser to mint a token, and each
+**It is your agent.** An `Agent` is your definition plus a model, and the
+eval changes only the model — node has no browser to mint a token, and each
 scenario wants a fresh conversation. So keep the definition in a module
 (`src/lib/agent-definition.ts`) that your layout and your evals both import; with
 `surfaces: mountedSurfaces` (WP7) it needs no other wiring.
@@ -335,10 +335,10 @@ replied (`agent.transcript`), what it cost (`agent.debug.usage`).
 `if (agent.configIssue) throw new Error(agent.configIssue)` — otherwise a wrong
 API key reads as the model getting the answer wrong.
 
-To eval a **voice** transport under node, wrap it (WP9):
+To eval a **voice** model under node, wrap it (WP9):
 
 ```ts
-new Agent(shiftPlanner, withoutAudio(new GeminiLiveTransport({ … })));
+new Agent(shiftPlanner, withoutAudio(new GeminiLiveModel({ … })));
 ```
 
 The model still generates audio, so the token bill is unchanged — exactly the
@@ -349,7 +349,7 @@ text.
 
 ## 2. Cross-cutting constraints
 
-- **Rule 6 — transport neutrality.** No `instanceof` on transports in `Agent`,
+- **Rule 6 — model neutrality.** No `instanceof` on models in `Agent`,
   `<AgentShell>`, or `src/lib/core/`. Provider quirks are normalized inside the
   provider adapter.
 - **Rule 7 — tests ship with behaviour.** Every WP lands with co-located
@@ -538,24 +538,24 @@ Button, authors no longer maintain it by hand.
 
 ---
 
-### WP3 — Normalize `turn-complete` on `GeminiLiveTransport` — DONE
+### WP3 — Normalize `turn-complete` on `GeminiLiveModel` — DONE
 
-**The bug.** [transport.ts:172](../../src/lib/agent/transport.ts#L172) defines
+**The bug.** [model.ts:172](../../src/lib/agent/model.ts#L172) defines
 `turn-complete` as "model finished its turn", but
-[live-transport.ts:284-286](../../src/lib/agent/gemini/live-transport.ts#L284-L286)
+[live-model.ts:284-286](../../src/lib/agent/gemini/live-model.ts#L284-L286)
 forwards **every** `serverContent.turnComplete` — including the one that arrives
 right after a `toolCall`, before the model has seen the results. Anything
 observing it (a test, a composer re-enabling, `Agent.#onTurnComplete` flushing a
 sync) fires mid-loop. WP6 is unimplementable without this.
 
 **The fix — copy what already exists in this repo.**
-[realtime-transport.ts:302-314](../../src/lib/agent/openai/realtime-transport.ts#L302-L314)
+[realtime-model.ts:302-314](../../src/lib/agent/openai/realtime-model.ts#L302-L314)
 tracks `#pendingCount`, emits `tool-call`, and deliberately does not emit
-`turn-complete`. [scripted-transport.ts:116-129](../../src/lib/agent/scripted-transport.ts#L116-L129)
+`turn-complete`. [scripted-model.ts:116-129](../../src/lib/agent/scripted-model.ts#L116-L129)
 does the same.
 
 1. `#pendingToolResults`, set to `calls.length` when emitting `tool-call`
-   ([lines 248-258](../../src/lib/agent/gemini/live-transport.ts#L248-L258)).
+   ([lines 248-258](../../src/lib/agent/gemini/live-model.ts#L248-L258)).
 2. Decrement in `sendToolResult`.
 3. Suppress `turn-complete` while `> 0`. The genuine end-of-turn one arrives
    after the continuation and is forwarded normally.
@@ -564,12 +564,12 @@ does the same.
    public option.
 5. Clear on `close()` and on `interrupted`.
 
-**Also audit** [deepgram/agent-transport.ts:290-292](../../src/lib/agent/deepgram/agent-transport.ts#L290-L292)
-(`AgentAudioDone`) and [hume/evi-transport.ts:283-285](../../src/lib/agent/hume/evi-transport.ts#L283-L285)
+**Also audit** [deepgram/agent-model.ts:290-292](../../src/lib/agent/deepgram/agent-model.ts#L290-L292)
+(`AgentAudioDone`) and [hume/evi-model.ts:283-285](../../src/lib/agent/hume/evi-model.ts#L283-L285)
 (`assistant_end`) for the same hazard; document the finding in each file's
 comment either way.
 
-**Tests.** `live-transport.test.ts`: feed `toolCall` → `turnComplete` →
+**Tests.** `live-model.test.ts`: feed `toolCall` → `turnComplete` →
 (after `sendToolResult`) `modelTurn` + `turnComplete`; assert exactly one
 `turn-complete` reaches the listener, after the continuation. Plus the timeout case.
 
@@ -634,7 +634,7 @@ to B; unmount B → registry empty. Plus a single mount/unmount round trip.
 **In this commit (closure):** delete the manual resets in
 [agent.test.ts:120-122](../../src/lib/agent/agent.test.ts#L120-L122),
 [AgentShell.test.ts:65](../../src/lib/agent/AgentShell.test.ts#L65),
-[scripted-transport.test.ts:33](../../src/lib/agent/scripted-transport.test.ts#L33) and
+[scripted-model.test.ts:33](../../src/lib/agent/scripted-model.test.ts#L33) and
 [StaticSurface.extensions.test.ts:21-23](../../src/lib/renderer/StaticSurface.extensions.test.ts#L21-L23);
 suite stays green without them — that is the proof the fix works.
 
@@ -749,9 +749,9 @@ that doesn't lie).
 **The fix.** Both, same plumbing:
 
 1. `agent.on('turn-complete' | 'error', handler): () => void`. Minimal payload —
-   do not re-export the transport's event map.
+   do not re-export the model's event map.
 2. `agent.send(text): Promise<void>` — resolves on the next `turn-complete`,
-   **rejects** on transport `error` or `close` during the turn.
+   **rejects** on model `error` or `close` during the turn.
    `sendTextMessage` keeps its void signature and becomes a thin wrapper.
 
 Requirements:
@@ -760,12 +760,12 @@ Requirements:
   `vi.useFakeTimers()`.
 - **No quiesce window, no activity heuristic.** If you need one, WP3 is
   incomplete — fix it there.
-- Identical for streaming and request/response transports (Rule 6).
+- Identical for streaming and request/response models (Rule 6).
 - Handle: `send` before `start()`; optional `timeoutMs` with a default that does
   not make Vitest's 5 s timeout fire first with a useless message.
 
 **Tests.** Extend [agent.test.ts](../../src/lib/agent/agent.test.ts) with the
-existing `MockAgentTransport`: resolves after a tool-call round trip, not at the
+existing `MockAgentModel`: resolves after a tool-call round trip, not at the
 intermediate events; rejects on error and on close; sequential sends resolve in
 order; `on()` unsubscribes.
 
@@ -818,7 +818,7 @@ from the eval fixtures — if that doesn't get simpler, the API is wrong. Then m
 the example's `AgentDefinition` out of
 [+layout.svelte:35](../../examples/minimal-app/src/routes/+layout.svelte#L35)
 into `examples/minimal-app/src/lib/agent-definition.ts` — the layout keeps only
-the transport picker. That is the shape §1.4 tells users to adopt.
+the model picker. That is the shape §1.4 tells users to adopt.
 
 **Commit:** `feat(core): track mounted surfaces in a global registry`
 
@@ -883,7 +883,7 @@ snapshot taken before A's click and re-reports changes the model already has.
 - **Registered in `toolRegistry`.** `click_button` / `update_text_field`
   unconditionally — they are the v0.8 tools, and `toolRegistry.execute(name,
   args)` is the entry point any external spec-compliant agent would come through
-  (nothing carries calls into it yet; that transport is the consumer's). They
+  (nothing carries calls into it yet; that model is the consumer's). They
   must not vanish because an extension is on.
 - **Declared to our own model** (`Agent.#assembleToolDeclarations`). With
   `batchTools` on, declare the batched pair *instead of* the singular pair, not
@@ -972,18 +972,18 @@ window.__a2ui = {
 
 ---
 
-### WP9 — `withoutAudio(transport)`
+### WP9 — `withoutAudio(model)`
 
-**The gap.** Evaluating a voice transport under node needs the audio modality
+**The gap.** Evaluating a voice model under node needs the audio modality
 masked so `Agent` drives it text-in/text-out. Today
 [evals/harness.ts](../../evals/harness.ts) (at HEAD, after WP0) does this with a
-local `HeadlessTextMask`: ~65 lines hand-copying the `AgentTransport` contract
+local `HeadlessTextMask`: ~65 lines hand-copying the `AgentModel` contract
 member-by-member, so adding one optional member to the contract silently stops
 it forwarding, with no compiler signal. Replace it.
 
 **The fix.** Two small pieces in `src/lib/agent/`:
 
-1. `forwardTransport(inner, overrides?)` — **internal, not exported**: forwards
+1. `forwardModel(inner, overrides?)` — **internal, not exported**: forwards
    every contract member, applies overrides, and **preserves optionality**: a
    member absent on `inner` must stay absent on the result
    (`'sendAudioChunk' in result === false`), because `Agent` and `<AgentShell>`
@@ -991,7 +991,7 @@ it forwarding, with no compiler signal. Replace it.
    `dispose()` that unsubscribes — `inner.on()` returns an unsubscribe, and all
    six are easy to drop. Export it the day a second wrapper needs it, not before
    (Rule 8: adding later is cheap).
-2. `withoutAudio(transport)` on top of it: strips `'audio'` from
+2. `withoutAudio(model)` on top of it: strips `'audio'` from
    `capabilities.input`/`output` and hides `sendAudioChunk`. Exported from
    `a2ui-svelte/agent`.
 
@@ -999,11 +999,11 @@ Doc comment must keep the hard-won point: **the model still generates audio, so
 the token bill is unchanged — exactly the production load.** The frames are
 dropped; the output transcription carries the text.
 
-**Tests.** A fake transport with and without each optional member: `'sendAudioChunk' in wrapped`
+**Tests.** A fake model with and without each optional member: `'sendAudioChunk' in wrapped`
 tracks `inner`; `capabilities` reads through live (the built-ins declare it as a
 getter — the mask depends on that); overrides win; `dispose()` unsubscribes.
 
-**Commit:** `feat(agent): add withoutAudio transport mask`
+**Commit:** `feat(agent): add withoutAudio model mask`
 
 ---
 
@@ -1154,7 +1154,7 @@ more useful than the bare `'not_found'` token. `'pointed'` carried nothing
   call. A boolean *instead of* `status` throws away the natural home of the
   `error` string.
 - **It churns the model contract to express the same two states.** `'success' |
-  'error'` is what the prompt documents and what every transport test fixture
+  'error'` is what the prompt documents and what every model test fixture
   already asserts. Swapping in a boolean means rewriting the prompt rule, those
   fixtures, and any consumer's assertions — a Rule 8 breaking change — for no
   behavioural gain.
@@ -1310,16 +1310,16 @@ versions (post-WP0).
   [evals/harness.ts](../../evals/harness.ts) — WP3–WP6 make each one
   meaningless. Every live turn loses a ~4 s sleep. Turn-gap pacing (provider
   quota) stays.
-- Replace `HeadlessTextMask` with `withoutAudio` (WP9) and `RecordingTransport`
-  with `ScriptedTransport`'s own fields where a script is used; where a real
-  transport runs, assert through `agent.transcript` / `agent.debug` instead of
+- Replace `HeadlessTextMask` with `withoutAudio` (WP9) and `RecordingModel`
+  with `ScriptedModel`'s own fields where a script is used; where a real
+  model runs, assert through `agent.transcript` / `agent.debug` instead of
   a recorder.
 - Replace the fixtures' `surface()` accessors with `mountedSurfaces` (WP7).
 - Move each fixture's agent definition into a module the eval imports
   (`evals/fixtures/shift-planner-agent.ts`, `…/dynamic-canvas-agent.ts`) — today
   `STATIC_INSTRUCTIONS` and the definition built inside `startSession` sit next
   to the assertions, which is not the shape §1.4 recommends. `startSession` then
-  only picks the transport.
+  only picks the model.
 - Assert through the DOM / `getDataModel()` instead of the fixtures' `getStaff()`
   accessor where the state is in the surface — users have no such accessor.
 - Use `agent.debug.usage` for token accounting instead of a bespoke counter.
@@ -1329,7 +1329,7 @@ versions (post-WP0).
   already there; it wasn't.)
 - **Rename the file.** Nothing in this repo should be called `harness.ts`
   (`Agent` is the harness). `evals/setup.ts`. It keeps only the Gemini matrix:
-  `PROFILES`, `selectedProfiles`, `makeEvalTransport`, env knobs.
+  `PROFILES`, `selectedProfiles`, `makeEvalModel`, env knobs.
 - Update [evals/llm-scenarios.eval.ts](../../evals/llm-scenarios.eval.ts),
   [evals/context-cost.eval.ts](../../evals/context-cost.eval.ts) and
   [evals/README.md](../../evals/README.md). `startSession` / `runScenario`
@@ -1340,7 +1340,7 @@ become a shipped runner (scenarios, rubric scoring, retries, comparison table)?
 Shipping a runner is a real feature and its own plan. Until then the docs must
 say "primitives and a worked example", not "eval framework".
 
-**Commit:** `refactor(evals): drop quiesce hacks and hand-rolled transport masks`
+**Commit:** `refactor(evals): drop quiesce hacks and hand-rolled model masks`
 
 ---
 
@@ -1493,7 +1493,7 @@ text, what the next WP must know. The diff holds everything else.)_
 
 ### WP3 — DONE (2026-08-30, branch `develop`)
 
-- `GeminiLiveTransport` counts `#pendingToolResults`, drops the `turnComplete`
+- `GeminiLiveModel` counts `#pendingToolResults`, drops the `turnComplete`
   that trails a `toolCall`, and forwards the post-continuation one. 1500 ms
   private fallback if no continuation arrives; cleared on `interrupted`/`close`.
 - Deviation: `+=` not `=` — the server may split one turn's calls across several
@@ -1502,7 +1502,7 @@ text, what the next WP must know. The diff holds everything else.)_
   `AgentAudioDone` has a residual hazard — a filler utterance *before* a
   `FunctionCallRequest` puts it ahead of the call, which no counter can catch.
   Documented in both files; not "fixed" by guesswork.
-- New `live-transport.test.ts` (mocks `@google/genai`, drives `onmessage`).
+- New `live-model.test.ts` (mocks `@google/genai`, drives `onmessage`).
   `pnpm test` 247 / 1 skipped; `pnpm check` 0 errors. WP6 is unblocked.
 
 ### WP4 — DONE (2026-08-30, branch `develop`)
@@ -1590,7 +1590,7 @@ text, what the next WP must know. The diff holds everything else.)_
   `getTools` export. **Breaking** — all exported from `./renderer`.
 - The context-cost eval measured the echo by calling `toolRegistry.execute`
   directly, which no longer produces one; it now drives a real `Agent` over
-  `ScriptedTransport`. Same numbers as before (179k → 63k billed chars).
+  `ScriptedModel`. Same numbers as before (179k → 63k billed chars).
 - `pnpm test` 280 (+`builtin-tools.test.ts`, `agent.echo.test.ts`); `pnpm check`
   0 errors; `pnpm eval`, `pnpm package`, minimal-app build all green.
 
@@ -1625,14 +1625,14 @@ text, what the next WP must know. The diff holds everything else.)_
 
 ### WP9 — DONE (2026-09-11, branch `develop`)
 
-- `agent/forward-transport.ts`: module-local `forwardTransport(inner, overrides?)`
-  + `withoutAudio()` on `./agent`, returning `ForwardedTransport` (+ `dispose()`).
+- `agent/forward-model.ts`: module-local `forwardModel(inner, overrides?)`
+  + `withoutAudio()` on `./agent`, returning `ForwardedModel` (+ `dispose()`).
 - A `Proxy`, as predicted: the `has` trap tracks `inner`'s optionality, getters
   read through live, a new contract member forwards with no edit here. `get`
   **binds to inner** (its `#private` fields throw on a Proxy `this`); an override
   valued `undefined` *hides* a member.
 - Took WP11's "replace `HeadlessTextMask`" bullet too — `evals/harness.ts` is 40
-  lines lighter; `RecordingTransport` (same hand-copy bug) stays WP11's.
+  lines lighter; `RecordingModel` (same hand-copy bug) stays WP11's.
 - The biting test: an `Agent` on a voice fake, **no** Web Audio mocks — a leaking
   mask lands in `configIssue`. Verified red. `pnpm test` 296, `pnpm check` clean.
 
@@ -1684,7 +1684,7 @@ text, what the next WP must know. The diff holds everything else.)_
 ### WP11 — DONE (2026-09-11, branch `develop`)
 
 - `evals/harness.ts` → `evals/setup.ts` (303 → 109 lines): profiles, model/env
-  knobs, `makeEvalTransport`. Gone: `clearRegistries`, `RecordingTransport`,
+  knobs, `makeEvalModel`. Gone: `clearRegistries`, `RecordingModel`,
   `EVAL_QUIESCE_MS`, `sendAndWait`'s fingerprint polling. `sendAndWait` (56
   lines) → `sendPaced` (11) in the scenario file — pace, then `agent.send`;
   `startSession` (22) → `startAgent` (9). `evals/` is 181 lines lighter.
@@ -1714,7 +1714,7 @@ text, what the next WP must know. The diff holds everything else.)_
 - New skill `test-a2ui-app.md`, registered in `index.json` and cross-linked
   from `integrate-agent.md`; carries the placement rule.
 - `agent-integration.md` §Testing now points at both guides and keeps only the
-  agent half (`ScriptedTransport`, `withoutAudio`).
+  agent half (`ScriptedModel`, `withoutAudio`).
 - Snippets use `surface(id)!.getDataModel!()` — both handle members are
   optional, so the plan's bare form doesn't type-check.
 

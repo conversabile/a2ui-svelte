@@ -5,7 +5,7 @@ import type { RequestHandler } from './$types';
 
 /**
  * Dev proxy for the Gemini **text** (request/response) path. The browser-side
- * `GeminiTextTransport` is pointed here via its `baseUrl`, so the real
+ * `GeminiTextModel` is pointed here via its `baseUrl`, so the real
  * `GEMINI_API_KEY` stays server-only — the client only sends a placeholder.
  * The `@google/genai` SDK builds paths like
  * `/v1beta/models/<model>:streamGenerateContent?alt=sse`; this catch-all

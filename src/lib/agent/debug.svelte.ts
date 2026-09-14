@@ -1,4 +1,4 @@
-import type { AgentUsage } from './transport';
+import type { AgentUsage } from './model';
 
 /**
  * Agent-session debug telemetry.
@@ -18,14 +18,14 @@ import type { AgentUsage } from './transport';
  *     These are measured locally (no estimation) the moment the agent sends
  *     them, so the bloat is visible *before* the provider ever responds.
  *  2. **Authoritative token usage** reported back by the provider (Gemini Live's
- *     `usageMetadata`, Anthropic's `usage`), folded in via the transport's
+ *     `usageMetadata`, Anthropic's `usage`), folded in via the model's
  *     `'usage'` event — the real number the quota is measured against.
  *
  * The class is reactive (`$state`), so a host can bind a debug box straight to
  * an instance — see `<AgentShell debug>`. Measurement is cheap (string length +
  * a capped event ring), so the agent keeps one always-on and exposes it as
  * `agent.debug`; rendering it is opt-in. The `audio-*` categories simply stay
- * empty on a text transport.
+ * empty on a text model.
  */
 
 /** A live API category whose outbound payloads we size. */
@@ -41,7 +41,7 @@ export type DebugOutboundKind =
 /** A live API category we receive. */
 export type DebugInboundKind = 'audio-in' | 'usage';
 
-/** A non-fatal transport signal (neither sent nor received) — e.g. a rate-limit retry. */
+/** A non-fatal model signal (neither sent nor received) — e.g. a rate-limit retry. */
 export type DebugMetaKind = 'notice';
 
 /** Running totals for one payload category. */
@@ -128,7 +128,7 @@ export class AgentDebugStats {
 	 * the provider reports cumulatively, as Gemini Live does); `reports` counts
 	 * how many usage messages arrived; `sumPromptTokens` / `sumResponseTokens`
 	 * accumulate the per-report input and output counts — on a request/response
-	 * transport that sum is the whole tool loop's bill, which no single report
+	 * model that sum is the whole tool loop's bill, which no single report
 	 * shows.
 	 */
 	usage = $state<{
@@ -227,7 +227,7 @@ export class AgentDebugStats {
 	}
 
 	/**
-	 * Record a non-fatal transport notice (e.g. a rate-limit retry) into the
+	 * Record a non-fatal model notice (e.g. a rate-limit retry) into the
 	 * rolling feed. Tracked only as an event line — it carries no byte/token
 	 * cost of its own.
 	 */

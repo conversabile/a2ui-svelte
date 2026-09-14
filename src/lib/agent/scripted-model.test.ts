@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { Agent, type AgentSurface } from './agent.svelte';
-import { ScriptedTransport } from './scripted-transport';
+import { ScriptedModel } from './scripted-model';
 import { toolRegistry } from '../core/registries/tool-registry';
 import { actionRegistry } from '../core/registries/action-registry';
 
-// Drain the microtask queue (ScriptedTransport defers its emits to a microtask;
+// Drain the microtask queue (ScriptedModel defers its emits to a microtask;
 // tool dispatch is async). A macrotask hop lets all of it settle.
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -27,7 +27,7 @@ function registerClickButton(): void {
 	});
 }
 
-describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
+describe('Agent with a ScriptedModel (deterministic, no model)', () => {
 	beforeEach(() => {
 		actionRegistry.unregisterBySurface('main');
 	});
@@ -36,11 +36,11 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 	});
 
 	it('drives a click_button on a test surface and the surface state changes (no network)', async () => {
-		// Guard: a deterministic transport must never touch the network.
+		// Guard: a deterministic model must never touch the network.
 		const fetchSpy =
 			typeof globalThis.fetch === 'function'
 				? vi.spyOn(globalThis, 'fetch').mockImplementation((() => {
-						throw new Error('ScriptedTransport must not hit the network');
+						throw new Error('ScriptedModel must not hit the network');
 					}) as never)
 				: null;
 
@@ -56,7 +56,7 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 		);
 		registerClickButton();
 
-		const transport = new ScriptedTransport([
+		const model = new ScriptedModel([
 			{
 				on: 'save it',
 				calls: [{ name: 'click_button', args: { element_id: 'save-btn' } }],
@@ -75,7 +75,7 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 				instructions: 'persona',
 				surfaces: () => surfaces
 			},
-			transport
+			model
 		);
 
 		await agent.start();
@@ -90,13 +90,13 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 
 		// The action ran → the surface changed.
 		expect(surface.value).toBe('after');
-		// The tool result the agent echoed back to the transport.
-		expect(transport.toolResults).toEqual([
+		// The tool result the agent echoed back to the model.
+		expect(model.toolResults).toEqual([
 			{ id: expect.any(String), name: 'click_button', result: { status: 'success' } }
 		]);
 		// The scripted follow-up reply landed as a model transcript turn.
 		expect(agent.transcript.at(-1)).toEqual({ role: 'model', text: 'Saved.' });
-		expect(transport.textsSent).toContain('please save it');
+		expect(model.textsSent).toContain('please save it');
 		expect(agent.status).toBe('idle');
 		expect(fetchSpy?.mock.calls.length ?? 0).toBe(0);
 
@@ -105,13 +105,13 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 	});
 
 	it('replies with scripted text and returns to idle on turn-complete', async () => {
-		const transport = new ScriptedTransport([{ text: 'Hi there.' }]);
+		const model = new ScriptedModel([{ text: 'Hi there.' }]);
 		const agent = new Agent(
 			{
 				instructions: 'persona',
 				surfaces: () => []
 			},
-			transport
+			model
 		);
 
 		await agent.start();
@@ -142,7 +142,7 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 		}
 		registerClickButton();
 
-		const transport = new ScriptedTransport([
+		const model = new ScriptedModel([
 			{
 				on: 'both',
 				calls: [
@@ -157,7 +157,7 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 				instructions: 'persona',
 				surfaces: () => []
 			},
-			transport
+			model
 		);
 
 		await agent.start();
@@ -167,7 +167,7 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 
 		// Both actions ran in batch order; both results echoed; one final reply.
 		expect(order).toEqual(['a', 'b']);
-		expect(transport.toolResults.map((t) => t.name)).toEqual(['click_button', 'click_button']);
+		expect(model.toolResults.map((t) => t.name)).toEqual(['click_button', 'click_button']);
 		expect(agent.transcript.at(-1)).toEqual({ role: 'model', text: 'Done.' });
 
 		await agent.stop();
@@ -176,20 +176,20 @@ describe('Agent with a ScriptedTransport (deterministic, no model)', () => {
 	it('closes out an unscripted (forwarded) turn without consuming the queued reaction', async () => {
 		// The head reaction is gated on the user message; a non-matching turn (as a
 		// forwarded surface-sync turn would be) must not consume it.
-		const transport = new ScriptedTransport([{ on: 'real question', text: 'The answer.' }]);
+		const model = new ScriptedModel([{ on: 'real question', text: 'The answer.' }]);
 		const agent = new Agent(
 			{
 				instructions: 'persona',
 				surfaces: () => []
 			},
-			transport
+			model
 		);
 
 		await agent.start();
 		flushSync();
 
 		// A turn the script doesn't match: gets a bare turn-complete, queue intact.
-		transport.sendText('<event>SURFACE_UPDATED</event> ...');
+		model.sendText('<event>SURFACE_UPDATED</event> ...');
 		await flush();
 		flushSync();
 		expect(agent.transcript.filter((m) => m.role === 'model')).toEqual([]);

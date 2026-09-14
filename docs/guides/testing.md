@@ -4,9 +4,9 @@ What you test in an A2UI app is that **both actors see the same UI**: when
 the agent acts, your app reacts; when the human types, the agent sees it.
 
 **The library ships no test framework** — no runner, no scenario DSL, no
-mock model beyond a deterministic transport. You use Vitest + Testing
-Library as usual; we add two functions that drive the UI as the agent
-does and throw when it can't.
+mock model beyond `ScriptedModel`. You use Vitest + Testing Library as
+usual; we add two functions that drive the UI as the agent does and throw
+when it can't.
 
 Three activities, three sections: component tests (below), tests that
 need a live `Agent`, end-to-end. Running a **real** model is an eval —
@@ -17,7 +17,7 @@ see [evals.md](evals.md).
 | you import | from | what it is |
 |---|---|---|
 | `surface`, `mountedSurfaces`, `toolRegistry`, `actionRegistry`, `validateSurface` | `a2ui-svelte/core` | framework — your app uses these too |
-| `Agent`, `ScriptedTransport`, `withoutAudio` | `a2ui-svelte/agent` | framework |
+| `Agent`, `ScriptedModel`, `withoutAudio` | `a2ui-svelte/agent` | framework |
 | `agentCall`, `agentClick`, `agentFill` | `a2ui-svelte/testing` | **test-only** |
 
 The rule: something lives in `a2ui-svelte/testing` **iff it is useless or
@@ -40,7 +40,7 @@ lint the boundary:
 ## 1. Component tests — Vitest + jsdom
 
 **What you're testing:** that when the agent acts, your app reacts — and
-that what a human does is visible to the agent. No model, no transport:
+that what a human does is visible to the agent. No model, no network:
 you call the same tool registry a real model hits.
 
 ```ts
@@ -128,29 +128,29 @@ from both the template and the instructions deletes the failure mode
 instead of testing for it; keep the test for surfaces whose instructions
 are prose.
 
-## 2. Tests that need a live `Agent` — `ScriptedTransport`
+## 2. Tests that need a live `Agent` — `ScriptedModel`
 
 **What you're testing:** code that only runs with an agent attached — UI
 bound to `agent.status` or `agent.transcript`, a `userActionBus.emit` you
 fire yourself, a `buildPrompt` override. Same runner and tier as §1.
 
-`ScriptedTransport` is a deterministic stand-in model: it replies from a
+`ScriptedModel` is a deterministic stand-in model: it replies from a
 script and records what it was sent (`textsSent`, `toolResults`,
-`connectOpts`). Don't hand-roll a transport — its `TransportCapabilities`
+`connectOpts`). Don't hand-roll a model — its `AgentModelCapabilities`
 decide which `Agent` paths run (`streaming`, `interruptible`,
 `historyOwnership`, `canInitiateTurn`), and one wrong value makes the test
 green against a configuration your app never runs.
 
 ```ts
 import { render, screen } from '@testing-library/svelte';
-import { Agent, ScriptedTransport } from 'a2ui-svelte/agent';
+import { Agent, ScriptedModel } from 'a2ui-svelte/agent';
 import { todoList } from './agent-definition';   // your app's own definition
 import TodoListPage from './TodoListPage.svelte';
 
 // The app disables its own Save button while the agent is mid-turn, so the
 // human and the agent can't both write the list.
 test('the human Save button locks while the agent is working', async () => {
-  const model = new ScriptedTransport([
+  const model = new ScriptedModel([
     { on: 'save', calls: [{ name: 'click_button', args: { element_id: 'save-list-btn' } }] }
   ]);
   const agent = new Agent(todoList, model);
@@ -173,7 +173,7 @@ match the calls you scripted is the script echoing itself.
 The other two cases:
 
 - **an event you emit yourself** (`userActionBus.emit`, a route change, a
-  domain event): script nothing — `new ScriptedTransport()` is then a pure
+  domain event): script nothing — `new ScriptedModel()` is then a pure
   recorder — and assert on `model.textsSent`, the agent's output rather
   than yours;
 - **a `buildPrompt` override**: assert on

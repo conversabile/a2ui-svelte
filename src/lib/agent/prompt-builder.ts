@@ -5,8 +5,8 @@
  * is the concatenation of all non-empty blocks separated by a blank line.
  *
  * The blocks are channel-agnostic. History is optional: server-history
- * transports (voice) embed the recent transcript here for reconnect
- * continuity, while client-history transports (text) own `messages[]` and omit
+ * models (voice) embed the recent transcript here for reconnect
+ * continuity, while client-history models (text) own `messages[]` and omit
  * it (pass `includeHistory: false` or no `transcriptHistory`). Library users
  * wanting a different prompt should pass `buildPrompt` to the agent rather than
  * editing these defaults.
@@ -32,13 +32,13 @@ export interface PromptInputs {
   contextInstructions: string;
   /**
    * Prior conversation turns to embed in the prompt. Optional — server-history
-   * transports (voice) supply it for reconnect continuity; client-history
-   * transports (text) own `messages[]` and omit it.
+   * models (voice) supply it for reconnect continuity; client-history
+   * models (text) own `messages[]` and omit it.
    */
   transcriptHistory?: Array<{ role: "user" | "model"; text: string }>;
   /**
    * Force-omit the history block even when `transcriptHistory` is non-empty.
-   * Defaults to including history when present. Client-history transports pass
+   * Defaults to including history when present. Client-history models pass
    * `false`.
    */
   includeHistory?: boolean;

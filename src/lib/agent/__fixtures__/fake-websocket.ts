@@ -2,7 +2,7 @@ import { vi } from 'vitest';
 
 /**
  * Programmable stand-in for the browser `WebSocket`, shared by the
- * WebSocket-based transport specs (OpenAI Realtime, Deepgram, Hume). Records
+ * WebSocket-based model adapters' specs (OpenAI Realtime, Deepgram, Hume). Records
  * constructor args and sent frames; exposes `open()` / `message()` /
  * `serverClose()` helpers to drive the server side of the conversation.
  */

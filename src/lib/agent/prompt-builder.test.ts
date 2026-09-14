@@ -134,7 +134,7 @@ describe('prompt-builder', () => {
 		});
 	});
 
-	describe('optional history (client-history transports)', () => {
+	describe('optional history (client-history models)', () => {
 		const withHistory: PromptInputs = {
 			...baseInputs,
 			transcriptHistory: [{ role: 'user', text: 'hello there' }]

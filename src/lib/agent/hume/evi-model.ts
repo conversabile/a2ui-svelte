@@ -1,12 +1,12 @@
 import type {
-	AgentTransport,
-	AgentTransportConnectOptions,
-	AgentTransportEventMap,
-	TransportCapabilities
-} from '../transport';
+	AgentModel,
+	AgentModelConnectOptions,
+	AgentModelEventMap,
+	AgentModelCapabilities
+} from '../model';
 import { base64ToBytes, downmixToMono, int16ToBase64, resamplePcm16, wavToPcm16 } from '../pcm';
 
-export interface HumeEviTransportOptions {
+export interface HumeEviModelOptions {
 	/**
 	 * OAuth access token for the EVI socket (recommended for browsers — mint
 	 * server-side with `fetchHumeAccessToken`, exported from
@@ -32,21 +32,21 @@ export interface HumeEviTransportOptions {
 	url?: string;
 }
 
-type EventName = keyof AgentTransportEventMap;
+type EventName = keyof AgentModelEventMap;
 
 /** Sample rates fixed by the neutral contract (mic in / speaker out). */
 const MIC_RATE = 16000;
 const PLAYER_RATE = 24000;
 
 /**
- * Hume EVI (Empathic Voice Interface) implementation of {@link AgentTransport}
+ * Hume EVI (Empathic Voice Interface) implementation of {@link AgentModel}
  * — a streaming, natively speech-to-speech profile (like Gemini Live and
  * OpenAI Realtime, unlike a pipeline). Hume's free plan includes monthly
- * credits, which makes it an easy zero-cost way to try a voice transport.
+ * credits, which makes it an easy zero-cost way to try a voice model.
  *
- * The whole agent rides the socket: one `session_settings` message carries the
- * system prompt, the tool declarations (`parameters` stringified, as EVI
- * expects), and the mic audio format — so the transport-neutral
+ * The whole agent is configured over the socket: one `session_settings`
+ * message carries the system prompt, the tool declarations (`parameters`
+ * stringified, as EVI expects), and the mic audio format — so the model-neutral
  * `AgentDefinition` stays the single source of truth and no platform-side
  * config is required (`configId` remains available for hosts that want one).
  *
@@ -54,17 +54,17 @@ const PLAYER_RATE = 24000;
  * unchanged; EVI's output arrives as base64 **WAV** (typically 48 kHz), which
  * is unpacked, downmixed and resampled here to the contract's raw 24 kHz PCM.
  */
-export class HumeEviTransport implements AgentTransport {
+export class HumeEviModel implements AgentModel {
 	#accessToken?: string | (() => string | Promise<string>);
 	#apiKey?: string | (() => string | Promise<string>);
 	#configId?: string;
 	#voiceId?: string;
 	#url: string;
 	#ws: WebSocket | null = null;
-	#listeners: { [E in EventName]?: Set<(p: AgentTransportEventMap[E]) => void> } = {};
+	#listeners: { [E in EventName]?: Set<(p: AgentModelEventMap[E]) => void> } = {};
 	#closed = false;
 
-	constructor(opts: HumeEviTransportOptions) {
+	constructor(opts: HumeEviModelOptions) {
 		this.#accessToken = opts.accessToken;
 		this.#apiKey = opts.apiKey;
 		this.#configId = opts.configId;
@@ -77,9 +77,9 @@ export class HumeEviTransport implements AgentTransport {
 	 * (`user_interruption`), server-held history. No silent-context channel —
 	 * EVI's only text inject (`user_input`) provokes a response, so surface
 	 * syncs ride `sendText` (acceptable degradation, see
-	 * `AgentTransport.sendContextUpdate`).
+	 * `AgentModel.sendContextUpdate`).
 	 */
-	get capabilities(): TransportCapabilities {
+	get capabilities(): AgentModelCapabilities {
 		return {
 			streaming: true,
 			interruptible: true,
@@ -91,13 +91,13 @@ export class HumeEviTransport implements AgentTransport {
 		};
 	}
 
-	async connect(opts: AgentTransportConnectOptions): Promise<void> {
+	async connect(opts: AgentModelConnectOptions): Promise<void> {
 		this.#closed = false;
 		const accessToken =
 			typeof this.#accessToken === 'function' ? await this.#accessToken() : this.#accessToken;
 		const apiKey = typeof this.#apiKey === 'function' ? await this.#apiKey() : this.#apiKey;
 		if (!accessToken && !apiKey) {
-			throw new Error('HumeEviTransport needs an accessToken (or an apiKey for development).');
+			throw new Error('HumeEviModel needs an accessToken (or an apiKey for development).');
 		}
 		// Browsers can't set auth headers on a WebSocket — EVI takes the
 		// credential as a query parameter instead.
@@ -142,7 +142,7 @@ export class HumeEviTransport implements AgentTransport {
 				try {
 					message = JSON.parse(String(event.data));
 				} catch (e) {
-					console.warn('[HumeEviTransport] unparseable server message:', e);
+					console.warn('[HumeEviModel] unparseable server message:', e);
 					return;
 				}
 				// chat_metadata is EVI's session-open ack — settle connect() on it.
@@ -201,9 +201,9 @@ export class HumeEviTransport implements AgentTransport {
 
 	on<E extends EventName>(
 		event: E,
-		handler: (payload: AgentTransportEventMap[E]) => void
+		handler: (payload: AgentModelEventMap[E]) => void
 	): () => void {
-		let set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+		let set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) {
 			set = new Set();
 			(this.#listeners[event] as unknown) = set;
@@ -327,14 +327,14 @@ export class HumeEviTransport implements AgentTransport {
 		}
 	}
 
-	#emit<E extends EventName>(event: E, payload: AgentTransportEventMap[E]): void {
-		const set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+	#emit<E extends EventName>(event: E, payload: AgentModelEventMap[E]): void {
+		const set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) return;
 		for (const h of set) {
 			try {
 				h(payload);
 			} catch (e) {
-				console.error(`[HumeEviTransport] listener for "${event}" threw:`, e);
+				console.error(`[HumeEviModel] listener for "${event}" threw:`, e);
 			}
 		}
 	}

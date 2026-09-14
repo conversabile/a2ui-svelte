@@ -1,12 +1,12 @@
 import type {
-	AgentTransport,
-	AgentTransportConnectOptions,
-	AgentTransportEventMap,
-	TransportCapabilities
-} from '../transport';
+	AgentModel,
+	AgentModelConnectOptions,
+	AgentModelEventMap,
+	AgentModelCapabilities
+} from '../model';
 import { base64ToBytes, bytesToBase64 } from '../pcm';
 
-export interface DeepgramVoiceAgentTransportOptions {
+export interface DeepgramVoiceAgentModelOptions {
 	/**
 	 * Auth for the Agent socket: a short-lived grant JWT (recommended for
 	 * browsers — mint server-side with `mintDeepgramToken`, exported from
@@ -38,15 +38,15 @@ export interface DeepgramVoiceAgentTransportOptions {
 	url?: string;
 }
 
-type EventName = keyof AgentTransportEventMap;
+type EventName = keyof AgentModelEventMap;
 
 /**
- * Deepgram Voice Agent implementation of {@link AgentTransport} — a streaming
+ * Deepgram Voice Agent implementation of {@link AgentModel} — a streaming
  * voice profile built as a managed STT→LLM→TTS pipeline rather than a native
  * speech-to-speech model. The whole agent is configured **over the socket**
  * (one `Settings` message carries the system prompt, the function
  * declarations, and the audio formats), which is exactly the shape the
- * transport-neutral `Agent` needs: the definition stays client-side and no
+ * model-neutral `Agent` needs: the definition stays client-side and no
  * dashboard-side agent object exists.
  *
  * Functions declared without an `endpoint` are client-side: Deepgram emits
@@ -57,9 +57,9 @@ type EventName = keyof AgentTransportEventMap;
  * speaker rate), so chunks pass straight through.
  *
  * Free tier note: Deepgram's pay-as-you-go signup includes one-off free
- * credits, which makes this the cheapest way to try a voice transport.
+ * credits, which makes this the cheapest way to try a voice model.
  */
-export class DeepgramVoiceAgentTransport implements AgentTransport {
+export class DeepgramVoiceAgentModel implements AgentModel {
 	#token: string | (() => string | Promise<string>);
 	#authScheme?: 'bearer' | 'token';
 	#listenModel: string;
@@ -69,10 +69,10 @@ export class DeepgramVoiceAgentTransport implements AgentTransport {
 	#greeting?: string;
 	#url: string;
 	#ws: WebSocket | null = null;
-	#listeners: { [E in EventName]?: Set<(p: AgentTransportEventMap[E]) => void> } = {};
+	#listeners: { [E in EventName]?: Set<(p: AgentModelEventMap[E]) => void> } = {};
 	#closed = false;
 
-	constructor(opts: DeepgramVoiceAgentTransportOptions) {
+	constructor(opts: DeepgramVoiceAgentModelOptions) {
 		this.#token = opts.token;
 		this.#authScheme = opts.authScheme;
 		this.#listenModel = opts.listenModel ?? 'nova-3';
@@ -88,9 +88,9 @@ export class DeepgramVoiceAgentTransport implements AgentTransport {
 	 * (`UserStartedSpeaking`), server-held history. No silent-context channel —
 	 * Deepgram's only text inject (`InjectUserMessage`) provokes a response, so
 	 * surface syncs ride `sendText` (acceptable degradation, see
-	 * `AgentTransport.sendContextUpdate`).
+	 * `AgentModel.sendContextUpdate`).
 	 */
-	get capabilities(): TransportCapabilities {
+	get capabilities(): AgentModelCapabilities {
 		return {
 			streaming: true,
 			interruptible: true,
@@ -102,7 +102,7 @@ export class DeepgramVoiceAgentTransport implements AgentTransport {
 		};
 	}
 
-	async connect(opts: AgentTransportConnectOptions): Promise<void> {
+	async connect(opts: AgentModelConnectOptions): Promise<void> {
 		this.#closed = false;
 		const token = typeof this.#token === 'function' ? await this.#token() : this.#token;
 		// Grant JWTs ride `bearer`, raw API keys ride `token`. A JWT is three
@@ -161,7 +161,7 @@ export class DeepgramVoiceAgentTransport implements AgentTransport {
 				try {
 					message = JSON.parse(String(event.data));
 				} catch (e) {
-					console.warn('[DeepgramVoiceAgentTransport] unparseable server message:', e);
+					console.warn('[DeepgramVoiceAgentModel] unparseable server message:', e);
 					return;
 				}
 				// Settle connect() on SettingsApplied — config accepted, session live.
@@ -230,9 +230,9 @@ export class DeepgramVoiceAgentTransport implements AgentTransport {
 
 	on<E extends EventName>(
 		event: E,
-		handler: (payload: AgentTransportEventMap[E]) => void
+		handler: (payload: AgentModelEventMap[E]) => void
 	): () => void {
-		let set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+		let set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) {
 			set = new Set();
 			(this.#listeners[event] as unknown) = set;
@@ -340,14 +340,14 @@ export class DeepgramVoiceAgentTransport implements AgentTransport {
 		}
 	}
 
-	#emit<E extends EventName>(event: E, payload: AgentTransportEventMap[E]): void {
-		const set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+	#emit<E extends EventName>(event: E, payload: AgentModelEventMap[E]): void {
+		const set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) return;
 		for (const h of set) {
 			try {
 				h(payload);
 			} catch (e) {
-				console.error(`[DeepgramVoiceAgentTransport] listener for "${event}" threw:`, e);
+				console.error(`[DeepgramVoiceAgentModel] listener for "${event}" threw:`, e);
 			}
 		}
 	}

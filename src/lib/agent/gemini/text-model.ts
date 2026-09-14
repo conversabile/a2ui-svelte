@@ -9,14 +9,14 @@ import type {
 	Part
 } from '@google/genai';
 import type {
-	AgentTransport,
-	AgentTransportConnectOptions,
-	AgentTransportEventMap,
+	AgentModel,
+	AgentModelConnectOptions,
+	AgentModelEventMap,
 	AgentUsage,
-	TransportCapabilities
-} from '../transport';
+	AgentModelCapabilities
+} from '../model';
 
-export interface GeminiTextTransportOptions {
+export interface GeminiTextModelOptions {
 	/**
 	 * Gemini API key, or a function that produces one — resolved once per
 	 * `connect()`. Optional when `baseUrl` points at a proxy that injects the
@@ -27,7 +27,7 @@ export interface GeminiTextTransportOptions {
 	/**
 	 * Gemini **text** model (request/response). Default `'gemini-3.5-flash'`.
 	 * Distinct from the Live voice model (`gemini-3.1-flash-live-preview`) used
-	 * by `GeminiLiveTransport` — this transport speaks the `generateContent`
+	 * by `GeminiLiveModel` — this adapter speaks the `generateContent`
 	 * API, not the bidi Live socket.
 	 */
 	model?: string;
@@ -76,14 +76,14 @@ function retryHintMs(e: unknown): number | undefined {
 	return m ? Math.ceil(parseFloat(m[1]) * 1000) : undefined;
 }
 
-type EventName = keyof AgentTransportEventMap;
+type EventName = keyof AgentModelEventMap;
 
 /**
- * Request/response **text** transport over a Google Gemini model, using the
+ * Request/response **text** model for Google Gemini, using the
  * `@google/genai` SDK already in the tree (the same package
- * `GeminiLiveTransport` uses for the Live socket — here we drive `ai.models.
+ * `GeminiLiveModel` uses for the Live socket — here we drive `ai.models.
  * generateContentStream` instead of `ai.live`). It runs the agentic tool-loop
- * **client-side** and emits the neutral {@link AgentTransportEventMap}, so the
+ * **client-side** and emits the neutral {@link AgentModelEventMap}, so the
  * shared `Agent` orchestrator drives it with the same code path as Gemini Live —
  * the difference is captured entirely in {@link capabilities}.
  *
@@ -92,7 +92,7 @@ type EventName = keyof AgentTransportEventMap;
  * just request/response (the agent owns history and re-sends `contents[]` each
  * loop iteration).
  */
-export class GeminiTextTransport implements AgentTransport {
+export class GeminiTextModel implements AgentModel {
 	#apiKey?: string | (() => string | Promise<string>);
 	#model: string;
 	#baseUrl?: string;
@@ -100,10 +100,10 @@ export class GeminiTextTransport implements AgentTransport {
 	#retryBaseMs: number;
 	#ai: GoogleGenAI | null = null;
 	#systemInstruction = '';
-	#toolDeclarations: AgentTransportConnectOptions['tools'] = [];
+	#toolDeclarations: AgentModelConnectOptions['tools'] = [];
 	/** Client-owned conversation history (we report `historyOwnership: 'client'`). */
 	#contents: Content[] = [];
-	#listeners: { [E in EventName]?: Set<(p: AgentTransportEventMap[E]) => void> } = {};
+	#listeners: { [E in EventName]?: Set<(p: AgentModelEventMap[E]) => void> } = {};
 	#closed = false;
 	#abort: AbortController | null = null;
 	#turn = 0;
@@ -115,7 +115,7 @@ export class GeminiTextTransport implements AgentTransport {
 	#pendingResponses: Part[] = [];
 	#pendingCount = 0;
 
-	constructor(opts: GeminiTextTransportOptions = {}) {
+	constructor(opts: GeminiTextModelOptions = {}) {
 		this.#apiKey = opts.apiKey;
 		this.#model = opts.model ?? 'gemini-3.5-flash';
 		this.#baseUrl = opts.baseUrl;
@@ -127,7 +127,7 @@ export class GeminiTextTransport implements AgentTransport {
 	 * Request/response text profile: no live session, no barge-in, no silent
 	 * context channel, client-owned history, can't self-initiate a turn.
 	 */
-	get capabilities(): TransportCapabilities {
+	get capabilities(): AgentModelCapabilities {
 		return {
 			streaming: false,
 			interruptible: false,
@@ -139,7 +139,7 @@ export class GeminiTextTransport implements AgentTransport {
 		};
 	}
 
-	async connect(opts: AgentTransportConnectOptions): Promise<void> {
+	async connect(opts: AgentModelConnectOptions): Promise<void> {
 		this.#closed = false;
 		this.#systemInstruction = opts.systemInstruction;
 		this.#toolDeclarations = opts.tools;
@@ -149,18 +149,18 @@ export class GeminiTextTransport implements AgentTransport {
 			role: t.role,
 			parts: [{ text: t.text }]
 		}));
-		// Auth is this transport's own concern. Behind a proxy the key is
+		// Auth is this model's own concern. Behind a proxy the key is
 		// injected server-side, so a placeholder satisfies the SDK; calling
 		// Google directly requires a real key.
 		const apiKey = typeof this.#apiKey === 'function' ? await this.#apiKey() : this.#apiKey;
 		if (!apiKey && !this.#baseUrl) {
 			throw new Error(
-				'GeminiTextTransport needs an apiKey (or a baseUrl proxy that injects one server-side).'
+				'GeminiTextModel needs an apiKey (or a baseUrl proxy that injects one server-side).'
 			);
 		}
 		try {
 			// `httpOptions.baseUrl` lets a host route requests through a same-origin
-			// proxy that injects the real key — see `GeminiTextTransportOptions.baseUrl`.
+			// proxy that injects the real key — see `GeminiTextModelOptions.baseUrl`.
 			this.#ai = new GoogleGenAI({
 				apiKey: apiKey ?? 'proxied-server-side',
 				...(this.#baseUrl ? { httpOptions: { baseUrl: this.#baseUrl } } : {})
@@ -201,9 +201,9 @@ export class GeminiTextTransport implements AgentTransport {
 
 	on<E extends EventName>(
 		event: E,
-		handler: (payload: AgentTransportEventMap[E]) => void
+		handler: (payload: AgentModelEventMap[E]) => void
 	): () => void {
-		let set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+		let set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) {
 			set = new Set();
 			(this.#listeners[event] as unknown) = set;
@@ -265,7 +265,7 @@ export class GeminiTextTransport implements AgentTransport {
 		} catch (e) {
 			if (this.#closed) return;
 			this.#emit('error', {
-				message: (e as Error).message ?? 'Gemini text transport error',
+				message: (e as Error).message ?? 'Gemini text model error',
 				cause: e
 			});
 			return;
@@ -293,7 +293,7 @@ export class GeminiTextTransport implements AgentTransport {
 			// An intentional close()/abort isn't an error — swallow it.
 			if (this.#closed) return;
 			this.#emit('error', {
-				message: (e as Error).message ?? 'Gemini text transport error',
+				message: (e as Error).message ?? 'Gemini text model error',
 				cause: e
 			});
 			return;
@@ -335,7 +335,7 @@ export class GeminiTextTransport implements AgentTransport {
 	 * (429) failures with exponential backoff (honouring the server's
 	 * `retryDelay` hint, capped at {@link RETRY_MAX_MS}). Each retry is announced
 	 * as a `'notice'` event so the agent's debug box surfaces it. Non-rate-limit
-	 * errors, a closed transport, and exhausted retries all propagate.
+	 * errors, a closed model, and exhausted retries all propagate.
 	 */
 	async #requestStream(params: {
 		model: string;
@@ -407,14 +407,14 @@ export class GeminiTextTransport implements AgentTransport {
 			: { output: result };
 	}
 
-	#emit<E extends EventName>(event: E, payload: AgentTransportEventMap[E]): void {
-		const set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+	#emit<E extends EventName>(event: E, payload: AgentModelEventMap[E]): void {
+		const set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) return;
 		for (const h of set) {
 			try {
 				h(payload);
 			} catch (e) {
-				console.error(`[GeminiTextTransport] listener for "${event}" threw:`, e);
+				console.error(`[GeminiTextModel] listener for "${event}" threw:`, e);
 			}
 		}
 	}

@@ -1,8 +1,8 @@
-export { OpenAITextTransport, type OpenAITextTransportOptions } from './text-transport';
+export { OpenAITextModel, type OpenAITextModelOptions } from './text-model';
 export {
-	OpenAIRealtimeTransport,
-	type OpenAIRealtimeTransportOptions
-} from './realtime-transport';
+	OpenAIRealtimeModel,
+	type OpenAIRealtimeModelOptions
+} from './realtime-model';
 export {
 	mintOpenAIRealtimeSecret,
 	type MintOpenAIRealtimeSecretOptions

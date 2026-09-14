@@ -149,4 +149,4 @@ has navigated away. The surface removes itself from the index on its own.
 - `build-custom-component` — when the catalog doesn't have what you need.
 - `build-composite-component` — when you need bespoke HTML but the agent
   should still see a clean A2UI tree.
-- `integrate-agent` — wiring the layout-level `Agent` + transport.
+- `integrate-agent` — wiring the layout-level `Agent` + model.

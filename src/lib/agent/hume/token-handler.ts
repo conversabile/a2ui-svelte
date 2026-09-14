@@ -8,7 +8,7 @@ export interface FetchHumeAccessTokenOptions {
 }
 
 /**
- * Fetch a short-lived OAuth access token for `HumeEviTransport` (client
+ * Fetch a short-lived OAuth access token for `HumeEviModel` (client
  * credentials grant — Hume's tokens last 30 minutes). Throws on failure with
  * a normalised Error — callers translate to HTTP responses.
  *

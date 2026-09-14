@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { HumeEviTransport } from './evi-transport';
+import { HumeEviModel } from './evi-model';
 import { FakeWebSocket, installFakeWebSocket } from '../__fixtures__/fake-websocket';
 import { base64ToInt16, bytesToBase64, int16ToBase64 } from '../pcm';
 
@@ -10,7 +10,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 });
 
-function listen(transport: HumeEviTransport) {
+function listen(model: HumeEviModel) {
 	const ev = {
 		textOut: [] as string[],
 		textIn: [] as string[],
@@ -22,15 +22,15 @@ function listen(transport: HumeEviTransport) {
 		error: [] as string[],
 		close: [] as unknown[]
 	};
-	transport.on('text-out', (p) => ev.textOut.push(p.text));
-	transport.on('text-in', (p) => ev.textIn.push(p.text));
-	transport.on('audio-out', (p) => ev.audioOut.push(p.base64Pcm24k));
-	transport.on('tool-call', (p) => ev.toolCall.push(p.calls));
-	transport.on('turn-complete', () => (ev.turnComplete += 1));
-	transport.on('interrupted', () => (ev.interrupted += 1));
-	transport.on('notice', (n) => ev.notice.push(n.message));
-	transport.on('error', (e) => ev.error.push(e.message));
-	transport.on('close', (c) => ev.close.push(c));
+	model.on('text-out', (p) => ev.textOut.push(p.text));
+	model.on('text-in', (p) => ev.textIn.push(p.text));
+	model.on('audio-out', (p) => ev.audioOut.push(p.base64Pcm24k));
+	model.on('tool-call', (p) => ev.toolCall.push(p.calls));
+	model.on('turn-complete', () => (ev.turnComplete += 1));
+	model.on('interrupted', () => (ev.interrupted += 1));
+	model.on('notice', (n) => ev.notice.push(n.message));
+	model.on('error', (e) => ev.error.push(e.message));
+	model.on('close', (c) => ev.close.push(c));
 	return ev;
 }
 
@@ -45,8 +45,8 @@ const TOOLS = [
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
 /** Connect against the fake socket: open + chat_metadata ack. */
-async function connected(transport: HumeEviTransport, tools = TOOLS) {
-	const connectPromise = transport.connect({ systemInstruction: 'sys', tools });
+async function connected(model: HumeEviModel, tools = TOOLS) {
+	const connectPromise = model.connect({ systemInstruction: 'sys', tools });
 	// Credential resolution is async — wait a tick for the socket to be constructed.
 	await settle();
 	const ws = FakeWebSocket.last;
@@ -81,14 +81,14 @@ function wavBase64(samples: Int16Array, sampleRate: number, channels: number): s
 	return bytesToBase64(bytes);
 }
 
-describe('HumeEviTransport', () => {
+describe('HumeEviModel', () => {
 	it('connects with the access token in the URL and pushes the agent definition as session_settings', async () => {
-		const transport = new HumeEviTransport({
+		const model = new HumeEviModel({
 			accessToken: async () => 'minted-token',
 			configId: 'cfg-1'
 		});
-		listen(transport);
-		const ws = await connected(transport);
+		listen(model);
+		const ws = await connected(model);
 
 		const url = new URL(ws.url);
 		expect(`${url.protocol}//${url.host}${url.pathname}`).toBe('wss://api.hume.ai/v0/evi/chat');
@@ -112,7 +112,7 @@ describe('HumeEviTransport', () => {
 	});
 
 	it('falls back to api_key auth and rejects when no credential is configured', async () => {
-		const withKey = new HumeEviTransport({ apiKey: 'dev-key' });
+		const withKey = new HumeEviModel({ apiKey: 'dev-key' });
 		const connectPromise = withKey.connect({ systemInstruction: 'sys', tools: [] });
 		const ws = FakeWebSocket.last;
 		expect(new URL(ws.url).searchParams.get('api_key')).toBe('dev-key');
@@ -120,15 +120,15 @@ describe('HumeEviTransport', () => {
 		ws.message({ type: 'chat_metadata' });
 		await connectPromise;
 
-		const bare = new HumeEviTransport({});
+		const bare = new HumeEviModel({});
 		await expect(bare.connect({ systemInstruction: 'sys', tools: [] })).rejects.toThrow(
 			/accessToken/
 		);
 	});
 
 	it('rejects connect() when EVI errors before the session opens', async () => {
-		const transport = new HumeEviTransport({ apiKey: 'k' });
-		const connectPromise = transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new HumeEviModel({ apiKey: 'k' });
+		const connectPromise = model.connect({ systemInstruction: 'sys', tools: [] });
 		const ws = FakeWebSocket.last;
 		ws.open();
 		ws.message({ type: 'error', code: 'I0100', message: 'invalid session settings' });
@@ -136,9 +136,9 @@ describe('HumeEviTransport', () => {
 	});
 
 	it('unpacks WAV audio output to raw 24 kHz PCM', async () => {
-		const transport = new HumeEviTransport({ apiKey: 'k' });
-		const ev = listen(transport);
-		const ws = await connected(transport);
+		const model = new HumeEviModel({ apiKey: 'k' });
+		const ev = listen(model);
+		const ws = await connected(model);
 
 		// 96 stereo frames at 48 kHz → 48 mono samples → 24 samples at 24 kHz.
 		const samples = new Int16Array(96 * 2).fill(1000);
@@ -151,9 +151,9 @@ describe('HumeEviTransport', () => {
 	});
 
 	it('drops an undecodable audio chunk with a notice instead of killing the session', async () => {
-		const transport = new HumeEviTransport({ apiKey: 'k' });
-		const ev = listen(transport);
-		const ws = await connected(transport);
+		const model = new HumeEviModel({ apiKey: 'k' });
+		const ev = listen(model);
+		const ws = await connected(model);
 
 		ws.message({ type: 'audio_output', id: 'a1', index: 0, data: bytesToBase64(new Uint8Array([1, 2, 3])) });
 
@@ -163,9 +163,9 @@ describe('HumeEviTransport', () => {
 	});
 
 	it('maps transcripts (skipping interim), barge-in, and assistant_end to neutral events', async () => {
-		const transport = new HumeEviTransport({ apiKey: 'k' });
-		const ev = listen(transport);
-		const ws = await connected(transport);
+		const model = new HumeEviModel({ apiKey: 'k' });
+		const ev = listen(model);
+		const ws = await connected(model);
 
 		ws.message({ type: 'user_message', interim: true, message: { role: 'user', content: 'hel' } });
 		ws.message({ type: 'user_message', interim: false, message: { role: 'user', content: 'hello' } });
@@ -180,9 +180,9 @@ describe('HumeEviTransport', () => {
 	});
 
 	it('surfaces function tool calls and answers with tool_response; builtins are ignored', async () => {
-		const transport = new HumeEviTransport({ apiKey: 'k' });
-		const ev = listen(transport);
-		const ws = await connected(transport);
+		const model = new HumeEviModel({ apiKey: 'k' });
+		const ev = listen(model);
+		const ws = await connected(model);
 
 		ws.message({
 			type: 'tool_call',
@@ -203,7 +203,7 @@ describe('HumeEviTransport', () => {
 		expect(ev.toolCall).toEqual([[{ id: 't1', name: 'click_button', args: { element_id: 'save' } }]]);
 
 		const before = ws.sentJson.length;
-		transport.sendToolResult('t1', 'click_button', { status: 'success' });
+		model.sendToolResult('t1', 'click_button', { status: 'success' });
 		expect(ws.sentJson.slice(before)).toEqual([
 			{
 				type: 'tool_response',
@@ -215,22 +215,22 @@ describe('HumeEviTransport', () => {
 	});
 
 	it('sends typed text as user_input and mic chunks as audio_input', async () => {
-		const transport = new HumeEviTransport({ apiKey: 'k' });
-		listen(transport);
-		const ws = await connected(transport);
+		const model = new HumeEviModel({ apiKey: 'k' });
+		listen(model);
+		const ws = await connected(model);
 
-		transport.sendText('do it');
+		model.sendText('do it');
 		expect(ws.sentJson.at(-1)).toEqual({ type: 'user_input', text: 'do it' });
 
 		const chunk = int16ToBase64(new Int16Array([1, 2, 3]));
-		transport.sendAudioChunk(chunk);
+		model.sendAudioChunk(chunk);
 		expect(ws.sentJson.at(-1)).toEqual({ type: 'audio_input', data: chunk });
 	});
 
 	it('maps post-connect errors and close to their events', async () => {
-		const transport = new HumeEviTransport({ apiKey: 'k' });
-		const ev = listen(transport);
-		const ws = await connected(transport);
+		const model = new HumeEviModel({ apiKey: 'k' });
+		const ev = listen(model);
+		const ws = await connected(model);
 
 		ws.message({ type: 'error', code: 'X', message: 'kaboom' });
 		ws.serverClose(1011, 'server fault');
@@ -240,15 +240,15 @@ describe('HumeEviTransport', () => {
 	});
 
 	it('close() is idempotent and gates sends', async () => {
-		const transport = new HumeEviTransport({ apiKey: 'k' });
-		listen(transport);
-		const ws = await connected(transport);
+		const model = new HumeEviModel({ apiKey: 'k' });
+		listen(model);
+		const ws = await connected(model);
 		const before = ws.sent.length;
 
-		transport.close();
-		transport.close(); // idempotent — must not throw
-		transport.sendText('hi');
-		transport.sendAudioChunk(int16ToBase64(new Int16Array([1])));
+		model.close();
+		model.close(); // idempotent — must not throw
+		model.sendText('hi');
+		model.sendAudioChunk(int16ToBase64(new Int16Array([1])));
 
 		expect(ws.sent.length).toBe(before);
 	});

@@ -7,9 +7,9 @@ import { apiKey } from '$lib/server/providers';
 import type { RequestHandler } from './$types';
 
 /**
- * One token mint for every voice transport: `POST /api/voice-token/<provider>`
+ * One token mint for every voice model: `POST /api/voice-token/<provider>`
  * → `{ token }`. Each provider's real API key stays server-side; the browser
- * only ever receives the short-lived credential its transport connects with
+ * only ever receives the short-lived credential its model connects with
  * (Gemini ephemeral token, OpenAI Realtime client secret, Deepgram grant JWT,
  * Hume OAuth access token).
  */

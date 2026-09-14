@@ -12,7 +12,7 @@ export interface MintDeepgramTokenOptions {
 }
 
 /**
- * Mint a short-lived grant JWT for `DeepgramVoiceAgentTransport`. Throws on
+ * Mint a short-lived grant JWT for `DeepgramVoiceAgentModel`. Throws on
  * failure with a normalised Error — callers translate to HTTP responses.
  *
  * Usage in a SvelteKit POST handler:

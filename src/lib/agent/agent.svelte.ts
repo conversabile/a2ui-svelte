@@ -12,10 +12,10 @@ import {
 	diffDataModelsBySurface
 } from '../core/surface-snapshot';
 import type {
-	AgentTransport,
-	AgentTransportConnectOptions,
-	TransportCapabilities
-} from './transport';
+	AgentModel,
+	AgentModelConnectOptions,
+	AgentModelCapabilities
+} from './model';
 import { buildSystemPrompt, type PromptInputs } from './prompt-builder';
 import { AgentDebugStats, type DebugOutboundKind } from './debug.svelte';
 import { AudioRecorder } from './audio-recorder';
@@ -26,17 +26,17 @@ export type AgentStatus = 'idle' | 'thinking' | 'error';
 
 /**
  * Agent-level events — the session's own signals, deliberately narrower than
- * {@link AgentTransportEventMap}: a host subscribes to turn boundaries and
- * failures without coupling to the transport's event stream.
+ * {@link AgentModelEventMap}: a host subscribes to turn boundaries and
+ * failures without coupling to the model's event stream.
  */
 export interface AgentEventMap {
 	/**
 	 * The model finished a turn. A turn that called tools completes only after
 	 * the model has seen the results and produced its continuation (the
-	 * transports normalise this — see `AgentTransportEventMap['turn-complete']`).
+	 * models normalise this — see `AgentModelEventMap['turn-complete']`).
 	 */
 	'turn-complete': Record<string, never>;
-	/** The session failed: a transport error, or a close nobody asked for. */
+	/** The session failed: a model error, or a close nobody asked for. */
 	'error': { message: string; cause?: unknown };
 }
 
@@ -82,13 +82,12 @@ export type { AgentSurface };
  *   already in the system prompt and does not change when the user types.
  *   Only **changed entries** are pushed (a tiny delta, not the 21 KB tree),
  *   and only in **idle windows** (a debounced settle tick, `turn-complete`,
- *   or right before a typed message / button action) — **never while the
- *   model is generating** on an interruptible transport, so it can't
- *   barge-in-interrupt the answer. Edits made while the agent is speaking are
- *   buffered and coalesced (latest value per field wins), then flushed in the
- *   next idle slot. Structural changes (navigation, a component
+ *   or right before a typed message / button action) — **never while an
+ *   interruptible model is generating**, so it can't barge-in-interrupt the
+ *   answer. Edits made while the agent is speaking are buffered and coalesced
+ *   (latest value per field wins), then flushed in the next idle slot. Structural changes (navigation, a component
  *   appearing/disappearing) fall back to a full surface re-sync, because a
- *   value delta can't convey new structure. Delivery rides the transport's
+ *   value delta can't convey new structure. Delivery uses the model's
  *   `sendContextUpdate` channel (`turnComplete: false`), which appends to
  *   context without provoking a response. So when the user asks "what's in the
  *   text box?", the model already sees what they typed, but it never reacts to
@@ -102,8 +101,8 @@ export type { AgentSurface };
  * - `'proactive'`: the historical reactive behaviour. A timer diffs the
  *   surface and pushes a `<event>SURFACE_UPDATED</event>` text turn (the full
  *   tree) as soon as a change settles, so the agent can react to UI changes
- *   unprompted. Requires a transport that can initiate a turn
- *   (`capabilities.canInitiateTurn`); on transports that can't, it falls back
+ *   unprompted. Requires a model that can initiate a turn
+ *   (`capabilities.canInitiateTurn`); on models that can't, it falls back
  *   to `'sync'`. Kept as an opt-in for hosts who prefer a chattier agent.
  */
 export type SurfaceWatchMode = 'sync' | 'piggyback' | 'proactive';
@@ -125,8 +124,8 @@ export interface SurfaceWatchTuning {
 	 * checks for an undelivered change. Polling does **not** itself deliver;
 	 * it only triggers a delivery once a change has settled (and the model is
 	 * idle). Default 500 in `'sync'` mode, 3000 in `'proactive'` mode. Only the
-	 * poll timer runs on streaming transports; a non-streaming (request/
-	 * response) transport relies on the pre-turn flush instead.
+	 * poll timer runs on streaming models; a non-streaming (request/
+	 * response) model relies on the pre-turn flush instead.
 	 */
 	intervalMs?: number;
 	/**
@@ -157,8 +156,8 @@ export interface SurfaceWatchTuning {
  * hooks) will be added here.
  *
  * A definition is a plain object — declare it once and connect it to any
- * {@link AgentTransport}: `new Agent(definition, transport)`. Swapping the
- * transport (voice live-API ↔ request/response text) changes nothing else.
+ * {@link AgentModel}: `new Agent(definition, model)`. Swapping the
+ * model (voice live-API ↔ request/response text) changes nothing else.
  */
 export interface AgentDefinition {
 	/** The agent's persona + behaviour prompt (the base system instruction). */
@@ -202,12 +201,12 @@ export interface AgentDefinition {
 
 /**
  * The agent orchestrator: an {@link AgentDefinition} connected to an
- * {@link AgentTransport}. Owns prompt assembly (via prompt-builder), tool
+ * {@link AgentModel}. Owns prompt assembly (via prompt-builder), tool
  * dispatch, the surface-watch engine (sync / proactive), `userActionBus`
  * subscription, transcript + status + debug state, and the thinking-watchdog.
  *
- * One class drives every channel. It adapts to the transport's
- * {@link TransportCapabilities} — never to its identity: the barge-in gates
+ * One class drives every channel. It adapts to the model's
+ * {@link AgentModelCapabilities} — never to its identity: the barge-in gates
  * apply when `interruptible`, the poll loop runs when `streaming`, history is
  * embedded or seeded per `historyOwnership`, and the mic recorder / speaker
  * player spin up exactly when `input`/`output` include `'audio'` (with
@@ -222,14 +221,14 @@ export class Agent {
 	transcript = $state<Array<{ role: 'user' | 'model'; text: string }>>([]);
 	hasStarted = $state(false);
 	configIssue = $state<string | null>(null);
-	/** True while the mic recorder is capturing (audio-input transports only). */
+	/** True while the mic recorder is capturing (audio-input models only). */
 	recording = $state(false);
 	/**
 	 * Mic muted while the session stays open. When `true`, captured audio chunks
-	 * are dropped instead of sent to the transport — the live connection,
+	 * are dropped instead of sent to the model — the live connection,
 	 * playback, and surface-sync all keep running. Lets the user silence a noisy
 	 * environment so trailing background noise isn't heard as a barge-in that
-	 * cuts the agent off mid-answer. Meaningful only on audio-input transports;
+	 * cuts the agent off mid-answer. Meaningful only on audio-input models;
 	 * see `toggleMute()`.
 	 */
 	muted = $state(false);
@@ -242,7 +241,7 @@ export class Agent {
 	debug: AgentDebugStats;
 
 	#def: AgentDefinition;
-	#transport: AgentTransport;
+	#model: AgentModel;
 	#debugEnabled: boolean;
 	#mode: AgentMode;
 	#surfaceWatchTuning: Required<SurfaceWatchTuning>;
@@ -255,13 +254,13 @@ export class Agent {
 	#pendingTurns: PendingTurn[] = [];
 	#surfaceInterval: ReturnType<typeof setInterval> | null = null;
 	#lastAgentMutationAt = 0;
-	// Audio I/O — created in `start()` only when the transport's capabilities
-	// include the matching modality; null on text-only transports.
+	// Audio I/O — created in `start()` only when the model's capabilities
+	// include the matching modality; null on text-only models.
 	#recorder: AudioRecorder | null = null;
 	#player: AudioPlayer | null = null;
 	// True while the model is producing a turn (audio / transcript out), false
 	// once it goes idle (turn-complete / interrupted). On an interruptible
-	// transport `'sync'` delivery is gated off while this is true so a
+	// model `'sync'` delivery is gated off while this is true so a
 	// `sendContextUpdate` can never barge-in-interrupt an in-progress answer.
 	// Skipped deliveries are not lost: the next idle tick (or turn-complete)
 	// re-attempts and the diff-vs-last-delivered design coalesces everything
@@ -318,9 +317,9 @@ export class Agent {
 	// complete) re-arms or clears this well inside the window.
 	#thinkingTimeoutMs = 12_000;
 
-	constructor(definition: AgentDefinition, transport: AgentTransport) {
+	constructor(definition: AgentDefinition, model: AgentModel) {
 		this.#def = definition;
-		this.#transport = transport;
+		this.#model = model;
 		this.debug =
 			definition.debug instanceof AgentDebugStats ? definition.debug : new AgentDebugStats();
 		this.#debugEnabled = definition.debug !== false;
@@ -329,11 +328,11 @@ export class Agent {
 		// rest of the class only ever sees `'sync'` / `'proactive'`.
 		const rawMode = definition.surfaceWatchTuning?.mode ?? 'sync';
 		let mode: SurfaceWatchMode = rawMode === 'piggyback' ? 'sync' : rawMode;
-		// `'proactive'` needs a transport that can start its own turn; fall back
-		// to silent `'sync'` when the transport can't (e.g. request/response text).
-		if (mode === 'proactive' && !transport.capabilities.canInitiateTurn) {
+		// `'proactive'` needs a model that can start its own turn; fall back
+		// to silent `'sync'` when the model can't (e.g. request/response text).
+		if (mode === 'proactive' && !model.capabilities.canInitiateTurn) {
 			console.warn(
-				"[Agent] 'proactive' surface-watch needs a transport that can initiate turns; falling back to 'sync'."
+				"[Agent] 'proactive' surface-watch needs a model that can initiate turns; falling back to 'sync'."
 			);
 			mode = 'sync';
 		}
@@ -346,18 +345,18 @@ export class Agent {
 		};
 	}
 
-	/** The transport driving this agent. */
-	get transport(): AgentTransport {
-		return this.#transport;
+	/** The model driving this agent. */
+	get model(): AgentModel {
+		return this.#model;
 	}
 
 	/**
-	 * What the transport can do — the gate for all channel-specific behaviour,
+	 * What the model can do — the gate for all channel-specific behaviour,
 	 * inside the agent and out (e.g. `<AgentShell>` shows the mic exactly when
 	 * `capabilities.input` includes `'audio'`).
 	 */
-	get capabilities(): TransportCapabilities {
-		return this.#transport.capabilities;
+	get capabilities(): AgentModelCapabilities {
+		return this.#model.capabilities;
 	}
 
 	/** Page context source with the definition's optional field defaulted. */
@@ -387,11 +386,11 @@ export class Agent {
 			this.rec('tools', tools);
 		}
 
-		// Client-history transports (text) seed prior turns through connect
-		// options; server-history transports (voice) embed them in the prompt
+		// Client-history models (text) seed prior turns through connect
+		// options; server-history models (voice) embed them in the prompt
 		// instead (see `#buildPrompt`), so this stays absent there. Auth is the
-		// transport's own concern (its constructor), so no token rides here.
-		const connectOptions: AgentTransportConnectOptions = {
+		// model's own concern (its constructor), so no token passes through here.
+		const connectOptions: AgentModelConnectOptions = {
 			systemInstruction,
 			tools,
 			...(this.capabilities.historyOwnership === 'client'
@@ -400,19 +399,19 @@ export class Agent {
 		};
 
 		try {
-			await this.#transport.connect(connectOptions);
+			await this.#model.connect(connectOptions);
 		} catch (e) {
-			console.error('[Agent] Failed to connect transport:', e);
+			console.error('[Agent] Failed to connect model:', e);
 			this.configIssue = (e as Error).message ?? 'Failed to connect';
 			this.setStatus('error');
 			return;
 		}
 
-		this.#wireCommonTransportEvents();
+		this.#wireCommonModelEvents();
 		this.#unsubs.push(userActionBus.subscribe((a) => this.#handleUserAction(a)));
 
-		// Spin up the mic/speaker exactly when the transport's capabilities say
-		// so — never from its identity. No-op on text-only transports.
+		// Spin up the mic/speaker exactly when the model's capabilities say
+		// so — never from its identity. No-op on text-only models.
 		try {
 			await this.#startAudio();
 		} catch (e) {
@@ -443,7 +442,7 @@ export class Agent {
 		this.#unsubs = [];
 
 		try {
-			this.#transport.close();
+			this.#model.close();
 		} catch {
 			// best-effort
 		}
@@ -485,13 +484,13 @@ export class Agent {
 
 	/**
 	 * Send a typed turn and resolve when the model's turn ends. Rejects when the
-	 * turn can never complete: nothing to send, not connected, the transport
+	 * turn can never complete: nothing to send, not connected, the model
 	 * errored or closed, the session was stopped, or `timeoutMs` elapsed
 	 * (default {@link DEFAULT_TURN_TIMEOUT_MS} — pass your own for a channel
 	 * that runs longer, e.g. a live voice turn under evaluation).
 	 *
-	 * Resolution is event-driven (the transport's `turn-complete`), never
-	 * polled. The transport contract carries no turn id, so a boundary produced
+	 * Resolution is event-driven (the model's `turn-complete`), never
+	 * polled. The model contract carries no turn id, so a boundary produced
 	 * by another turn in flight — a forwarded `userAction`, a proactive push —
 	 * settles the oldest pending send.
 	 */
@@ -561,7 +560,7 @@ export class Agent {
 		// user's message. A typed message is an idle moment, so this flushes
 		// immediately. Ordered before the text turn below.
 		if (this.#surfaceWatchTuning.mode === 'sync') this.#syncDataModel();
-		this.#transport.sendText(trimmed);
+		this.#model.sendText(trimmed);
 		this.rec('text', trimmed);
 	}
 
@@ -611,7 +610,7 @@ export class Agent {
 	 * trailing background noise would otherwise be heard as a barge-in and cut
 	 * the agent off mid-answer; muting prevents that. Idempotent w.r.t. the
 	 * connection: muting/unmuting never connects or disconnects. No-op effect
-	 * on transports without audio input (no recorder runs there).
+	 * on models without audio input (no recorder runs there).
 	 */
 	toggleMute(): void {
 		this.muted = !this.muted;
@@ -633,7 +632,7 @@ export class Agent {
 	}
 
 	/**
-	 * Capability-gated audio I/O: a speaker player when the transport produces
+	 * Capability-gated audio I/O: a speaker player when the model produces
 	 * audio, a mic recorder when it accepts audio. Throws if the mic is
 	 * unavailable (surfaced as `configIssue` by `start()`).
 	 */
@@ -642,9 +641,9 @@ export class Agent {
 			this.#player = new AudioPlayer(24000);
 		}
 		if (!this.capabilities.input.includes('audio')) return;
-		if (typeof this.#transport.sendAudioChunk !== 'function') {
+		if (typeof this.#model.sendAudioChunk !== 'function') {
 			console.warn(
-				'[Agent] Transport advertises audio input but implements no sendAudioChunk — mic disabled.'
+				'[Agent] Model advertises audio input but implements no sendAudioChunk — mic disabled.'
 			);
 			return;
 		}
@@ -655,9 +654,9 @@ export class Agent {
 			const detail = (e as CustomEvent<string>).detail;
 			// Drop captured audio while muted — the recorder keeps running (so
 			// unmute resumes instantly without re-prompting for mic access), the
-			// chunks just never reach the transport.
+			// chunks just never reach the model.
 			if (this.connected && !this.muted) {
-				this.#transport.sendAudioChunk!(detail);
+				this.#model.sendAudioChunk!(detail);
 				this.rec('audio-out', detail);
 			}
 		});
@@ -675,20 +674,20 @@ export class Agent {
 	}
 
 	/**
-	 * Wire the transport event stream. Every transport emits the text/tool
-	 * events; `audio-out` / `interrupted` only ever fire from transports whose
+	 * Wire the model event stream. Every model emits the text/tool
+	 * events; `audio-out` / `interrupted` only ever fire from models whose
 	 * capabilities include them, so wiring is unconditional and the handlers
 	 * are inert elsewhere.
 	 */
-	#wireCommonTransportEvents(): void {
+	#wireCommonModelEvents(): void {
 		this.#unsubs.push(
-			this.#transport.on('tool-call', (p) => {
+			this.#model.on('tool-call', (p) => {
 				void this.#handleToolCall(p.calls);
 			}),
-			this.#transport.on('text-out', (p) => this.#onTextOut(p.text)),
-			this.#transport.on('text-in', (p) => this.#onTextIn(p.text)),
-			this.#transport.on('turn-complete', () => this.#onTurnComplete()),
-			this.#transport.on('audio-out', (p) => {
+			this.#model.on('text-out', (p) => this.#onTextOut(p.text)),
+			this.#model.on('text-in', (p) => this.#onTextIn(p.text)),
+			this.#model.on('turn-complete', () => this.#onTurnComplete()),
+			this.#model.on('audio-out', (p) => {
 				// Model is producing a turn — gate sync delivery so we never
 				// interrupt the answer in flight.
 				this.modelTurnActive = true;
@@ -697,40 +696,40 @@ export class Agent {
 				this.onModelActivity();
 				this.canAppendToUser = false;
 			}),
-			this.#transport.on('interrupted', () => {
+			this.#model.on('interrupted', () => {
 				// Generation was cut off (barge-in) — the model is idle again.
 				this.modelTurnActive = false;
 				this.#player?.stop();
 				if (this.status !== 'error') this.setStatus('thinking');
 			}),
-			this.#transport.on('notice', (p) => {
-				// Non-fatal transport signal (e.g. a rate-limit retry) — log it for
+			this.#model.on('notice', (p) => {
+				// Non-fatal model signal (e.g. a rate-limit retry) — log it for
 				// the debug box; it does not change session status.
 				if (this.#debugEnabled) this.debug.recordNotice(p.message);
 			}),
-			this.#transport.on('error', (p) => {
-				console.error('[Agent] Transport error:', p.message, p.cause);
+			this.#model.on('error', (p) => {
+				console.error('[Agent] Model error:', p.message, p.cause);
 				if (!this.#intentionalDisconnect) this.setStatus('error');
 				// Before `stop()`, so an awaited turn rejects with the real cause
 				// rather than the generic teardown message.
-				this.#failPendingTurns(`[Agent] transport error: ${p.message}`, p.cause);
+				this.#failPendingTurns(`[Agent] model error: ${p.message}`, p.cause);
 				this.#emit('error', { message: p.message, cause: p.cause });
 				void this.stop();
 			}),
-			this.#transport.on('close', (p) => {
-				console.log('[Agent] Transport closed:', p.reason);
+			this.#model.on('close', (p) => {
+				console.log('[Agent] Model closed:', p.reason);
 				if (!this.#intentionalDisconnect) this.setStatus('error');
 				// A close always ends any turn in flight; it is only an *error* when
 				// we didn't ask for it (`stop()` / `toggle()` / `reset()` did).
 				this.#failPendingTurns(
-					`[Agent] transport closed before the turn completed${p.reason ? `: ${p.reason}` : ''}`
+					`[Agent] model closed before the turn completed${p.reason ? `: ${p.reason}` : ''}`
 				);
 				if (!this.#intentionalDisconnect) {
-					this.#emit('error', { message: `Transport closed: ${p.reason ?? '(no reason)'}` });
+					this.#emit('error', { message: `Model closed: ${p.reason ?? '(no reason)'}` });
 				}
 				void this.stop();
 			}),
-			this.#transport.on('usage', (u) => {
+			this.#model.on('usage', (u) => {
 				// Authoritative provider token counts — the real number the quota
 				// is measured against.
 				if (this.#debugEnabled) this.debug.recordUsage(u);
@@ -949,8 +948,8 @@ export class Agent {
 			toolDeclarations: tools,
 			contextInstructions: this.#contextInstructions(),
 			compactSurfaceJson: this.#def.compactSurfaceJson,
-			// Server-history transports (voice) embed the recent transcript in the
-			// prompt for reconnect continuity; client-history transports (text)
+			// Server-history models (voice) embed the recent transcript in the
+			// prompt for reconnect continuity; client-history models (text)
 			// own `messages[]` and get prior turns via connect options instead, so
 			// we omit the history block for them.
 			transcriptHistory:
@@ -1000,7 +999,7 @@ export class Agent {
 				// extension the result echoes the FULL serialized surface back to
 				// the model on every call. Size it so that's visible.
 				this.rec('tool-result', result, call.name);
-				this.#transport.sendToolResult(call.id, call.name, result);
+				this.#model.sendToolResult(call.id, call.name, result);
 			} catch (e) {
 				console.error('[Agent] Failed to send tool result:', e);
 				this.setStatus('error');
@@ -1126,19 +1125,19 @@ export class Agent {
 			context: action.context ?? {}
 		};
 
-		// Prefer the transport's typed `sendUserAction` when implemented
-		// (spec-aligned transports, see B7). Fall back to the legacy
+		// Prefer the model's typed `sendUserAction` when implemented
+		// (spec-aligned models, see B7). Fall back to the legacy
 		// XML-tagged-text wrapping otherwise — that's the only way to push the
 		// event through voice live-APIs that lack a native event channel.
 		try {
-			if (typeof this.#transport.sendUserAction === 'function') {
-				this.#transport.sendUserAction(canonical);
+			if (typeof this.#model.sendUserAction === 'function') {
+				this.#model.sendUserAction(canonical);
 				this.rec('user-action', canonical, canonical.name);
 				return;
 			}
 			const payload = { userAction: canonical };
 			const message = `<event>USER_ACTION</event>\n<payload>\n${this.#stringifyPayload(payload)}\n</payload>`;
-			this.#transport.sendText(message);
+			this.#model.sendText(message);
 			this.rec('user-action', message, canonical.name);
 		} catch (e) {
 			console.warn('[Agent] Failed to forward userAction:', e);
@@ -1176,8 +1175,8 @@ export class Agent {
 		// it so the first change is what gets delivered, not the initial state.
 		this.#markAllDelivered();
 
-		// Only a streaming transport has idle windows to poll. A non-streaming
-		// (request/response) transport has no live session to push into between
+		// Only a streaming model has idle windows to poll. A non-streaming
+		// (request/response) model has no live session to push into between
 		// turns — it relies on the pre-turn flush (`#syncDataModel()` from
 		// `send()` / `#handleUserAction()`), which already gives the
 		// model the current UI before it answers. So skip the timer there.
@@ -1248,7 +1247,7 @@ export class Agent {
 	/**
 	 * Sync-mode poll tick. Settle-gated: a change is only delivered once it has
 	 * held steady for `settleMs` (so mid-typing values coalesce), and — on an
-	 * interruptible transport — never while the model is busy. Structural
+	 * interruptible model — never while the model is busy. Structural
 	 * changes (navigation) bypass the settle window. Polling here is
 	 * *change-detection only* — it sends nothing unless there's an undelivered,
 	 * settled change.
@@ -1261,12 +1260,12 @@ export class Agent {
 	 * response (no transcript, render stalls; or the turn drops and the badge
 	 * sticks on `'thinking'`). The change isn't lost — it's re-attempted at
 	 * `turn-complete` (and on the next idle tick). On a non-interruptible
-	 * transport there's nothing to barge into, so the busy gate is skipped.
+	 * model there's nothing to barge into, so the busy gate is skipped.
 	 */
 	#syncTick(): void {
 		if (!this.connected) return;
 		// Barge-in only exists on an interruptible (streaming voice) session; for
-		// non-interruptible transports an idle-window delivery can't interrupt
+		// non-interruptible models an idle-window delivery can't interrupt
 		// anything, so deliver freely.
 		if (this.capabilities.interruptible && (this.modelTurnActive || this.status === 'thinking'))
 			return;
@@ -1294,7 +1293,7 @@ export class Agent {
 
 	/**
 	 * Sync-mode direct flush (idle moment: `turn-complete`, before a typed
-	 * message, or before a button action). On an interruptible transport it's
+	 * message, or before a button action). On an interruptible model it's
 	 * gated on `modelTurnActive` so it never interrupts an in-progress answer;
 	 * if it's gated off the change stays pending and the next idle tick /
 	 * turn-complete delivers it.
@@ -1391,16 +1390,16 @@ export class Agent {
 
 	/**
 	 * Deliver a message through the silent context channel
-	 * (`sendContextUpdate`, `turnComplete: false`). Transports without a silent
+	 * (`sendContextUpdate`, `turnComplete: false`). Models without a silent
 	 * channel fall back to `sendText` (which may provoke a turn — acceptable
 	 * degradation). Returns whether the send succeeded.
 	 */
 	#sendSilently(message: string): boolean {
 		try {
-			if (typeof this.#transport.sendContextUpdate === 'function') {
-				this.#transport.sendContextUpdate(message);
+			if (typeof this.#model.sendContextUpdate === 'function') {
+				this.#model.sendContextUpdate(message);
 			} else {
-				this.#transport.sendText(message);
+				this.#model.sendText(message);
 			}
 			return true;
 		} catch (e) {
@@ -1505,9 +1504,9 @@ export class Agent {
 
 	/**
 	 * Emit a `SURFACE_UPDATED` payload and record it as delivered. When
-	 * `silent`, route through the transport's `sendContextUpdate` channel
+	 * `silent`, route through the model's `sendContextUpdate` channel
 	 * (`turnComplete: false` — appends to context without triggering a turn);
-	 * otherwise send a normal text turn the agent may react to. Transports
+	 * otherwise send a normal text turn the agent may react to. Models
 	 * without a silent channel fall back to a text turn.
 	 */
 	#deliverSurfaceUpdate(surfacesJson: string, context: string, ids: string, silent: boolean): void {
@@ -1519,10 +1518,10 @@ export class Agent {
 		});
 		const message = `<event>SURFACE_UPDATED</event>\n<payload>\n${this.#stringifyPayload(payload)}\n</payload>`;
 		try {
-			if (silent && typeof this.#transport.sendContextUpdate === 'function') {
-				this.#transport.sendContextUpdate(message);
+			if (silent && typeof this.#model.sendContextUpdate === 'function') {
+				this.#model.sendContextUpdate(message);
 			} else {
-				this.#transport.sendText(message);
+				this.#model.sendText(message);
 			}
 			this.rec('context-update', message, 'proactive-surface');
 			this.#markDelivered(surfacesJson, context, ids);

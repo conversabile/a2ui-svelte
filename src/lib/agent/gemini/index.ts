@@ -1,3 +1,3 @@
-export { GeminiLiveTransport, type GeminiLiveTransportOptions } from './live-transport';
-export { GeminiTextTransport, type GeminiTextTransportOptions } from './text-transport';
+export { GeminiLiveModel, type GeminiLiveModelOptions } from './live-model';
+export { GeminiTextModel, type GeminiTextModelOptions } from './text-model';
 export { mintGeminiToken, type MintGeminiTokenOptions } from './token-handler';

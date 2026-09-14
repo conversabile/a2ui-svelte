@@ -1,14 +1,14 @@
 import type {
-	AgentTransport,
-	AgentTransportConnectOptions,
-	AgentTransportEventMap,
-	TransportCapabilities
-} from './transport';
+	AgentModel,
+	AgentModelConnectOptions,
+	AgentModelEventMap,
+	AgentModelCapabilities
+} from './model';
 
 /**
  * One programmed model reaction to a single agent turn.
  *
- * The agent sends a turn by calling {@link ScriptedTransport.sendText} — that's
+ * The agent sends a turn by calling {@link ScriptedModel.sendText} — that's
  * the user's typed message, or an XML-tagged `SURFACE_UPDATED` / `USER_ACTION`
  * turn the agent forwards. A reaction with `calls` emits them as one `tool-call`
  * event, then (once every result is back via `sendToolResult`) emits the
@@ -31,23 +31,23 @@ export interface ScriptedReaction {
 	text?: string;
 }
 
-type EventName = keyof AgentTransportEventMap;
+type EventName = keyof AgentModelEventMap;
 
 /**
- * Deterministic, model-free {@link AgentTransport} for CI. Drives the neutral
+ * Deterministic, LLM-free {@link AgentModel} for CI. Drives the neutral
  * `Agent` with a queue of programmed reactions instead of a live model — no
  * network, no SDK. It advertises the **request/response text profile** (the same
- * capabilities a real text transport like `GeminiTextTransport` reports), so the
+ * capabilities a real text model like `GeminiTextModel` reports), so the
  * agent exercises the non-streaming code paths (no poll loop, no barge-in gate,
  * client-owned history) exactly as it would against a real text model.
  *
  * Tests push reactions (constructor or {@link pushReaction}), drive the agent
  * (`await agent.send(…)`, a `userActionBus` emit, …), and assert on the resulting
- * surface state and on what reached the transport (`textsSent`, `toolResults`).
+ * surface state and on what reached the model (`textsSent`, `toolResults`).
  */
-export class ScriptedTransport implements AgentTransport {
+export class ScriptedModel implements AgentModel {
 	/** The connect options the agent assembled — for test assertions. */
-	connectOpts: AgentTransportConnectOptions | null = null;
+	connectOpts: AgentModelConnectOptions | null = null;
 	/** Every text turn the agent sent (user messages + forwarded event turns). */
 	textsSent: string[] = [];
 	/** Every tool result the agent replied with. */
@@ -55,7 +55,7 @@ export class ScriptedTransport implements AgentTransport {
 	closed = false;
 
 	#reactions: ScriptedReaction[];
-	#listeners: { [E in EventName]?: Set<(p: AgentTransportEventMap[E]) => void> } = {};
+	#listeners: { [E in EventName]?: Set<(p: AgentModelEventMap[E]) => void> } = {};
 	#turn = 0;
 	// In-flight tool-call bookkeeping: how many results are still outstanding,
 	// and the follow-up text to emit once they're all in.
@@ -66,8 +66,8 @@ export class ScriptedTransport implements AgentTransport {
 		this.#reactions = [...reactions];
 	}
 
-	/** Request/response text profile — identical to a real text transport's. */
-	get capabilities(): TransportCapabilities {
+	/** Request/response text profile — identical to a real text model's. */
+	get capabilities(): AgentModelCapabilities {
 		return {
 			streaming: false,
 			interruptible: false,
@@ -84,7 +84,7 @@ export class ScriptedTransport implements AgentTransport {
 		this.#reactions.push(reaction);
 	}
 
-	async connect(opts: AgentTransportConnectOptions): Promise<void> {
+	async connect(opts: AgentModelConnectOptions): Promise<void> {
 		this.connectOpts = opts;
 		this.closed = false;
 	}
@@ -130,9 +130,9 @@ export class ScriptedTransport implements AgentTransport {
 
 	on<E extends EventName>(
 		event: E,
-		handler: (payload: AgentTransportEventMap[E]) => void
+		handler: (payload: AgentModelEventMap[E]) => void
 	): () => void {
-		let set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+		let set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) {
 			set = new Set();
 			(this.#listeners[event] as unknown) = set;
@@ -167,14 +167,14 @@ export class ScriptedTransport implements AgentTransport {
 		});
 	}
 
-	#emit<E extends EventName>(event: E, payload: AgentTransportEventMap[E]): void {
-		const set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+	#emit<E extends EventName>(event: E, payload: AgentModelEventMap[E]): void {
+		const set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) return;
 		for (const h of set) {
 			try {
 				h(payload);
 			} catch (e) {
-				console.error(`[ScriptedTransport] listener for "${event}" threw:`, e);
+				console.error(`[ScriptedModel] listener for "${event}" threw:`, e);
 			}
 		}
 	}

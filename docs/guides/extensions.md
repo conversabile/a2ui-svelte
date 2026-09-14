@@ -3,7 +3,7 @@
 The JSON `a2ui-svelte` emits and accepts conforms to the A2UI v0.8
 schemas on its default wire — so a spec-compliant external system can
 render to and receive events from an `a2ui-svelte` app (you supply the
-A2A transport; see
+A2A model; see
 [What `a2ui-svelte` is](a2ui-compatibility.md)). A small number of extra
 behaviours that **predate** the spec (and are useful in practice) ship
 behind one app-wide extension record and emit their data inside a
@@ -90,7 +90,7 @@ This is the **default**. The alternative is `'full'`, where every
 `click_button` / `update_text_field` result carries the whole serialized tree.
 That costs more tokens than anything else the library does: each result adds
 tens of KB (thousands of tokens), the text stays in the conversation context
-for the rest of the session, and on a request/response transport it is paid for
+for the rest of the session, and on a request/response model it is paid for
 again on every following request. The `evals/` context-cost measurement puts a
 7-call task on a 6-row todo list at ~169k billed input tokens with the full
 echo and pretty-printed JSON, vs ~61k with `'changed'` plus
@@ -132,7 +132,7 @@ the `results` field is byte-identical across `'full'`,
 ### Who builds the echo
 
 The **`Agent`** does, not the surface. The tools themselves return exactly
-`{ results }`; the agent adds the echo on the way to the transport, from the
+`{ results }`; the agent adds the echo on the way to the model, from the
 surfaces its own `AgentDefinition.surfaces()` declares.
 
 Two consequences worth knowing:
@@ -196,14 +196,14 @@ reports `error` like every other tool. The status vocabulary is exactly
 `success` / `error` for every tool we ship, which is what the system prompt
 promises the model.
 
-## `userAction` transport
+## `userAction` model
 
 Pre-v0.8 the library wrapped every `userAction` in an XML-tagged text
 turn (`<event>USER_ACTION</event>...`). This is still the only way to
 push events into Gemini Live (no native event channel).
 
-v0.8 transports — A2A `DataPart` carriers — implement
-`AgentTransport.sendUserAction?(action)` directly. The `Agent` prefers
+v0.8 models — A2A `DataPart` carriers — implement
+`AgentModel.sendUserAction?(action)` directly. The `Agent` prefers
 the typed call when implemented, falls back to the wrapped text turn
 otherwise. The emitted `UserAction` is always spec-canonical, including
 `context: {}` when the source component declared none.
@@ -218,7 +218,7 @@ The renderer's catalog registry is keyed by URI per A2UI v0.8 §2.1.3:
   the URI fallback chain (URI → alias → `catalog` prop).
 
 Use `getClientCapabilities(catalogs)` from `a2ui-svelte/core` to build
-the `a2uiClientCapabilities` blob A2A transports must put on every
+the `a2uiClientCapabilities` blob A2A models must put on every
 outbound message. Use `getAgentCardExtensionParams({ catalogs,
 acceptsInlineCatalogs })` when serialising your AgentCard. For v0.9
 `sendDataModel`, use `getClientDataModel(surfaceIds)` to build the

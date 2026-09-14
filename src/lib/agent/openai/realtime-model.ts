@@ -1,13 +1,13 @@
 import type {
-	AgentTransport,
-	AgentTransportConnectOptions,
-	AgentTransportEventMap,
+	AgentModel,
+	AgentModelConnectOptions,
+	AgentModelEventMap,
 	AgentUsage,
-	TransportCapabilities
-} from '../transport';
+	AgentModelCapabilities
+} from '../model';
 import { base64ToInt16, int16ToBase64, resamplePcm16 } from '../pcm';
 
-export interface OpenAIRealtimeTransportOptions {
+export interface OpenAIRealtimeModelOptions {
 	/**
 	 * Auth for the Realtime socket: an ephemeral client secret (`ek_…`) or a
 	 * raw API key, or a function that produces one — called once per
@@ -31,20 +31,20 @@ export interface OpenAIRealtimeTransportOptions {
 	url?: string;
 }
 
-type EventName = keyof AgentTransportEventMap;
+type EventName = keyof AgentModelEventMap;
 
 /** Sample rates fixed by the neutral contract (mic in / speaker out). */
 const MIC_RATE = 16000;
 const REALTIME_RATE = 24000;
 
 /**
- * OpenAI Realtime implementation of {@link AgentTransport} — the streaming
+ * OpenAI Realtime implementation of {@link AgentModel} — the streaming
  * speech-to-speech profile. Talks the GA Realtime WebSocket protocol directly
  * (JSON events over a browser `WebSocket`; auth via the
  * `openai-insecure-api-key.<token>` subprotocol, which accepts ephemeral
  * client secrets) and translates it into the normalised event map, so the
  * rest of the library never sees an OpenAI message shape. The server runs the
- * tool loop; this transport advertises audio input/output, barge-in, a native
+ * tool loop; this model advertises audio input/output, barge-in, a native
  * silent-context channel (`conversation.item.create` without
  * `response.create`), and server-held history, and the `Agent` adapts to
  * exactly that.
@@ -53,14 +53,14 @@ const REALTIME_RATE = 24000;
  * input is 16 kHz, so input chunks are resampled here. Output is already the
  * contract's 24 kHz.
  */
-export class OpenAIRealtimeTransport implements AgentTransport {
+export class OpenAIRealtimeModel implements AgentModel {
 	#token: string | (() => string | Promise<string>);
 	#model: string;
 	#voice: string;
 	#transcriptionModel: string;
 	#url: string;
 	#ws: WebSocket | null = null;
-	#listeners: { [E in EventName]?: Set<(p: AgentTransportEventMap[E]) => void> } = {};
+	#listeners: { [E in EventName]?: Set<(p: AgentModelEventMap[E]) => void> } = {};
 	#closed = false;
 	// Function calls collected during the current response; surfaced as ONE
 	// `tool-call` batch on `response.done` (mirrors Gemini Live's batching, and
@@ -68,7 +68,7 @@ export class OpenAIRealtimeTransport implements AgentTransport {
 	#turnCalls: Array<{ id: string; name: string; args: Record<string, unknown> }> = [];
 	#pendingCount = 0;
 
-	constructor(opts: OpenAIRealtimeTransportOptions) {
+	constructor(opts: OpenAIRealtimeModelOptions) {
 		this.#token = opts.token;
 		this.#model = opts.model ?? 'gpt-realtime-2';
 		this.#voice = opts.voice ?? 'marin';
@@ -82,7 +82,7 @@ export class OpenAIRealtimeTransport implements AgentTransport {
 	 * provoking a response (a true silent-context channel), and the session
 	 * holds history server-side.
 	 */
-	get capabilities(): TransportCapabilities {
+	get capabilities(): AgentModelCapabilities {
 		return {
 			streaming: true,
 			interruptible: true,
@@ -94,7 +94,7 @@ export class OpenAIRealtimeTransport implements AgentTransport {
 		};
 	}
 
-	async connect(opts: AgentTransportConnectOptions): Promise<void> {
+	async connect(opts: AgentModelConnectOptions): Promise<void> {
 		this.#closed = false;
 		const token = typeof this.#token === 'function' ? await this.#token() : this.#token;
 		const url = `${this.#url}?model=${encodeURIComponent(this.#model)}`;
@@ -150,7 +150,7 @@ export class OpenAIRealtimeTransport implements AgentTransport {
 				try {
 					this.#onMessage(JSON.parse(String(event.data)));
 				} catch (e) {
-					console.warn('[OpenAIRealtimeTransport] unparseable server event:', e);
+					console.warn('[OpenAIRealtimeModel] unparseable server event:', e);
 				}
 			};
 			ws.onerror = () => {
@@ -210,9 +210,9 @@ export class OpenAIRealtimeTransport implements AgentTransport {
 
 	on<E extends EventName>(
 		event: E,
-		handler: (payload: AgentTransportEventMap[E]) => void
+		handler: (payload: AgentModelEventMap[E]) => void
 	): () => void {
-		let set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+		let set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) {
 			set = new Set();
 			(this.#listeners[event] as unknown) = set;
@@ -363,14 +363,14 @@ export class OpenAIRealtimeTransport implements AgentTransport {
 		this.#emit('usage', payload);
 	}
 
-	#emit<E extends EventName>(event: E, payload: AgentTransportEventMap[E]): void {
-		const set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+	#emit<E extends EventName>(event: E, payload: AgentModelEventMap[E]): void {
+		const set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) return;
 		for (const h of set) {
 			try {
 				h(payload);
 			} catch (e) {
-				console.error(`[OpenAIRealtimeTransport] listener for "${event}" threw:`, e);
+				console.error(`[OpenAIRealtimeModel] listener for "${event}" threw:`, e);
 			}
 		}
 	}

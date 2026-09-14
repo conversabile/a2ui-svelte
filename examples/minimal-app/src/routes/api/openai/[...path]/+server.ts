@@ -5,7 +5,7 @@ import type { RequestHandler } from './$types';
 
 /**
  * Dev proxy for the OpenAI **text** (Chat Completions) path. The browser-side
- * `OpenAITextTransport` is pointed here via its `baseUrl`, so the real
+ * `OpenAITextModel` is pointed here via its `baseUrl`, so the real
  * `OPENAI_API_KEY` stays server-only — the client only sends a placeholder
  * bearer token. The `openai` SDK builds `/chat/completions` (the `/v1` lives
  * in the upstream base here, since a custom `baseURL` drops it); this catch-all

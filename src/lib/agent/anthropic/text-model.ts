@@ -7,21 +7,21 @@ import type {
 	Usage
 } from '@anthropic-ai/sdk/resources/messages';
 import type {
-	AgentTransport,
-	AgentTransportConnectOptions,
-	AgentTransportEventMap,
+	AgentModel,
+	AgentModelConnectOptions,
+	AgentModelEventMap,
 	AgentUsage,
-	TransportCapabilities
-} from '../transport';
+	AgentModelCapabilities
+} from '../model';
 
-export interface AnthropicTextTransportOptions {
+export interface AnthropicTextModelOptions {
 	/**
 	 * Anthropic API key, or a function that produces one — resolved once per
 	 * `connect()`. Optional when `baseUrl` points at a proxy that injects the
 	 * real key server-side (a placeholder is sent instead); required when
 	 * calling Anthropic directly. Note: calling Anthropic directly from a
 	 * browser exposes the key client-side — the SDK requires the explicit
-	 * `dangerouslyAllowBrowser` opt-in (this transport sets it) precisely to
+	 * `dangerouslyAllowBrowser` opt-in (this model sets it) precisely to
 	 * flag that risk; prefer the proxy for anything beyond local development.
 	 */
 	apiKey?: string | (() => string | Promise<string>);
@@ -54,26 +54,26 @@ export interface AnthropicTextTransportOptions {
 	maxRetries?: number;
 }
 
-type EventName = keyof AgentTransportEventMap;
+type EventName = keyof AgentModelEventMap;
 
 /**
- * Request/response **text** transport over an Anthropic Claude model, using
+ * Request/response **text** model for Anthropic Claude, using
  * the official `@anthropic-ai/sdk` (Messages API, streaming). It runs the
  * agentic tool-loop **client-side** and emits the neutral
- * {@link AgentTransportEventMap}, so the shared `Agent` orchestrator drives it
- * with the same code path as every other transport — the difference is
+ * {@link AgentModelEventMap}, so the shared `Agent` orchestrator drives it
+ * with the same code path as every other model — the difference is
  * captured entirely in {@link capabilities}.
  *
  * `streaming:false` here means "no live bidi session", **not** "no token
  * streaming": output text still streams as `text-out` deltas; the session is
- * just request/response (this transport owns `messages[]` and re-sends them
+ * just request/response (this model owns `messages[]` and re-sends them
  * each loop iteration).
  *
  * Assistant turns are appended to history **verbatim** (full content blocks,
  * including thinking blocks and their signatures) — required for tool use
  * with adaptive thinking.
  */
-export class AnthropicTextTransport implements AgentTransport {
+export class AnthropicTextModel implements AgentModel {
 	#apiKey?: string | (() => string | Promise<string>);
 	#model: string;
 	#baseUrl?: string;
@@ -85,7 +85,7 @@ export class AnthropicTextTransport implements AgentTransport {
 	#tools: Tool[] = [];
 	/** Client-owned conversation history (we report `historyOwnership: 'client'`). */
 	#messages: MessageParam[] = [];
-	#listeners: { [E in EventName]?: Set<(p: AgentTransportEventMap[E]) => void> } = {};
+	#listeners: { [E in EventName]?: Set<(p: AgentModelEventMap[E]) => void> } = {};
 	#closed = false;
 	#abort: AbortController | null = null;
 	// In-flight tool-call batching: one model turn can carry several tool_use
@@ -95,7 +95,7 @@ export class AnthropicTextTransport implements AgentTransport {
 	#pendingCount = 0;
 	#pendingResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = [];
 
-	constructor(opts: AnthropicTextTransportOptions = {}) {
+	constructor(opts: AnthropicTextModelOptions = {}) {
 		this.#apiKey = opts.apiKey;
 		this.#model = opts.model ?? 'claude-opus-4-8';
 		this.#baseUrl = opts.baseUrl;
@@ -108,7 +108,7 @@ export class AnthropicTextTransport implements AgentTransport {
 	 * Request/response text profile: no live session, no barge-in, no silent
 	 * context channel, client-owned history, can't self-initiate a turn.
 	 */
-	get capabilities(): TransportCapabilities {
+	get capabilities(): AgentModelCapabilities {
 		return {
 			streaming: false,
 			interruptible: false,
@@ -120,7 +120,7 @@ export class AnthropicTextTransport implements AgentTransport {
 		};
 	}
 
-	async connect(opts: AgentTransportConnectOptions): Promise<void> {
+	async connect(opts: AgentModelConnectOptions): Promise<void> {
 		this.#closed = false;
 		this.#system = opts.systemInstruction;
 		// Universal {name,description,parameters} → Anthropic {name,description,input_schema}.
@@ -138,14 +138,14 @@ export class AnthropicTextTransport implements AgentTransport {
 		const apiKey = typeof this.#apiKey === 'function' ? await this.#apiKey() : this.#apiKey;
 		if (!apiKey && !this.#baseUrl) {
 			throw new Error(
-				'AnthropicTextTransport needs an apiKey (or a baseUrl proxy that injects one server-side).'
+				'AnthropicTextModel needs an apiKey (or a baseUrl proxy that injects one server-side).'
 			);
 		}
 		try {
 			this.#client = new Anthropic({
 				apiKey: apiKey ?? 'proxied-server-side',
 				// This is a browser library; the real protection is the baseUrl proxy
-				// (see `AnthropicTextTransportOptions.baseUrl`).
+				// (see `AnthropicTextModelOptions.baseUrl`).
 				dangerouslyAllowBrowser: true,
 				...(this.#baseUrl ? { baseURL: this.#baseUrl } : {}),
 				...(this.#maxRetries !== undefined ? { maxRetries: this.#maxRetries } : {})
@@ -180,9 +180,9 @@ export class AnthropicTextTransport implements AgentTransport {
 
 	on<E extends EventName>(
 		event: E,
-		handler: (payload: AgentTransportEventMap[E]) => void
+		handler: (payload: AgentModelEventMap[E]) => void
 	): () => void {
-		let set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+		let set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) {
 			set = new Set();
 			(this.#listeners[event] as unknown) = set;
@@ -239,7 +239,7 @@ export class AnthropicTextTransport implements AgentTransport {
 			// An intentional close()/abort isn't an error — swallow it.
 			if (this.#closed) return;
 			this.#emit('error', {
-				message: (e as Error).message ?? 'Anthropic text transport error',
+				message: (e as Error).message ?? 'Anthropic text model error',
 				cause: e
 			});
 			return;
@@ -295,14 +295,14 @@ export class AnthropicTextTransport implements AgentTransport {
 		this.#emit('usage', payload);
 	}
 
-	#emit<E extends EventName>(event: E, payload: AgentTransportEventMap[E]): void {
-		const set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+	#emit<E extends EventName>(event: E, payload: AgentModelEventMap[E]): void {
+		const set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) return;
 		for (const h of set) {
 			try {
 				h(payload);
 			} catch (e) {
-				console.error(`[AnthropicTextTransport] listener for "${event}" threw:`, e);
+				console.error(`[AnthropicTextModel] listener for "${event}" threw:`, e);
 			}
 		}
 	}

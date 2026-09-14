@@ -1,5 +1,5 @@
 export {
-	DeepgramVoiceAgentTransport,
-	type DeepgramVoiceAgentTransportOptions
-} from './agent-transport';
+	DeepgramVoiceAgentModel,
+	type DeepgramVoiceAgentModelOptions
+} from './agent-model';
 export { mintDeepgramToken, type MintDeepgramTokenOptions } from './token-handler';

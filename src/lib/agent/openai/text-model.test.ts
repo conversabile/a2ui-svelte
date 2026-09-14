@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { OpenAITextTransport } from './text-transport';
+import { OpenAITextModel } from './text-model';
 
 // Mock the SDK: `new OpenAI(...)` yields a client whose
 // `chat.completions.create` is our programmable stub.
@@ -39,7 +39,7 @@ beforeEach(() => {
 	});
 });
 
-function listen(transport: OpenAITextTransport) {
+function listen(model: OpenAITextModel) {
 	const ev = {
 		textOut: [] as string[],
 		toolCall: [] as Array<Array<{ id: string; name: string; args: Record<string, unknown> }>>,
@@ -47,11 +47,11 @@ function listen(transport: OpenAITextTransport) {
 		usage: [] as unknown[],
 		error: [] as string[]
 	};
-	transport.on('text-out', (p) => ev.textOut.push(p.text));
-	transport.on('tool-call', (p) => ev.toolCall.push(p.calls));
-	transport.on('turn-complete', () => (ev.turnComplete += 1));
-	transport.on('usage', (u) => ev.usage.push(u));
-	transport.on('error', (e) => ev.error.push(e.message));
+	model.on('text-out', (p) => ev.textOut.push(p.text));
+	model.on('tool-call', (p) => ev.toolCall.push(p.calls));
+	model.on('turn-complete', () => (ev.turnComplete += 1));
+	model.on('usage', (u) => ev.usage.push(u));
+	model.on('error', (e) => ev.error.push(e.message));
 	return ev;
 }
 
@@ -66,11 +66,11 @@ const TOOLS = [
 /** A text-delta chunk. */
 const text = (t: string) => ({ choices: [{ delta: { content: t } }] });
 
-describe('OpenAITextTransport', () => {
+describe('OpenAITextModel', () => {
 	it('maps tools to function tools, prepends the system message, and seeds history', async () => {
-		const transport = new OpenAITextTransport({ apiKey: 'key' });
-		const ev = listen(transport);
-		await transport.connect({
+		const model = new OpenAITextModel({ apiKey: 'key' });
+		const ev = listen(model);
+		await model.connect({
 			systemInstruction: 'sys',
 			tools: TOOLS,
 			history: [
@@ -80,7 +80,7 @@ describe('OpenAITextTransport', () => {
 		});
 
 		programs = [[text('ok')]];
-		transport.sendText('do it');
+		model.sendText('do it');
 		await flush();
 
 		expect(ev.turnComplete).toBe(1);
@@ -108,9 +108,9 @@ describe('OpenAITextTransport', () => {
 	});
 
 	it('accumulates split tool-call deltas and re-calls only after all results', async () => {
-		const transport = new OpenAITextTransport({ apiKey: 'key' });
-		const ev = listen(transport);
-		await transport.connect({ systemInstruction: 'sys', tools: TOOLS });
+		const model = new OpenAITextModel({ apiKey: 'key' });
+		const ev = listen(model);
+		await model.connect({ systemInstruction: 'sys', tools: TOOLS });
 
 		programs = [
 			// Turn 1: two parallel calls, their names/arguments split across chunks.
@@ -144,7 +144,7 @@ describe('OpenAITextTransport', () => {
 			[text('done')]
 		];
 
-		transport.sendText('go');
+		model.sendText('go');
 		await flush();
 
 		expect(ev.toolCall).toHaveLength(1);
@@ -157,12 +157,12 @@ describe('OpenAITextTransport', () => {
 		expect(createMock).toHaveBeenCalledTimes(1);
 
 		// First result in: still must NOT re-call (batch incomplete).
-		transport.sendToolResult('call_a', 'a', { status: 'success' });
+		model.sendToolResult('call_a', 'a', { status: 'success' });
 		await flush();
 		expect(createMock).toHaveBeenCalledTimes(1);
 
 		// Second result in: now it re-calls.
-		transport.sendToolResult('call_b', 'b', { result: 5 });
+		model.sendToolResult('call_b', 'b', { result: 5 });
 		await flush();
 		expect(createMock).toHaveBeenCalledTimes(2);
 		expect(ev.turnComplete).toBe(1);
@@ -192,12 +192,12 @@ describe('OpenAITextTransport', () => {
 	});
 
 	it('streams text deltas as separate text-out events', async () => {
-		const transport = new OpenAITextTransport({ apiKey: 'key' });
-		const ev = listen(transport);
-		await transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new OpenAITextModel({ apiKey: 'key' });
+		const ev = listen(model);
+		await model.connect({ systemInstruction: 'sys', tools: [] });
 
 		programs = [[text('Hel'), text('lo')]];
-		transport.sendText('hi');
+		model.sendText('hi');
 		await flush();
 
 		expect(ev.textOut).toEqual(['Hel', 'lo']);
@@ -207,9 +207,9 @@ describe('OpenAITextTransport', () => {
 	});
 
 	it('maps the usage chunk to the neutral AgentUsage shape', async () => {
-		const transport = new OpenAITextTransport({ apiKey: 'key' });
-		const ev = listen(transport);
-		await transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new OpenAITextModel({ apiKey: 'key' });
+		const ev = listen(model);
+		await model.connect({ systemInstruction: 'sys', tools: [] });
 
 		programs = [
 			[
@@ -225,7 +225,7 @@ describe('OpenAITextTransport', () => {
 				}
 			]
 		];
-		transport.sendText('hi');
+		model.sendText('hi');
 		await flush();
 
 		expect(ev.usage).toEqual([
@@ -239,12 +239,12 @@ describe('OpenAITextTransport', () => {
 	});
 
 	it('reports an SDK failure as a normalised error event', async () => {
-		const transport = new OpenAITextTransport({ apiKey: 'key' });
-		const ev = listen(transport);
-		await transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new OpenAITextModel({ apiKey: 'key' });
+		const ev = listen(model);
+		await model.connect({ systemInstruction: 'sys', tools: [] });
 
 		createMock.mockRejectedValueOnce(new Error('boom'));
-		transport.sendText('hi');
+		model.sendText('hi');
 		await flush();
 
 		expect(ev.error).toEqual(['boom']);
@@ -252,14 +252,14 @@ describe('OpenAITextTransport', () => {
 	});
 
 	it('constructs a browser-enabled client pointing at OpenAI by default', async () => {
-		const transport = new OpenAITextTransport({ apiKey: 'real-key' });
-		await transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new OpenAITextModel({ apiKey: 'real-key' });
+		await model.connect({ systemInstruction: 'sys', tools: [] });
 		expect(ctorArgs.at(-1)).toEqual({ apiKey: 'real-key', dangerouslyAllowBrowser: true });
 	});
 
 	it('points the SDK at a proxy baseUrl with a placeholder key when apiKey is omitted', async () => {
-		const transport = new OpenAITextTransport({ baseUrl: 'https://example.test/api/openai' });
-		await transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new OpenAITextModel({ baseUrl: 'https://example.test/api/openai' });
+		await model.connect({ systemInstruction: 'sys', tools: [] });
 		expect(ctorArgs.at(-1)).toEqual({
 			apiKey: 'proxied-server-side',
 			dangerouslyAllowBrowser: true,
@@ -268,21 +268,21 @@ describe('OpenAITextTransport', () => {
 	});
 
 	it('rejects connect() when neither apiKey nor baseUrl is configured', async () => {
-		const transport = new OpenAITextTransport();
-		await expect(transport.connect({ systemInstruction: 'sys', tools: [] })).rejects.toThrow(
+		const model = new OpenAITextModel();
+		await expect(model.connect({ systemInstruction: 'sys', tools: [] })).rejects.toThrow(
 			/apiKey/
 		);
 	});
 
 	it('close() guards the loop and is idempotent', async () => {
-		const transport = new OpenAITextTransport({ apiKey: 'key' });
-		const ev = listen(transport);
-		await transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new OpenAITextModel({ apiKey: 'key' });
+		const ev = listen(model);
+		await model.connect({ systemInstruction: 'sys', tools: [] });
 
-		transport.close();
-		transport.close(); // idempotent — must not throw
+		model.close();
+		model.close(); // idempotent — must not throw
 
-		transport.sendText('hi');
+		model.sendText('hi');
 		await flush();
 
 		expect(createMock).not.toHaveBeenCalled();

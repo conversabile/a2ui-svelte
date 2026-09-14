@@ -7,14 +7,14 @@ import type {
 } from 'openai/resources/chat/completions';
 import type { CompletionUsage } from 'openai/resources/completions';
 import type {
-	AgentTransport,
-	AgentTransportConnectOptions,
-	AgentTransportEventMap,
+	AgentModel,
+	AgentModelConnectOptions,
+	AgentModelEventMap,
 	AgentUsage,
-	TransportCapabilities
-} from '../transport';
+	AgentModelCapabilities
+} from '../model';
 
-export interface OpenAITextTransportOptions {
+export interface OpenAITextModelOptions {
 	/**
 	 * OpenAI API key, or a function that produces one — resolved once per
 	 * `connect()`. Optional when `baseUrl` points at a proxy that injects the
@@ -26,7 +26,7 @@ export interface OpenAITextTransportOptions {
 	/**
 	 * OpenAI **text** model (Chat Completions, request/response). Default
 	 * `'gpt-5.2'`. Distinct from the Realtime voice model (`gpt-realtime-2`)
-	 * used by `OpenAIRealtimeTransport` — this transport speaks the
+	 * used by `OpenAIRealtimeModel` — this adapter speaks the
 	 * `chat/completions` API, not the bidi Realtime socket.
 	 */
 	model?: string;
@@ -45,7 +45,7 @@ export interface OpenAITextTransportOptions {
 	maxRetries?: number;
 }
 
-type EventName = keyof AgentTransportEventMap;
+type EventName = keyof AgentModelEventMap;
 
 /** Accumulator for tool-call deltas streamed across chunks (keyed by index). */
 interface PendingToolCall {
@@ -55,18 +55,18 @@ interface PendingToolCall {
 }
 
 /**
- * Request/response **text** transport over an OpenAI model, using the official
+ * Request/response **text** model for OpenAI, using the official
  * `openai` SDK (Chat Completions, streaming). It runs the agentic tool-loop
- * **client-side** and emits the neutral {@link AgentTransportEventMap}, so the
+ * **client-side** and emits the neutral {@link AgentModelEventMap}, so the
  * shared `Agent` orchestrator drives it with the same code path as every other
- * transport — the difference is captured entirely in {@link capabilities}.
+ * model — the difference is captured entirely in {@link capabilities}.
  *
  * `streaming:false` here means "no live bidi session", **not** "no token
  * streaming": output text still streams as `text-out` deltas; the session is
- * just request/response (this transport owns `messages[]` and re-sends them
+ * just request/response (this model owns `messages[]` and re-sends them
  * each loop iteration).
  */
-export class OpenAITextTransport implements AgentTransport {
+export class OpenAITextModel implements AgentModel {
 	#apiKey?: string | (() => string | Promise<string>);
 	#model: string;
 	#baseUrl?: string;
@@ -76,7 +76,7 @@ export class OpenAITextTransport implements AgentTransport {
 	#tools: ChatCompletionFunctionTool[] = [];
 	/** Client-owned conversation history, system message excluded (prepended per request). */
 	#messages: ChatCompletionMessageParam[] = [];
-	#listeners: { [E in EventName]?: Set<(p: AgentTransportEventMap[E]) => void> } = {};
+	#listeners: { [E in EventName]?: Set<(p: AgentModelEventMap[E]) => void> } = {};
 	#closed = false;
 	#abort: AbortController | null = null;
 	// In-flight tool-call batching: one model turn can request several tool
@@ -86,7 +86,7 @@ export class OpenAITextTransport implements AgentTransport {
 	#pendingCount = 0;
 	#pendingResults: ChatCompletionMessageParam[] = [];
 
-	constructor(opts: OpenAITextTransportOptions = {}) {
+	constructor(opts: OpenAITextModelOptions = {}) {
 		this.#apiKey = opts.apiKey;
 		this.#model = opts.model ?? 'gpt-5.2';
 		this.#baseUrl = opts.baseUrl;
@@ -97,7 +97,7 @@ export class OpenAITextTransport implements AgentTransport {
 	 * Request/response text profile: no live session, no barge-in, no silent
 	 * context channel, client-owned history, can't self-initiate a turn.
 	 */
-	get capabilities(): TransportCapabilities {
+	get capabilities(): AgentModelCapabilities {
 		return {
 			streaming: false,
 			interruptible: false,
@@ -109,7 +109,7 @@ export class OpenAITextTransport implements AgentTransport {
 		};
 	}
 
-	async connect(opts: AgentTransportConnectOptions): Promise<void> {
+	async connect(opts: AgentModelConnectOptions): Promise<void> {
 		this.#closed = false;
 		this.#system = opts.systemInstruction;
 		// Universal {name,description,parameters} → OpenAI function-tool shape.
@@ -126,14 +126,14 @@ export class OpenAITextTransport implements AgentTransport {
 		const apiKey = typeof this.#apiKey === 'function' ? await this.#apiKey() : this.#apiKey;
 		if (!apiKey && !this.#baseUrl) {
 			throw new Error(
-				'OpenAITextTransport needs an apiKey (or a baseUrl proxy that injects one server-side).'
+				'OpenAITextModel needs an apiKey (or a baseUrl proxy that injects one server-side).'
 			);
 		}
 		try {
 			this.#client = new OpenAI({
 				apiKey: apiKey ?? 'proxied-server-side',
 				// This is a browser library; the real protection is the baseUrl proxy
-				// (see `OpenAITextTransportOptions.baseUrl`).
+				// (see `OpenAITextModelOptions.baseUrl`).
 				dangerouslyAllowBrowser: true,
 				...(this.#baseUrl ? { baseURL: this.#baseUrl } : {}),
 				...(this.#maxRetries !== undefined ? { maxRetries: this.#maxRetries } : {})
@@ -168,9 +168,9 @@ export class OpenAITextTransport implements AgentTransport {
 
 	on<E extends EventName>(
 		event: E,
-		handler: (payload: AgentTransportEventMap[E]) => void
+		handler: (payload: AgentModelEventMap[E]) => void
 	): () => void {
-		let set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+		let set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) {
 			set = new Set();
 			(this.#listeners[event] as unknown) = set;
@@ -237,7 +237,7 @@ export class OpenAITextTransport implements AgentTransport {
 			// An intentional close()/abort isn't an error — swallow it.
 			if (this.#closed) return;
 			this.#emit('error', {
-				message: (e as Error).message ?? 'OpenAI text transport error',
+				message: (e as Error).message ?? 'OpenAI text model error',
 				cause: e
 			});
 			return;
@@ -303,14 +303,14 @@ export class OpenAITextTransport implements AgentTransport {
 		this.#emit('usage', payload);
 	}
 
-	#emit<E extends EventName>(event: E, payload: AgentTransportEventMap[E]): void {
-		const set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+	#emit<E extends EventName>(event: E, payload: AgentModelEventMap[E]): void {
+		const set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) return;
 		for (const h of set) {
 			try {
 				h(payload);
 			} catch (e) {
-				console.error(`[OpenAITextTransport] listener for "${event}" threw:`, e);
+				console.error(`[OpenAITextModel] listener for "${event}" threw:`, e);
 			}
 		}
 	}

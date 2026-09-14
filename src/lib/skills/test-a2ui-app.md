@@ -1,6 +1,6 @@
 ---
 name: test-a2ui-app
-description: Use when writing or fixing tests for an app built with a2ui-svelte — component tests that drive the UI as the agent does, tests needing a live Agent via ScriptedTransport, Playwright end-to-end through window.__a2ui, or evals against a real model.
+description: Use when writing or fixing tests for an app built with a2ui-svelte — component tests that drive the UI as the agent does, tests needing a live Agent via ScriptedModel, Playwright end-to-end through window.__a2ui, or evals against a real model.
 type: skill
 ---
 
@@ -18,14 +18,14 @@ this", "my test can't reach the tool", "test with a fake model", "add a
 Playwright test", "eval this against a real model".
 
 **The library ships no test framework.** Vitest + Testing Library as usual;
-we add three functions and a scripted transport.
+we add three functions and a scripted model.
 
 ## Which subpath an import comes from
 
 | import | from |
 |---|---|
 | `surface`, `mountedSurfaces`, `toolRegistry`, `actionRegistry`, `validateSurface` | `a2ui-svelte/core` |
-| `Agent`, `ScriptedTransport`, `withoutAudio` | `a2ui-svelte/agent` |
+| `Agent`, `ScriptedModel`, `withoutAudio` | `a2ui-svelte/agent` |
 | `agentCall`, `agentClick`, `agentFill` | `a2ui-svelte/testing` |
 
 **The placement rule:** something belongs in `a2ui-svelte/testing` **iff it
@@ -40,7 +40,7 @@ framework subpaths, even when tests are its only user. Never import
 
 ### 1. Component test — the agent acts, the app reacts
 
-No model, no transport: call the same registry a real model hits.
+No model, no network: call the same registry a real model hits.
 
 ```ts
 import { render, screen } from '@testing-library/svelte';
@@ -77,17 +77,17 @@ test('a human edit is visible to the agent', async () => {
 - **Stub nothing for jsdom.** `CSS.escape` and `scrollIntoView` are guarded
   inside the library. A crash there is our bug — don't add a setup file.
 
-### 2. A test that needs a live `Agent` — `ScriptedTransport`
+### 2. A test that needs a live `Agent` — `ScriptedModel`
 
 Only for code that runs when an agent is attached: UI bound to
 `agent.status` / `agent.transcript`, an event you emit yourself, a
 `buildPrompt` override.
 
 ```ts
-import { Agent, ScriptedTransport } from 'a2ui-svelte/agent';
+import { Agent, ScriptedModel } from 'a2ui-svelte/agent';
 import { todoList } from './agent-definition';
 
-const model = new ScriptedTransport([
+const model = new ScriptedModel([
   { on: 'save', calls: [{ name: 'click_button', args: { element_id: 'save-list-btn' } }] }
 ]);
 const agent = new Agent(todoList, model);
@@ -103,7 +103,7 @@ await turn;
   tool calls match the ones you scripted is the script echoing itself.
   Assert on your app's state, or on `model.textsSent` / `model.toolResults`
   / `model.connectOpts`.
-- Don't hand-roll a transport. `ScriptedTransport`'s capabilities decide
+- Don't hand-roll a model. `ScriptedModel`'s capabilities decide
   which `Agent` paths run; one wrong value makes the test green against a
   configuration the app never runs.
 - A hang on `agent.send(…)` means the scripted turn never completed — pass
@@ -133,7 +133,7 @@ A real model costs money and is non-deterministic: keep it out of
 `pnpm test`, in its own `*.eval.ts` with its own runner.
 
 ```ts
-const agent = new Agent(todoList, new GeminiTextTransport({ apiKey, model }));
+const agent = new Agent(todoList, new GeminiTextModel({ apiKey, model }));
 await agent.start();
 // Without this, a wrong API key reads as the model getting the answer wrong.
 if (agent.configIssue) throw new Error(agent.configIssue);
@@ -143,7 +143,7 @@ expect(screen.getByLabelText('Invoices due date')).toHaveValue('2026-04-15');
 expect(agent.debug.usage.peakTotal).toBeLessThan(8_000);
 ```
 
-Wrap a voice transport in `withoutAudio(...)` to run it under node.
+Wrap a voice model in `withoutAudio(...)` to run it under node.
 
 ## Don't assert
 
@@ -161,5 +161,5 @@ that re-declares the definition is testing a prompt the app never ships.
 
 ## Related skills
 
-- `integrate-agent` — wiring `Agent` + transport + `<AgentShell>`.
+- `integrate-agent` — wiring `Agent` + model + `<AgentShell>`.
 - `build-a2ui-page` — the surfaces and ids these tests drive.

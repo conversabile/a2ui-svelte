@@ -48,29 +48,29 @@ lights up both Gemini models at once.
 
 ## Switch the agent model
 
-The **Agent model** picker in the header swaps the *transport* — and
+The **Agent model** picker in the header swaps the *model* — and
 nothing else. One `AgentDefinition` (persona + surfaces + context), one
 `Agent`, one `<AgentShell>` serve every choice, grouped into:
 
-- **Voice (streaming).** `GeminiLiveTransport`, `OpenAIRealtimeTransport`,
-  `DeepgramVoiceAgentTransport`, `HumeEviTransport`. The shell sees audio
+- **Voice (streaming).** `GeminiLiveModel`, `OpenAIRealtimeModel`,
+  `DeepgramVoiceAgentModel`, `HumeEviModel`. The shell sees audio
   in `agent.capabilities` and grows the mic + mute cluster. Talk to it
   (or type — the chat bar is always there).
-- **Text (chat).** `GeminiTextTransport`, `AnthropicTextTransport`,
-  `OpenAITextTransport` over each provider's request/response API. Same
+- **Text (chat).** `GeminiTextModel`, `AnthropicTextModel`,
+  `OpenAITextModel` over each provider's request/response API. Same
   shell, no mic. Type to it.
 
-Auth belongs to each transport. Voice transports mint a short-lived
+Auth belongs to each model. Voice models mint a short-lived
 credential per connect via `src/routes/api/voice-token/[provider]/`
 (Gemini ephemeral token, OpenAI client secret, Deepgram grant JWT, Hume
-OAuth token). Text transports route through a same-origin key proxy
+OAuth token). Text models route through a same-origin key proxy
 (`src/routes/api/{gemini,claude,openai}/[...path]/`) via their `baseUrl`
 option, so the real API key never reaches the browser. Which providers
 are enabled is reported (booleans only) by `src/routes/api/providers/`.
 For the trade-offs between providers — free tiers, native
 speech-to-speech vs. STT→LLM→TTS pipelines, what was evaluated and
 rejected — see the
-[transport providers guide](../../docs/guides/transport-providers.md).
+[model providers guide](../../docs/guides/model-providers.md).
 
 ## Routes
 
@@ -93,10 +93,10 @@ rejected — see the
 
 - Subpath imports: `a2ui-svelte/renderer`, `a2ui-svelte/components`,
   `a2ui-svelte/authoring`, `a2ui-svelte/agent`, and the per-provider
-  transport entries `a2ui-svelte/agent/{gemini,anthropic,openai,deepgram,hume}`.
-- One agent, seven transports: the same `AgentDefinition` connected to any
-  of four streaming-voice transports or three request/response text
-  transports, rendered by the single `<AgentShell>` that adapts itself to
+  model entries `a2ui-svelte/agent/{gemini,anthropic,openai,deepgram,hume}`.
+- One agent, seven models: the same `AgentDefinition` connected to any
+  of four streaming-voice models or three request/response text
+  models, rendered by the single `<AgentShell>` that adapts itself to
   `agent.capabilities`.
 - Gating the model picker on which provider keys are configured
   (`/api/providers` returns booleans only).

@@ -1,10 +1,10 @@
 export {
-	type AgentTransport,
-	type AgentTransportConnectOptions,
-	type AgentTransportEventMap,
-	type AgentUsage,
-	type TransportCapabilities
-} from './transport';
+	type AgentModel,
+	type AgentModelCapabilities,
+	type AgentModelConnectOptions,
+	type AgentModelEventMap,
+	type AgentUsage
+} from './model';
 export {
 	Agent,
 	type AgentDefinition,
@@ -35,8 +35,8 @@ export {
 	type PromptInputs,
 	type PromptSurface
 } from './prompt-builder';
-export { ScriptedTransport, type ScriptedReaction } from './scripted-transport';
-export { withoutAudio, type ForwardedTransport } from './forward-transport';
+export { ScriptedModel, type ScriptedReaction } from './scripted-model';
+export { withoutAudio, type ForwardedModel } from './forward-model';
 export { AudioRecorder } from './audio-recorder';
 export { AudioPlayer } from './audio-player';
 export { default as AgentShell } from './AgentShell.svelte';

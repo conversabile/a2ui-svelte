@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, type Mock } from 'vitest';
 import type {
-	AgentTransport,
-	AgentTransportConnectOptions,
-	AgentTransportEventMap,
-	TransportCapabilities
-} from './transport';
+	AgentModel,
+	AgentModelConnectOptions,
+	AgentModelEventMap,
+	AgentModelCapabilities
+} from './model';
 import { Agent } from './agent.svelte';
-import { forwardTransport, withoutAudio } from './forward-transport';
+import { forwardModel, withoutAudio } from './forward-model';
 
-type EventName = keyof AgentTransportEventMap;
+type EventName = keyof AgentModelEventMap;
 
-const VOICE_CAPS: TransportCapabilities = {
+const VOICE_CAPS: AgentModelCapabilities = {
 	streaming: true,
 	interruptible: true,
 	silentContext: true,
@@ -20,7 +20,7 @@ const VOICE_CAPS: TransportCapabilities = {
 	output: ['audio', 'text']
 };
 
-const TEXT_CAPS: TransportCapabilities = {
+const TEXT_CAPS: AgentModelCapabilities = {
 	streaming: false,
 	interruptible: false,
 	silentContext: false,
@@ -35,23 +35,23 @@ const TEXT_CAPS: TransportCapabilities = {
  * unbound `this` throw, so a wrapper that forwards methods without binding
  * fails here instead of in production.
  */
-class FakeTransport implements AgentTransport {
+class FakeModel implements AgentModel {
 	calls: string[] = [];
 	listeners: Array<{ event: EventName; off: Mock<() => void> }> = [];
-	#caps: TransportCapabilities;
+	#caps: AgentModelCapabilities;
 
-	constructor(caps: TransportCapabilities) {
+	constructor(caps: AgentModelCapabilities) {
 		this.#caps = caps;
 	}
 
-	get capabilities(): TransportCapabilities {
+	get capabilities(): AgentModelCapabilities {
 		return this.#caps;
 	}
 	/** Live capability change — the wrapper must read through, not snapshot. */
-	setCapabilities(caps: TransportCapabilities) {
+	setCapabilities(caps: AgentModelCapabilities) {
 		this.#caps = caps;
 	}
-	async connect(opts: AgentTransportConnectOptions) {
+	async connect(opts: AgentModelConnectOptions) {
 		this.calls.push(`connect:${opts.systemInstruction}`);
 	}
 	sendText(text: string) {
@@ -60,7 +60,7 @@ class FakeTransport implements AgentTransport {
 	sendToolResult(callId: string, name: string, result: unknown) {
 		this.calls.push(`sendToolResult:${callId}:${name}:${JSON.stringify(result)}`);
 	}
-	on<E extends EventName>(event: E, handler: (p: AgentTransportEventMap[E]) => void) {
+	on<E extends EventName>(event: E, handler: (p: AgentModelEventMap[E]) => void) {
 		this.calls.push(`on:${event}:${typeof handler}`);
 		const off = vi.fn(() => {});
 		this.listeners.push({ event, off });
@@ -72,7 +72,7 @@ class FakeTransport implements AgentTransport {
 }
 
 /** The optional members, added only when a test wants them present. */
-class FullFakeTransport extends FakeTransport {
+class FullFakeModel extends FakeModel {
 	sendContextUpdate(text: string) {
 		this.calls.push(`sendContextUpdate:${text}`);
 	}
@@ -86,10 +86,10 @@ class FullFakeTransport extends FakeTransport {
 
 const OPTIONAL_MEMBERS = ['sendContextUpdate', 'sendUserAction', 'sendAudioChunk'] as const;
 
-describe('forwardTransport', () => {
-	it('forwards every required member to the inner transport', async () => {
-		const inner = new FakeTransport(TEXT_CAPS);
-		const wrapped = forwardTransport(inner);
+describe('forwardModel', () => {
+	it('forwards every required member to the inner model', async () => {
+		const inner = new FakeModel(TEXT_CAPS);
+		const wrapped = forwardModel(inner);
 
 		await wrapped.connect({ systemInstruction: 'sys', tools: [] });
 		wrapped.sendText('hi');
@@ -106,7 +106,7 @@ describe('forwardTransport', () => {
 	});
 
 	it('keeps an absent optional member absent', () => {
-		const wrapped = forwardTransport(new FakeTransport(TEXT_CAPS));
+		const wrapped = forwardModel(new FakeModel(TEXT_CAPS));
 		for (const member of OPTIONAL_MEMBERS) {
 			expect(member in wrapped, member).toBe(false);
 			expect(wrapped[member]).toBeUndefined();
@@ -114,8 +114,8 @@ describe('forwardTransport', () => {
 	});
 
 	it('keeps a present optional member present, and forwards it', () => {
-		const inner = new FullFakeTransport(VOICE_CAPS);
-		const wrapped = forwardTransport(inner);
+		const inner = new FullFakeModel(VOICE_CAPS);
+		const wrapped = forwardModel(inner);
 
 		for (const member of OPTIONAL_MEMBERS) expect(member in wrapped, member).toBe(true);
 
@@ -126,17 +126,17 @@ describe('forwardTransport', () => {
 	});
 
 	it('forwards a member the contract does not know about yet', () => {
-		const inner = new FakeTransport(TEXT_CAPS) as FakeTransport & { future(): void };
+		const inner = new FakeModel(TEXT_CAPS) as FakeModel & { future(): void };
 		inner.future = () => inner.calls.push('future');
-		const wrapped = forwardTransport(inner) as unknown as { future(): void };
+		const wrapped = forwardModel(inner) as unknown as { future(): void };
 
 		wrapped.future();
 		expect(inner.calls).toEqual(['future']);
 	});
 
 	it('reads capabilities through live, never a snapshot', () => {
-		const inner = new FakeTransport(TEXT_CAPS);
-		const wrapped = forwardTransport(inner);
+		const inner = new FakeModel(TEXT_CAPS);
+		const wrapped = forwardModel(inner);
 		expect(wrapped.capabilities.streaming).toBe(false);
 
 		inner.setCapabilities(VOICE_CAPS);
@@ -144,9 +144,9 @@ describe('forwardTransport', () => {
 	});
 
 	it('lets an override win, and hides a member overridden with undefined', () => {
-		const inner = new FullFakeTransport(VOICE_CAPS);
+		const inner = new FullFakeModel(VOICE_CAPS);
 		const sendText = vi.fn();
-		const wrapped = forwardTransport(inner, { sendText, sendContextUpdate: undefined });
+		const wrapped = forwardModel(inner, { sendText, sendContextUpdate: undefined });
 
 		wrapped.sendText('hi');
 		expect(sendText).toHaveBeenCalledWith('hi');
@@ -156,8 +156,8 @@ describe('forwardTransport', () => {
 	});
 
 	it('dispose() unsubscribes everything subscribed through the wrapper', () => {
-		const inner = new FakeTransport(TEXT_CAPS);
-		const wrapped = forwardTransport(inner);
+		const inner = new FakeModel(TEXT_CAPS);
+		const wrapped = forwardModel(inner);
 		wrapped.on('text-out', () => {});
 		wrapped.on('turn-complete', () => {});
 
@@ -172,8 +172,8 @@ describe('forwardTransport', () => {
 	});
 
 	it('returns a working, idempotent unsubscribe from on()', () => {
-		const inner = new FakeTransport(TEXT_CAPS);
-		const wrapped = forwardTransport(inner);
+		const inner = new FakeModel(TEXT_CAPS);
+		const wrapped = forwardModel(inner);
 		const off = wrapped.on('text-out', () => {});
 
 		off();
@@ -188,7 +188,7 @@ describe('forwardTransport', () => {
 
 describe('withoutAudio', () => {
 	it('strips the audio modality and hides sendAudioChunk', () => {
-		const inner = new FullFakeTransport(VOICE_CAPS);
+		const inner = new FullFakeModel(VOICE_CAPS);
 		const wrapped = withoutAudio(inner);
 
 		expect(wrapped.capabilities.input).toEqual(['text']);
@@ -198,7 +198,7 @@ describe('withoutAudio', () => {
 	});
 
 	it('leaves every other capability and member alone', () => {
-		const inner = new FullFakeTransport(VOICE_CAPS);
+		const inner = new FullFakeModel(VOICE_CAPS);
 		const wrapped = withoutAudio(inner);
 
 		expect(wrapped.capabilities).toMatchObject({
@@ -215,7 +215,7 @@ describe('withoutAudio', () => {
 	});
 
 	it('reads capabilities through live', () => {
-		const inner = new FullFakeTransport(VOICE_CAPS);
+		const inner = new FullFakeModel(VOICE_CAPS);
 		const wrapped = withoutAudio(inner);
 
 		inner.setCapabilities({ ...VOICE_CAPS, interruptible: false, output: ['audio'] });
@@ -223,8 +223,8 @@ describe('withoutAudio', () => {
 		expect(wrapped.capabilities.output).toEqual([]);
 	});
 
-	it('is a no-op on a text-only transport', () => {
-		const wrapped = withoutAudio(new FakeTransport(TEXT_CAPS));
+	it('is a no-op on a text-only model', () => {
+		const wrapped = withoutAudio(new FakeModel(TEXT_CAPS));
 		expect(wrapped.capabilities).toEqual(TEXT_CAPS);
 		expect('sendAudioChunk' in wrapped).toBe(false);
 	});
@@ -236,8 +236,8 @@ describe('withoutAudio', () => {
  * the audio modality would make `#startAudio` fail and land in `configIssue`.
  */
 describe('withoutAudio + Agent', () => {
-	it('runs a voice transport text-in/text-out, with no mic', async () => {
-		const inner = new FullFakeTransport(VOICE_CAPS);
+	it('runs a voice model text-in/text-out, with no mic', async () => {
+		const inner = new FullFakeModel(VOICE_CAPS);
 		const agent = new Agent({ instructions: 'be brief', surfaces: () => [] }, withoutAudio(inner));
 
 		await agent.start();

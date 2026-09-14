@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AgentDebugStats, formatBytes, formatTokens } from './debug.svelte';
-import type { AgentUsage } from './transport';
+import type { AgentUsage } from './model';
 
 describe('AgentDebugStats', () => {
 	it('records an outbound text payload: byte size, token estimate, and event', () => {

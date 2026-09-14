@@ -30,8 +30,8 @@
 		>;
 		/**
 		 * Replace the mic cluster (session toggle + mute). Only rendered when the
-		 * transport accepts audio input (`agent.capabilities.input` includes
-		 * `'audio'`) — on a text-only transport there is no mic at all.
+		 * model accepts audio input (`agent.capabilities.input` includes
+		 * `'audio'`) — on a text-only model there is no mic at all.
 		 */
 		mic?: Snippet<
 			[
@@ -82,9 +82,9 @@
 	const showDebug = $derived(debug !== false);
 	const customDebug = $derived(typeof debug === 'function' ? debug : null);
 
-	// The one switch that adapts the shell to the transport: audio modality from
-	// the capabilities descriptor — never the transport's identity. A live voice
-	// API and a future STT/TTS-wrapped text transport both light the mic up.
+	// The one switch that adapts the shell to the model: audio modality from
+	// the capabilities descriptor — never the model's identity. A live voice
+	// API and a future STT/TTS-wrapped text model both light the mic up.
 	const hasAudioInput = $derived(agent.capabilities.input.includes('audio'));
 
 	let isChatOpen = $state(false);
@@ -112,9 +112,9 @@
 		isChatOpen = false;
 	}
 
-	// Typing works on every transport (voice live-APIs accept text turns too).
+	// Typing works on every model (voice live-APIs accept text turns too).
 	// A session is established lazily on the first message, so the user can just
-	// type and send; on an audio transport the mic button is the explicit
+	// type and send; on an audio model the mic button is the explicit
 	// session control. `start()` is guarded on `connected` so it's only opened
 	// once.
 	async function send(text: string) {
@@ -124,7 +124,7 @@
 		try {
 			await agent.send(value);
 		} catch (e) {
-			// The turn died (transport error/close, or it never finished). The
+			// The turn died (model error/close, or it never finished). The
 			// agent already owns the visible state — `status` goes to `'error'`
 			// on a broken session — so the shell's job is to keep the reason
 			// readable instead of dropping it.
@@ -774,7 +774,7 @@
 	}
 
 	/* The send button and the mic button share the circular accent language, so
-	   text-only and voice-capable transports render the same shell — the mic is
+	   text-only and voice-capable models render the same shell — the mic is
 	   simply present or not. */
 	.send-button {
 		flex: 0 0 auto;

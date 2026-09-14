@@ -1,8 +1,8 @@
 /**
- * Same-origin key-injection proxy for the text transports.
+ * Same-origin key-injection proxy for the text models.
  *
- * The browser-side text transports (`GeminiTextTransport`,
- * `AnthropicTextTransport`, `OpenAITextTransport`) are pointed at a
+ * The browser-side text models (`GeminiTextModel`,
+ * `AnthropicTextModel`, `OpenAITextModel`) are pointed at a
  * `/api/<provider>` route via their `baseUrl` option and send a *placeholder*
  * credential. This helper mirrors whatever path the provider SDK produced onto
  * the real upstream, swaps the placeholder for the real key (server-side), and

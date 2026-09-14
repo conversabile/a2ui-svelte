@@ -1,23 +1,23 @@
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { Agent, AgentShell, type AgentTransport } from 'a2ui-svelte/agent';
-	import { GeminiLiveTransport, GeminiTextTransport } from 'a2ui-svelte/agent/gemini';
-	import { AnthropicTextTransport } from 'a2ui-svelte/agent/anthropic';
-	import { OpenAITextTransport, OpenAIRealtimeTransport } from 'a2ui-svelte/agent/openai';
-	import { DeepgramVoiceAgentTransport } from 'a2ui-svelte/agent/deepgram';
-	import { HumeEviTransport } from 'a2ui-svelte/agent/hume';
+	import { Agent, AgentShell, type AgentModel } from 'a2ui-svelte/agent';
+	import { GeminiLiveModel, GeminiTextModel } from 'a2ui-svelte/agent/gemini';
+	import { AnthropicTextModel } from 'a2ui-svelte/agent/anthropic';
+	import { OpenAITextModel, OpenAIRealtimeModel } from 'a2ui-svelte/agent/openai';
+	import { DeepgramVoiceAgentModel } from 'a2ui-svelte/agent/deepgram';
+	import { HumeEviModel } from 'a2ui-svelte/agent/hume';
 	import { assistant } from '$lib/agent-definition';
 
 	let { children } = $props();
 
 	// ── Model switch ──────────────────────────────────────────────────────────
-	// Swapping the transport is the ONLY thing the picker changes. The same
+	// Swapping the model is the ONLY thing the picker changes. The same
 	// definition and the same <AgentShell> serve every choice: the shell reads
-	// `agent.capabilities`, so voice transports get the mic + mute cluster and
-	// text transports get a pure chat bar. Auth lives on each transport too —
+	// `agent.capabilities`, so voice models get the mic + mute cluster and
+	// text models get a pure chat bar. Auth lives on each model too —
 	// voice mints a short-lived token per connect (`/api/voice-token/<id>`),
-	// text rides a same-origin key proxy (`/api/<id>`) so the real API key stays
+	// text uses a same-origin key proxy (`/api/<id>`) so the real API key stays
 	// server-side. See `.env.template` for the keys each provider needs.
 	type ProviderId = 'gemini' | 'anthropic' | 'openai' | 'deepgram' | 'hume';
 
@@ -36,7 +36,7 @@
 		label: string;
 		kind: 'voice' | 'text';
 		provider: ProviderId;
-		build: () => AgentTransport;
+		build: () => AgentModel;
 	};
 
 	const origin = () => (typeof location !== 'undefined' ? location.origin : '');
@@ -48,28 +48,28 @@
 			label: 'Gemini Live',
 			kind: 'voice',
 			provider: 'gemini',
-			build: () => new GeminiLiveTransport({ token: () => mintToken('gemini') })
+			build: () => new GeminiLiveModel({ token: () => mintToken('gemini') })
 		},
 		{
 			id: 'openai-realtime',
 			label: 'OpenAI Realtime',
 			kind: 'voice',
 			provider: 'openai',
-			build: () => new OpenAIRealtimeTransport({ token: () => mintToken('openai') })
+			build: () => new OpenAIRealtimeModel({ token: () => mintToken('openai') })
 		},
 		{
 			id: 'deepgram',
 			label: 'Deepgram Voice Agent',
 			kind: 'voice',
 			provider: 'deepgram',
-			build: () => new DeepgramVoiceAgentTransport({ token: () => mintToken('deepgram') })
+			build: () => new DeepgramVoiceAgentModel({ token: () => mintToken('deepgram') })
 		},
 		{
 			id: 'hume',
 			label: 'Hume EVI',
 			kind: 'voice',
 			provider: 'hume',
-			build: () => new HumeEviTransport({ accessToken: () => mintToken('hume') })
+			build: () => new HumeEviModel({ accessToken: () => mintToken('hume') })
 		},
 		// Request/response text — same shell, no mic.
 		{
@@ -77,21 +77,21 @@
 			label: 'Gemini 3.5 Flash',
 			kind: 'text',
 			provider: 'gemini',
-			build: () => new GeminiTextTransport({ baseUrl: `${origin()}/api/gemini` })
+			build: () => new GeminiTextModel({ baseUrl: `${origin()}/api/gemini` })
 		},
 		{
 			id: 'anthropic-text',
 			label: 'Claude (Opus 4.8)',
 			kind: 'text',
 			provider: 'anthropic',
-			build: () => new AnthropicTextTransport({ baseUrl: `${origin()}/api/claude` })
+			build: () => new AnthropicTextModel({ baseUrl: `${origin()}/api/claude` })
 		},
 		{
 			id: 'openai-text',
 			label: 'GPT (5.2)',
 			kind: 'text',
 			provider: 'openai',
-			build: () => new OpenAITextTransport({ baseUrl: `${origin()}/api/openai` })
+			build: () => new OpenAITextModel({ baseUrl: `${origin()}/api/openai` })
 		}
 	];
 
@@ -143,7 +143,7 @@
 		once. Each tab below demonstrates one way to build that UI. Pick an agent
 		model on the right — streaming <em>voice</em> (the shell grows a mic) or
 		request/response <em>text</em> — one agent definition and one shell drive
-		them all; only the transport changes. The list is gated by which provider
+		them all; only the model changes. The list is gated by which provider
 		keys you set in <code>.env</code> (see <code>.env.template</code>).
 	</p>
 	<nav>
@@ -194,7 +194,7 @@
 	</aside>
 {/if}
 
-<!-- One shell for every transport. It adapts itself to `agent.capabilities`:
+<!-- One shell for every model. It adapts itself to `agent.capabilities`:
      audio input ⇒ the mic + mute cluster joins the chat bar; text-only ⇒ the
      bar alone. `debug` surfaces a chart-icon button that toggles a live
      token/byte stats box — handy for watching what each session pushes into

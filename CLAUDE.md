@@ -9,11 +9,11 @@ built-in tools; the human uses the normal HTML. Both see the same components, th
 same component IDs, and the same state.
 
 This is both a runtime and a **reference implementation of A2UI** — the goal is a
-library of reusable, 100%-spec-compliant Svelte components, plus a transport-neutral
+library of reusable, 100%-spec-compliant Svelte components, plus a model-neutral
 agent layer, that any A2UI-compatible app or agent can consume.
 
 Tech stack: SvelteKit library (`@sveltejs/package`), Svelte 5 runes, Vitest,
-Gemini Live API for the built-in voice transport. Theme-agnostic — ships
+Gemini Live API for the built-in voice model. Theme-agnostic — ships
 `--a2ui-*` CSS tokens that default to Pico CSS variables but work without Pico.
 
 It is published to npm as `a2ui-svelte`. Read [README.md](README.md) for the
@@ -61,37 +61,37 @@ is the standard 16-component set; `extendCatalog` adds custom ones. Authoring
 helpers (`defineA2uiComponent`, `<A2UIRepresentation>`) live in
 [src/lib/authoring/](src/lib/authoring/).
 
-### Transports and the Agent
+### Models and the Agent
 
-One framework, three pieces — definition, transport, shell (see
-[docs/implementation_plans/transport-neutral-agent-framework.md](docs/implementation_plans/transport-neutral-agent-framework.md) §0.5):
+One framework, three pieces — definition, model, shell (see
+[docs/implementation_plans/model-neutral-agent-framework.md](docs/implementation_plans/model-neutral-agent-framework.md) §0.5):
 
-- **`AgentTransport`** ([src/lib/agent/transport.ts](src/lib/agent/transport.ts))
-  — the one provider-agnostic contract. A `TransportCapabilities` descriptor lets
+- **`AgentModel`** ([src/lib/agent/model.ts](src/lib/agent/model.ts))
+  — the one provider-agnostic contract. An `AgentModelCapabilities` descriptor lets
   the orchestrator and the shell adapt (streaming voice vs. request/response
   text, audio modalities, barge-in, history ownership) **without ever branching
-  on the transport's identity**. Audio members (`sendAudioChunk?`, `audio-out`,
+  on the model's identity**. Audio members (`sendAudioChunk?`, `audio-out`,
   `interrupted`) are optional parts of this same contract — there is no separate
-  voice interface. **Auth lives on each transport's constructor**, never on the
+  voice interface. **Auth lives on each model's constructor**, never on the
   agent. Built-ins (one provider directory each under
   [src/lib/agent/](src/lib/agent/), with a server-side token-mint helper per
-  voice provider): `GeminiLiveTransport` + `GeminiTextTransport` (`gemini/`),
-  `AnthropicTextTransport` (`anthropic/`, official SDK), `OpenAITextTransport`
-  + `OpenAIRealtimeTransport` (`openai/`), `DeepgramVoiceAgentTransport`
-  (`deepgram/`), `HumeEviTransport` (`hume/`), plus the deterministic
-  `ScriptedTransport` for tests. Shared PCM/WAV adapters live in
+  voice provider): `GeminiLiveModel` + `GeminiTextModel` (`gemini/`),
+  `AnthropicTextModel` (`anthropic/`, official SDK), `OpenAITextModel`
+  + `OpenAIRealtimeModel` (`openai/`), `DeepgramVoiceAgentModel`
+  (`deepgram/`), `HumeEviModel` (`hume/`), plus the deterministic
+  `ScriptedModel` for tests. Shared PCM/WAV adapters live in
   [src/lib/agent/pcm.ts](src/lib/agent/pcm.ts) — the contract's audio shapes
-  (16 kHz mic in, 24 kHz speaker out) are fixed; transports resample/unpack
+  (16 kHz mic in, 24 kHz speaker out) are fixed; models resample/unpack
   internally.
 - **`AgentDefinition` + `Agent`** ([src/lib/agent/agent.svelte.ts](src/lib/agent/agent.svelte.ts))
   — the definition is a plain object (instructions, surfaces, context, mode,
   tuning; future guardrails/subagents) declared once and valid for every
-  transport; `new Agent(definition, transport)` is the orchestrator: prompt
+  model; `new Agent(definition, model)` is the orchestrator: prompt
   assembly, tool dispatch, surface-watch heartbeat, reactive transcript/debug
   state — and the mic recorder / speaker player / mute, created exactly when the
-  transport's capabilities include audio.
+  model's capabilities include audio.
 - **`<AgentShell>`** ([src/lib/agent/AgentShell.svelte](src/lib/agent/AgentShell.svelte))
-  — the one opt-in UI for every transport: chat bar + transcript + status +
+  — the one opt-in UI for every model: chat bar + transcript + status +
   debug, growing the mic/mute cluster when `agent.capabilities.input` includes
   `'audio'`. Snippet slots replace pieces; `headless={true}` disables it.
 - **A2A network transport** ([src/lib/transport/a2a.ts](src/lib/transport/a2a.ts))
@@ -187,23 +187,24 @@ Every non-spec behaviour is **opt-in and namespaced**.
   **exactly** what v0.8 promises, byte-for-byte in the spec fields.
 - Document any new extension in [docs/guides/extensions.md](docs/guides/extensions.md).
 
-### 6. Transport Neutrality
+### 6. Model Neutrality
 
-The orchestrator, the shell, and core **must never branch on a transport's
+The orchestrator, the shell, and core **must never branch on a model's
 identity.**
 
-- Adapt behaviour through `TransportCapabilities`, not `if (transport instanceof …)`.
+- Adapt behaviour through `AgentModelCapabilities`, not `if (model instanceof …)`.
   This includes audio: the `Agent` runs the mic recorder / speaker player and
   `<AgentShell>` shows the mic **iff** the capabilities advertise the `'audio'`
-  modality — never because the transport is "the voice one".
-- A request/response transport drives its tool-loop internally and emits the
-  **same events** a voice transport does — one shared code path, not "two code
+  modality — never because the model is "the voice one".
+- A request/response model drives its tool-loop internally and emits the
+  **same events** a voice model does — one shared code path, not "two code
   paths in a trenchcoat."
-- Never reintroduce per-channel classes (`VoiceAgent`, `VoiceTransport`,
-  `VoiceShell`, `ChatShell` are deliberately gone). New channels are new
-  **transports** (or transport wrappers, e.g. STT/TTS around a text model) —
-  not new agents or shells.
-- Keep model/provider specifics inside the transport adapters
+- Never reintroduce per-channel classes: the removed `VoiceAgent`,
+  `VoiceTransport`, `VoiceShell` and `ChatShell` stay removed. A new channel is
+  a new **`AgentModel`** — including a composite one, e.g. an adapter that puts
+  STT and TTS around a text model and presents all three as a single model —
+  not a new agent or shell.
+- Keep model/provider specifics inside the model adapters
   (the per-provider directories under [src/lib/agent/](src/lib/agent/):
   `gemini/`, `anthropic/`, `openai/`, `deepgram/`, `hume/`); nothing
   provider-specific belongs in [src/lib/core/](src/lib/core/) or the neutral
@@ -212,7 +213,7 @@ identity.**
 ### 7. Tests Ship With Behaviour
 
 Tests are co-located Vitest specs (`*.test.ts`). Any new component, tool,
-serializer path, extension, or transport behaviour ships with a test. Run
+serializer path, extension, or model behaviour ships with a test. Run
 `pnpm test` before declaring a change done.
 
 ### 8. Public API Discipline
@@ -307,12 +308,12 @@ Read the relevant docs before starting any implementation task.
 | Build or modify a catalog component | [docs/guides/authoring-components.md](docs/guides/authoring-components.md) + [docs/reference/components.md](docs/reference/components.md) |
 | Build a composite (bespoke HTML, agent sees a clean tree) | [docs/guides/composite-components.md](docs/guides/composite-components.md) |
 | Theme components (tokens / custom catalog) | [docs/guides/theming.md](docs/guides/theming.md) |
-| Work on the agent, transports, or `<AgentShell>` | [docs/guides/agent-integration.md](docs/guides/agent-integration.md) |
-| Pick a model/voice provider (free tiers, selection criteria, rejected candidates) | [docs/guides/transport-providers.md](docs/guides/transport-providers.md) |
+| Work on the agent, models, or `<AgentShell>` | [docs/guides/agent-integration.md](docs/guides/agent-integration.md) |
+| Pick a model/voice provider (free tiers, selection criteria, rejected candidates) | [docs/guides/model-providers.md](docs/guides/model-providers.md) |
 | Add or change a namespaced extension | [docs/guides/extensions.md](docs/guides/extensions.md) |
 | Test an app built on the library | [docs/guides/testing.md](docs/guides/testing.md) |
 | Run an app's agent against a real model | [docs/guides/evals.md](docs/guides/evals.md) |
-| Generalise the agent across voice/text transports | [docs/implementation_plans/transport-neutral-agent-framework.md](docs/implementation_plans/transport-neutral-agent-framework.md) |
+| Generalise the agent across voice/text models | [docs/implementation_plans/model-neutral-agent-framework.md](docs/implementation_plans/model-neutral-agent-framework.md) |
 | Understand A2UI spec / compliance | [v0.8 spec](https://a2ui.org/) + [docs/reference/components.md](docs/reference/components.md) |
 
 ---
@@ -330,9 +331,9 @@ Read the relevant docs before starting any implementation task.
 | Theme tokens | [src/lib/renderer/styles.css](src/lib/renderer/styles.css) |
 | Authoring helpers (`defineA2uiComponent`, `<A2UIRepresentation>`) | [src/lib/authoring/](src/lib/authoring/) |
 | Agent framework (contract, `Agent`, `AgentShell`, prompt builder, audio, debug) | [src/lib/agent/](src/lib/agent/) |
-| Transport contract (`AgentTransport`, `TransportCapabilities`) | [src/lib/agent/transport.ts](src/lib/agent/transport.ts) |
-| Gemini transports (Live + text) + token minter | [src/lib/agent/gemini/](src/lib/agent/gemini/) |
-| Anthropic / OpenAI / Deepgram / Hume transports + token minters | [src/lib/agent/anthropic/](src/lib/agent/anthropic/), [src/lib/agent/openai/](src/lib/agent/openai/), [src/lib/agent/deepgram/](src/lib/agent/deepgram/), [src/lib/agent/hume/](src/lib/agent/hume/) |
+| Model contract (`AgentModel`, `AgentModelCapabilities`) | [src/lib/agent/model.ts](src/lib/agent/model.ts) |
+| Gemini models (Live + text) + token minter | [src/lib/agent/gemini/](src/lib/agent/gemini/) |
+| Anthropic / OpenAI / Deepgram / Hume models + token minters | [src/lib/agent/anthropic/](src/lib/agent/anthropic/), [src/lib/agent/openai/](src/lib/agent/openai/), [src/lib/agent/deepgram/](src/lib/agent/deepgram/), [src/lib/agent/hume/](src/lib/agent/hume/) |
 | A2A network types + envelope helpers | [src/lib/transport/a2a.ts](src/lib/transport/a2a.ts) |
 | Library skills (for consuming IDEs) | [src/lib/skills/](src/lib/skills/) |
 | Public API surface | `exports` in [package.json](package.json) |

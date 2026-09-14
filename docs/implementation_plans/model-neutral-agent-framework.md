@@ -1,4 +1,4 @@
-# Implementation Plan — Transport-neutral agent framework (voice **and** text models)
+# Implementation Plan — Model-neutral agent framework (voice **and** text models)
 
 **Status:** WP1–WP5 and WP9 (unified framework) **DONE**; WP6 (behaviour test
 tier) and WP8 (Anthropic provider) remain open
@@ -13,6 +13,10 @@ tier) and WP8 (Anthropic provider) remain open
 > in a cold session that has read only this file plus the handful of source
 > files the WP names. Read **§0.5 (Revision 2)** and §1–§3 first (shared
 > context + contracts), then your WP in §4.
+>
+> **Naming:** this plan was written when `AgentModel` was called
+> `AgentTransport`. §0.5 uses today's names; §1–§4 and §8 keep the old ones,
+> because they record what was built at the time.
 
 ---
 
@@ -21,38 +25,38 @@ tier) and WP8 (Anthropic provider) remain open
 WP1–WP5 landed the neutral layer but left the package with a split personality:
 `VoiceAgent`+`VoiceShell` in `a2ui-svelte/voice` for audio, `Agent`+a chat
 shell in `a2ui-svelte/agent` for text. A consumer had to pick the right *class*
-and the right *shell* for their transport — which is exactly the
+and the right *shell* for their model — which is exactly the
 identity-branching this plan exists to eliminate, just pushed up into user
-code. WP9 removed the split. **The library now ships ONE agent, ONE transport
+code. WP9 removed the split. **The library now ships ONE agent, ONE model
 contract, and ONE shell:**
 
 - **`Agent`** (`a2ui-svelte/agent`) — the only orchestrator.
-  `new Agent(definition, transport)`: the **`AgentDefinition`** (instructions,
+  `new Agent(definition, model)`: the **`AgentDefinition`** (instructions,
   surfaces, context, mode, watch tuning, debug — and, in the future, guardrails
   / subagents) is a plain shareable object that never mentions a model; the
-  transport is the second argument. Audio I/O (mic recorder, speaker player,
+  model is the second argument. Audio I/O (mic recorder, speaker player,
   `muted`/`toggleMute`, `recording`) lives in `Agent` itself, spun up **iff**
-  `transport.capabilities.input`/`output` include `'audio'`. `VoiceAgent` is
+  `model.capabilities.input`/`output` include `'audio'`. `VoiceAgent` is
   gone.
-- **`AgentTransport`** — the only transport contract. `sendAudioChunk?` is an
+- **`AgentModel`** — the only model contract. `sendAudioChunk?` is an
   optional member (like `sendContextUpdate?`), and `audio-out` / `interrupted`
-  are part of the shared event map (emitted only by transports whose
+  are part of the shared event map (emitted only by models whose
   capabilities include them). `VoiceTransport` is gone. **Auth belongs to the
-  transport:** each implementation takes its credential in its own constructor
-  (`GeminiLiveTransport({ token })`, `GeminiTextTransport({ apiKey | baseUrl })`)
-  and `Agent` lost `mintToken`; `AgentTransportConnectOptions` lost
+  model:** each implementation takes its credential in its own constructor
+  (`GeminiLiveModel({ token })`, `GeminiTextModel({ apiKey | baseUrl })`)
+  and `Agent` lost `mintToken`; `AgentModelConnectOptions` lost
   `token`/`providerOptions`/`voice`.
 - **`<AgentShell>`** — the only shell. A uniform chat bar (transcript peek,
   expandable history, text input, status, debug box) that grows the mic + mute
   cluster exactly when `agent.capabilities.input` includes `'audio'`.
   `VoiceShell` and the interim `ChatShell` are gone.
-- **`a2ui-svelte/agent/gemini`** — both Gemini transports side by side:
-  `GeminiLiveTransport` (renamed from `GeminiTransport`, streaming
-  audio-to-audio) and `GeminiTextTransport` (request/response), plus
+- **`a2ui-svelte/agent/gemini`** — both Gemini models side by side:
+  `GeminiLiveModel` (renamed from `GeminiTransport`, streaming
+  audio-to-audio) and `GeminiTextModel` (request/response), plus
   `mintGeminiToken`. The `./voice` and `./voice/gemini` exports are deleted.
 
 **Why this shape holds up:** a future "voice over a text model" feature is a
-*transport decorator* — wrap a text transport with STT/TTS, advertise `'audio'`
+*model decorator* — wrap a text model with STT/TTS, advertise `'audio'`
 in its capabilities, and the same `Agent` and the same `<AgentShell>` light up
 the mic with zero changes. The capability descriptor, not the class hierarchy,
 is the extension axis.
@@ -230,7 +234,7 @@ a2ui-svelte/agent/anthropic (LATER, WP8) Claude request/response transport
 > options (auth is the transport constructor's), `sendAudioChunk?` is an
 > optional member of `AgentTransport` itself, `audio-out`/`interrupted` are in
 > the shared event map, and there is no `VoiceTransport` sub-interface. Read
-> `src/lib/agent/transport.ts` for the authoritative shapes.
+> `src/lib/agent/model.ts` for the authoritative shapes.
 
 These are the canonical type sketches. WP1 lands them; later WPs consume them.
 Field names are chosen to minimise churn vs today's `VoiceTransport`.

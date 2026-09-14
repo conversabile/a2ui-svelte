@@ -7,8 +7,8 @@
  * against the surface data model — and forward it to the agent as an event.
  *
  * This module provides a tiny pub/sub so Svelte components can emit these
- * events without knowing anything about the transport layer (GeminiLive
- * subscribes and forwards them into the live session).
+ * events without knowing anything about the agent's model layer (the
+ * `AgentModel` subscribes and forwards them into the session).
  *
  * Spec refs:
  * - docs/a2ui/concepts/data-flow.md (§ "User clicks …")

@@ -1,19 +1,19 @@
 /**
- * Eval-run configuration: which Gemini transport, which model, and the
+ * Eval-run configuration: which Gemini model, which model family, and the
  * experiment matrix the scenarios sweep. Nothing else — the `Agent` is the
- * harness, `ScriptedTransport` the recorder, `agent.debug` the token meter.
+ * harness, `ScriptedModel` the recorder, `agent.debug` the token meter.
  */
-import type { AgentTransport } from '../src/lib/agent/transport';
+import type { AgentModel } from '../src/lib/agent/model';
 import type { Extensions } from '../src/lib/core/extensions';
-import { GeminiTextTransport } from '../src/lib/agent/gemini/text-transport';
-import { GeminiLiveTransport } from '../src/lib/agent/gemini/live-transport';
-import { withoutAudio } from '../src/lib/agent/forward-transport';
+import { GeminiTextModel } from '../src/lib/agent/gemini/text-model';
+import { GeminiLiveModel } from '../src/lib/agent/gemini/live-model';
+import { withoutAudio } from '../src/lib/agent/forward-model';
 
 /**
- * Which Gemini transport family the scenarios drive (`A2UI_EVAL_TRANSPORT`):
+ * Which Gemini model family the scenarios drive (`A2UI_EVAL_MODEL_FAMILY`):
  *
- * - `'text'` (default) — `GeminiTextTransport`, the request/response loop.
- * - `'live'` — `GeminiLiveTransport`, the streaming Live-API socket: the
+ * - `'text'` (default) — `GeminiTextModel`, the request/response loop.
+ * - `'live'` — `GeminiLiveModel`, the streaming Live-API socket: the
  *   server runs the tool loop and every turn re-bills the whole session
  *   context, so this is the family the context optimizations exist for.
  *   The session still generates audio (+ output transcription — that is the
@@ -21,13 +21,13 @@ import { withoutAudio } from '../src/lib/agent/forward-transport';
  *   audio *capabilities* so the `Agent` never starts mic/speaker I/O, which
  *   jsdom cannot provide. Assertions ride the output transcription.
  */
-export const EVAL_TRANSPORT = (process.env.A2UI_EVAL_TRANSPORT ?? 'text') as 'text' | 'live';
-if (EVAL_TRANSPORT !== 'text' && EVAL_TRANSPORT !== 'live') {
-	throw new Error(`Unknown A2UI_EVAL_TRANSPORT "${EVAL_TRANSPORT}" (use "text" or "live")`);
+export const EVAL_MODEL_FAMILY = (process.env.A2UI_EVAL_MODEL_FAMILY ?? 'text') as 'text' | 'live';
+if (EVAL_MODEL_FAMILY !== 'text' && EVAL_MODEL_FAMILY !== 'live') {
+	throw new Error(`Unknown A2UI_EVAL_MODEL_FAMILY "${EVAL_MODEL_FAMILY}" (use "text" or "live")`);
 }
 export const EVAL_MODEL =
 	process.env.A2UI_EVAL_MODEL ??
-	(EVAL_TRANSPORT === 'live' ? 'gemini-3.1-flash-live-preview' : 'gemini-3.5-flash');
+	(EVAL_MODEL_FAMILY === 'live' ? 'gemini-3.1-flash-live-preview' : 'gemini-3.5-flash');
 const API_KEY = process.env.GEMINI_API_KEY;
 
 /**
@@ -50,7 +50,7 @@ export function requireApiKey(): string {
  * Quota survival knobs. A full matrix run sends many conversation turns and
  * exhausts the provider's per-minute quota, after which calls return HTTP 429.
  * The scenarios pace themselves with a gap *between conversation turns*, and
- * the text transport rides out any 429 that still slips through with a single
+ * the text model absorbs any 429 that still slips through with a single
  * backoff retry.
  *
  *   A2UI_EVAL_TURN_GAP_MS   min gap between conversation turns (default 30000)
@@ -114,16 +114,16 @@ export function selectedProfiles(defaults: string[] = Object.keys(PROFILES)): Ev
 }
 
 /**
- * Build the transport under test (see {@link EVAL_TRANSPORT}). Inter-turn
+ * Build the model under test (see {@link EVAL_MODEL_FAMILY}). Inter-turn
  * pacing lives in the scenario file either way; `maxRetries` is the text loop's
  * 429 safety net (the Live socket has no client-side retry — a quota error
  * there fails the scenario, which is itself the signal being measured).
  */
-export function makeEvalTransport(): AgentTransport {
-	if (EVAL_TRANSPORT === 'live') {
-		return withoutAudio(new GeminiLiveTransport({ token: requireApiKey(), model: EVAL_MODEL }));
+export function makeEvalModel(): AgentModel {
+	if (EVAL_MODEL_FAMILY === 'live') {
+		return withoutAudio(new GeminiLiveModel({ token: requireApiKey(), model: EVAL_MODEL }));
 	}
-	return new GeminiTextTransport({
+	return new GeminiTextModel({
 		apiKey: requireApiKey(),
 		model: EVAL_MODEL,
 		maxRetries: EVAL_MAX_RETRIES

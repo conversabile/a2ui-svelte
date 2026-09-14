@@ -1,1 +1,1 @@
-export { AnthropicTextTransport, type AnthropicTextTransportOptions } from './text-transport';
+export { AnthropicTextModel, type AnthropicTextModelOptions } from './text-model';

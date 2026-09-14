@@ -2,32 +2,32 @@ import { describe, it, expect } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import AgentShell from './AgentShell.svelte';
 import { Agent } from './agent.svelte';
-import { ScriptedTransport } from './scripted-transport';
+import { ScriptedModel } from './scripted-model';
 import type {
-	AgentTransport,
-	AgentTransportConnectOptions,
-	AgentTransportEventMap,
-	TransportCapabilities
-} from './transport';
+	AgentModel,
+	AgentModelConnectOptions,
+	AgentModelEventMap,
+	AgentModelCapabilities
+} from './model';
 
-// ScriptedTransport defers its emits to a microtask; a macrotask hop settles it.
+// ScriptedModel defers its emits to a microtask; a macrotask hop settles it.
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
-function makeAgent(reactions: ConstructorParameters<typeof ScriptedTransport>[0]): Agent {
+function makeAgent(reactions: ConstructorParameters<typeof ScriptedModel>[0]): Agent {
 	return new Agent(
 		{
 			instructions: 'persona',
 			surfaces: () => []
 		},
-		new ScriptedTransport(reactions)
+		new ScriptedModel(reactions)
 	);
 }
 
-// A do-nothing transport advertising the voice profile, so the shell renders
+// A do-nothing model advertising the voice profile, so the shell renders
 // its audio affordances (mic + mute) purely from capabilities — without ever
 // opening a session (no recorder, no Web Audio in jsdom).
-class AudioCapableTransport implements AgentTransport {
-	get capabilities(): TransportCapabilities {
+class AudioCapableModel implements AgentModel {
+	get capabilities(): AgentModelCapabilities {
 		return {
 			streaming: true,
 			interruptible: true,
@@ -38,13 +38,13 @@ class AudioCapableTransport implements AgentTransport {
 			output: ['audio', 'text']
 		};
 	}
-	async connect(_opts: AgentTransportConnectOptions) {}
+	async connect(_opts: AgentModelConnectOptions) {}
 	sendText(_text: string) {}
 	sendAudioChunk(_b64: string) {}
 	sendToolResult(_id: string, _name: string, _result: unknown) {}
-	on<E extends keyof AgentTransportEventMap>(
+	on<E extends keyof AgentModelEventMap>(
 		_event: E,
-		_handler: (p: AgentTransportEventMap[E]) => void
+		_handler: (p: AgentModelEventMap[E]) => void
 	): () => void {
 		return () => {};
 	}
@@ -84,7 +84,7 @@ describe('AgentShell', () => {
 		expect(container.querySelector('.a2ui-agent-shell')).toBeNull();
 	});
 
-	it('shows no mic on a text-only transport', () => {
+	it('shows no mic on a text-only model', () => {
 		const agent = makeAgent([]);
 		const { container } = render(AgentShell, { agent });
 		// The shell (with its input bar) renders, but no audio affordance does.
@@ -92,10 +92,10 @@ describe('AgentShell', () => {
 		expect(container.querySelector('.mic-button')).toBeNull();
 	});
 
-	it('shows the mic when the transport advertises audio input — same shell, by capability', () => {
+	it('shows the mic when the model advertises audio input — same shell, by capability', () => {
 		const agent = new Agent(
 			{ instructions: 'persona', surfaces: () => [] },
-			new AudioCapableTransport()
+			new AudioCapableModel()
 		);
 		const { container } = render(AgentShell, { agent });
 		// Uniform UI: the chat input is still there; the mic cluster joins it.

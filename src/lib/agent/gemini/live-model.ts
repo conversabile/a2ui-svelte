@@ -1,12 +1,12 @@
 import { GoogleGenAI, Modality } from '@google/genai';
 import type {
-	AgentTransport,
-	AgentTransportConnectOptions,
-	AgentTransportEventMap,
-	TransportCapabilities
-} from '../transport';
+	AgentModel,
+	AgentModelConnectOptions,
+	AgentModelEventMap,
+	AgentModelCapabilities
+} from '../model';
 
-export interface GeminiLiveTransportOptions {
+export interface GeminiLiveModelOptions {
 	/**
 	 * Auth for the Live socket: an ephemeral token (or raw API key), or a
 	 * function that produces one — called once per `connect()`, so a fresh
@@ -23,7 +23,7 @@ export interface GeminiLiveTransportOptions {
 	voice?: string;
 }
 
-type EventName = keyof AgentTransportEventMap;
+type EventName = keyof AgentModelEventMap;
 
 /**
  * How long to wait, after the last tool result went out, for the server's
@@ -35,20 +35,20 @@ type EventName = keyof AgentTransportEventMap;
 const TURN_COMPLETE_FALLBACK_MS = 1500;
 
 /**
- * Gemini Live implementation of {@link AgentTransport} — the streaming
+ * Gemini Live implementation of {@link AgentModel} — the streaming
  * audio-to-audio profile. Translates Gemini's message shapes into the
  * normalised event map and back, so the rest of the library never touches
- * `@google/genai` directly. The server runs the tool loop; this transport
+ * `@google/genai` directly. The server runs the tool loop; this model
  * advertises audio input/output, barge-in, a native silent-context channel,
  * and server-held history, and the `Agent` adapts to exactly that.
  */
-export class GeminiLiveTransport implements AgentTransport {
+export class GeminiLiveModel implements AgentModel {
 	#token: string | (() => string | Promise<string>);
 	#model: string;
 	#apiVersion: string;
 	#voice: string;
 	#session: any = null;
-	#listeners: { [E in EventName]?: Set<(p: AgentTransportEventMap[E]) => void> } = {};
+	#listeners: { [E in EventName]?: Set<(p: AgentModelEventMap[E]) => void> } = {};
 	#closed = false;
 	/**
 	 * Tool results still owed to the server. Gemini Live sends a `turnComplete`
@@ -59,7 +59,7 @@ export class GeminiLiveTransport implements AgentTransport {
 	#pendingToolResults = 0;
 	#fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
-	constructor(opts: GeminiLiveTransportOptions) {
+	constructor(opts: GeminiLiveModelOptions) {
 		this.#token = opts.token;
 		this.#model = opts.model ?? 'gemini-3.1-flash-live-preview';
 		this.#apiVersion = opts.apiVersion ?? 'v1alpha';
@@ -72,7 +72,7 @@ export class GeminiLiveTransport implements AgentTransport {
 	 * holds session history (so the agent embeds prior turns in the prompt for
 	 * reconnect continuity rather than seeding `messages[]`).
 	 */
-	get capabilities(): TransportCapabilities {
+	get capabilities(): AgentModelCapabilities {
 		return {
 			streaming: true,
 			interruptible: true,
@@ -84,7 +84,7 @@ export class GeminiLiveTransport implements AgentTransport {
 		};
 	}
 
-	async connect(opts: AgentTransportConnectOptions): Promise<void> {
+	async connect(opts: AgentModelConnectOptions): Promise<void> {
 		this.#closed = false;
 		const token = typeof this.#token === 'function' ? await this.#token() : this.#token;
 		const ai = new GoogleGenAI({
@@ -120,7 +120,7 @@ export class GeminiLiveTransport implements AgentTransport {
 						onmessage: (message: unknown) => this.#onMessage(message),
 						onerror: (e: unknown) => {
 							const message =
-								(e as { message?: string })?.message ?? 'Gemini transport error';
+								(e as { message?: string })?.message ?? 'Gemini model error';
 							if (!opened) reject(new Error(message));
 							this.#emit('error', { message, cause: e });
 						},
@@ -195,9 +195,9 @@ export class GeminiLiveTransport implements AgentTransport {
 
 	on<E extends EventName>(
 		event: E,
-		handler: (payload: AgentTransportEventMap[E]) => void
+		handler: (payload: AgentModelEventMap[E]) => void
 	): () => void {
-		let set = this.#listeners[event] as Set<(p: AgentTransportEventMap[E]) => void> | undefined;
+		let set = this.#listeners[event] as Set<(p: AgentModelEventMap[E]) => void> | undefined;
 		if (!set) {
 			set = new Set();
 			(this.#listeners[event] as unknown) = set;
@@ -247,16 +247,16 @@ export class GeminiLiveTransport implements AgentTransport {
 		this.#cancelFallback();
 	}
 
-	#emit<E extends EventName>(event: E, payload: AgentTransportEventMap[E]): void {
+	#emit<E extends EventName>(event: E, payload: AgentModelEventMap[E]): void {
 		const set = this.#listeners[event] as
-			| Set<(p: AgentTransportEventMap[E]) => void>
+			| Set<(p: AgentModelEventMap[E]) => void>
 			| undefined;
 		if (!set) return;
 		for (const h of set) {
 			try {
 				h(payload);
 			} catch (e) {
-				console.error(`[GeminiLiveTransport] listener for "${event}" threw:`, e);
+				console.error(`[GeminiLiveModel] listener for "${event}" threw:`, e);
 			}
 		}
 	}

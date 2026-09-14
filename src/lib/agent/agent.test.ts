@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { flushSync } from "svelte";
 import { Agent, type AgentSurface } from "./agent.svelte";
 import type {
-  AgentTransport,
-  AgentTransportConnectOptions,
-  AgentTransportEventMap,
-  TransportCapabilities,
-} from "./transport";
+  AgentModel,
+  AgentModelConnectOptions,
+  AgentModelEventMap,
+  AgentModelCapabilities,
+} from "./model";
 import { toolRegistry } from "../core/registries/tool-registry";
 import { userActionBus, type UserAction } from "../core/registries/event-bus";
 import { STRICT, configureExtensions } from "../core/extensions";
@@ -15,8 +15,8 @@ import { a2uiState } from "../core/state.svelte";
 
 // Stub AudioRecorder/AudioPlayer so the audio suite never touches Web Audio
 // (jsdom has none). Each holder captures its latest instance so a test can
-// drive a 'data' event (assert what reaches the transport, e.g. mute drops it)
-// or spy on the player. The Agent only constructs these when the transport's
+// drive a 'data' event (assert what reaches the model, e.g. mute drops it)
+// or spy on the player. The Agent only constructs these when the model's
 // capabilities include the matching audio modality, so the text-profile tests
 // above never instantiate them.
 const recorderHolder = vi.hoisted(() => ({ last: null as EventTarget | null }));
@@ -46,22 +46,22 @@ vi.mock("./audio-player", () => ({
   },
 }));
 
-// Neutral transport mock. It advertises the **streaming live profile** minus
+// Neutral model mock. It advertises the **streaming live profile** minus
 // the audio modalities, so the channel-gated paths (poll loop, barge-in gate,
 // server-held history, proactive turns) are exercised exactly as they are on
-// the real GeminiLiveTransport — without the Agent spinning up the mic
+// the real GeminiLiveModel — without the Agent spinning up the mic
 // recorder / speaker player (no Web Audio in jsdom). Tests mark "the model is
 // generating" with a `text-out` event (which sets `modelTurnActive`), the
 // neutral equivalent of `audio-out`. The audio paths themselves are covered
-// by the "audio surface" suite below against `MockAudioTransport`.
-class MockAgentTransport implements AgentTransport {
-  connectOpts: AgentTransportConnectOptions | null = null;
+// by the "audio surface" suite below against `MockAudioModel`.
+class MockAgentModel implements AgentModel {
+  connectOpts: AgentModelConnectOptions | null = null;
   textsSent: string[] = [];
   contextUpdates: string[] = [];
   toolResults: Array<{ id: string; name: string; result: unknown }> = [];
   closed = false;
 
-  get capabilities(): TransportCapabilities {
+  get capabilities(): AgentModelCapabilities {
     return {
       streaming: true,
       interruptible: true,
@@ -74,10 +74,10 @@ class MockAgentTransport implements AgentTransport {
   }
 
   #listeners: {
-    [E in keyof AgentTransportEventMap]?: Set<(p: unknown) => void>;
+    [E in keyof AgentModelEventMap]?: Set<(p: unknown) => void>;
   } = {};
 
-  async connect(opts: AgentTransportConnectOptions) {
+  async connect(opts: AgentModelConnectOptions) {
     this.connectOpts = opts;
   }
   sendText(text: string) {
@@ -89,9 +89,9 @@ class MockAgentTransport implements AgentTransport {
   sendToolResult(id: string, name: string, result: unknown) {
     this.toolResults.push({ id, name, result });
   }
-  on<E extends keyof AgentTransportEventMap>(
+  on<E extends keyof AgentModelEventMap>(
     event: E,
-    handler: (p: AgentTransportEventMap[E]) => void,
+    handler: (p: AgentModelEventMap[E]) => void,
   ): () => void {
     let set = this.#listeners[event];
     if (!set) {
@@ -105,9 +105,9 @@ class MockAgentTransport implements AgentTransport {
     this.closed = true;
   }
 
-  emit<E extends keyof AgentTransportEventMap>(
+  emit<E extends keyof AgentModelEventMap>(
     event: E,
-    payload: AgentTransportEventMap[E],
+    payload: AgentModelEventMap[E],
   ) {
     const set = this.#listeners[event];
     if (!set) return;
@@ -119,7 +119,7 @@ class MockAgentTransport implements AgentTransport {
 // reset back to the ALL_EXTRAS default.
 afterEach(() => configureExtensions({}));
 
-describe("Agent with a neutral mock transport", () => {
+describe("Agent with a neutral mock model", () => {
   it("connects, dispatches a tool call, and replies with the result", async () => {
     toolRegistry.register({
       name: "add_one",
@@ -131,40 +131,40 @@ describe("Agent with a neutral mock transport", () => {
     });
 
     const surfaces: AgentSurface[] = [];
-    const transport = new MockAgentTransport();
+    const model = new MockAgentModel();
     const agent = new Agent(
       {
         surfaces: () => surfaces,
         contextInstructions: () => "",
         instructions: "You are a test agent.",
       },
-      transport,
+      model,
     );
 
     await agent.start();
     flushSync();
     expect(agent.connected).toBe(true);
-    expect(transport.connectOpts?.systemInstruction).toContain(
+    expect(model.connectOpts?.systemInstruction).toContain(
       "You are a test agent.",
     );
-    expect(transport.connectOpts?.tools.map((t) => t.name)).toContain(
+    expect(model.connectOpts?.tools.map((t) => t.name)).toContain(
       "add_one",
     );
 
-    transport.emit("tool-call", {
+    model.emit("tool-call", {
       calls: [{ id: "c1", name: "add_one", args: { x: 2 } }],
     });
     // Tool dispatch is async (await toolRegistry.execute) — drain the microtask queue.
     await new Promise((r) => setTimeout(r, 0));
     flushSync();
 
-    expect(transport.toolResults).toEqual([
+    expect(model.toolResults).toEqual([
       { id: "c1", name: "add_one", result: { result: 3 } },
     ]);
     expect(agent.status).toBe("thinking");
 
     await agent.stop();
-    expect(transport.closed).toBe(true);
+    expect(model.closed).toBe(true);
     expect(agent.connected).toBe(false);
   });
 
@@ -173,7 +173,7 @@ describe("Agent with a neutral mock transport", () => {
     vi.useFakeTimers();
     try {
       let json: unknown = { root: "v1" };
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           surfaces: () => [
@@ -192,7 +192,7 @@ describe("Agent with a neutral mock transport", () => {
             cooldownMs: 0,
           },
         },
-        transport,
+        model,
       );
 
       await agent.start();
@@ -204,7 +204,7 @@ describe("Agent with a neutral mock transport", () => {
       flushSync();
 
       expect(
-        transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
+        model.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
       ).toBe(false);
 
       await agent.stop();
@@ -217,7 +217,7 @@ describe("Agent with a neutral mock transport", () => {
     vi.useFakeTimers();
     try {
       let json: unknown = { root: "v1" };
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           surfaces: () => [
@@ -236,7 +236,7 @@ describe("Agent with a neutral mock transport", () => {
             cooldownMs: 0,
           },
         },
-        transport,
+        model,
       );
 
       await agent.start();
@@ -246,7 +246,7 @@ describe("Agent with a neutral mock transport", () => {
       vi.advanceTimersByTime(1500);
       flushSync();
 
-      const event = transport.textsSent.find((t) =>
+      const event = model.textsSent.find((t) =>
         t.includes("SURFACE_UPDATED"),
       );
       expect(event).toBeDefined();
@@ -275,7 +275,7 @@ describe("Agent with a neutral mock transport", () => {
       // /draft) that the user then typed into: serializeSurface includes
       // the data model, so the JSON changes when the user writes.
       let json: unknown = { surfaceId: "canvas", data: { draft: "" } };
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           mode: "dynamic",
@@ -295,7 +295,7 @@ describe("Agent with a neutral mock transport", () => {
             cooldownMs: 0,
           },
         },
-        transport,
+        model,
       );
 
       await agent.start();
@@ -306,7 +306,7 @@ describe("Agent with a neutral mock transport", () => {
       vi.advanceTimersByTime(1500);
       flushSync();
 
-      const event = transport.textsSent.find((t) =>
+      const event = model.textsSent.find((t) =>
         t.includes("SURFACE_UPDATED"),
       );
       expect(event).toBeDefined();
@@ -327,7 +327,7 @@ describe("Agent with a neutral mock transport", () => {
     vi.useFakeTimers();
     try {
       let json: unknown = { surfaceId: "canvas", data: { draft: "" } };
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           mode: "dynamic",
@@ -347,7 +347,7 @@ describe("Agent with a neutral mock transport", () => {
             cooldownMs: 0,
           },
         },
-        transport,
+        model,
       );
 
       await agent.start();
@@ -358,7 +358,7 @@ describe("Agent with a neutral mock transport", () => {
       flushSync();
 
       expect(
-        transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
+        model.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
       ).toBe(false);
 
       await agent.stop();
@@ -371,7 +371,7 @@ describe("Agent with a neutral mock transport", () => {
     vi.useFakeTimers();
     try {
       let json: unknown = { root: "v1" };
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           // Note: no `extensions` field — represents a pre-extension-era
@@ -386,7 +386,7 @@ describe("Agent with a neutral mock transport", () => {
             cooldownMs: 0,
           },
         },
-        transport,
+        model,
       );
 
       await agent.start();
@@ -397,7 +397,7 @@ describe("Agent with a neutral mock transport", () => {
       flushSync();
 
       expect(
-        transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
+        model.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
       ).toBe(true);
 
       await agent.stop();
@@ -410,7 +410,7 @@ describe("Agent with a neutral mock transport", () => {
     vi.useFakeTimers();
     try {
       let json: unknown = { name: "" };
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           surfaces: () => [
@@ -429,7 +429,7 @@ describe("Agent with a neutral mock transport", () => {
             cooldownMs: 0,
           },
         },
-        transport,
+        model,
       );
 
       await agent.start();
@@ -443,13 +443,13 @@ describe("Agent with a neutral mock transport", () => {
       flushSync();
       // Not stable for settleMs yet → nothing delivered (no half-typed value).
       expect(
-        transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
+        model.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
       ).toBe(false);
 
       // User stops typing; let the value settle.
       vi.advanceTimersByTime(3000);
       flushSync();
-      const events = transport.textsSent.filter((t) =>
+      const events = model.textsSent.filter((t) =>
         t.includes("SURFACE_UPDATED"),
       );
       expect(events.length).toBe(1);
@@ -476,7 +476,7 @@ describe("Agent with a neutral mock transport", () => {
           components: [] as unknown[],
         },
       };
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           surfaces: () => [
@@ -491,14 +491,14 @@ describe("Agent with a neutral mock transport", () => {
           instructions: "persona",
           surfaceWatchTuning: tuning as never,
         },
-        transport,
+        model,
       );
-      return { state, transport, agent };
+      return { state, model, agent };
     }
 
     // Parse the extension payload of the most recent silent context update.
-    function lastSilentExt(transport: MockAgentTransport): Record<string, any> {
-      const msg = transport.contextUpdates[transport.contextUpdates.length - 1];
+    function lastSilentExt(model: MockAgentModel): Record<string, any> {
+      const msg = model.contextUpdates[model.contextUpdates.length - 1];
       const match = msg.match(/<payload>\n([\s\S]*?)\n<\/payload>/);
       return JSON.parse(match![1]).extensions["a2ui-svelte"];
     }
@@ -512,28 +512,28 @@ describe("Agent with a neutral mock transport", () => {
     };
 
     it("does NOT deliver at the inbound transcript (the old barge-in root cause)", async () => {
-      const { state, transport, agent } = syncSetup(NO_POLL);
+      const { state, model, agent } = syncSetup(NO_POLL);
       await agent.start();
       flushSync();
 
       // User typed while idle, then a fresh inbound turn arrives.
       state.dm = { name: "Mario" };
-      transport.emit("text-in", { text: "what did I type?" });
+      model.emit("text-in", { text: "what did I type?" });
       flushSync();
 
       // Nothing is sent at the inbound-transcript moment — that would interrupt
       // the answer. Sync happens in idle windows (turn-complete / settle tick /
       // pre-message).
-      expect(transport.contextUpdates.length).toBe(0);
+      expect(model.contextUpdates.length).toBe(0);
       expect(
-        transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
+        model.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
       ).toBe(false);
 
       await agent.stop();
     });
 
     it("buffers an edit made while the model generates and flushes it (delta) at turn-complete", async () => {
-      const { state, transport, agent } = syncSetup(NO_POLL);
+      const { state, model, agent } = syncSetup(NO_POLL);
       // Both fields are empty at connect time, so that baseline is already known
       // to the model (it's in the system prompt).
       state.dm = { name: "", role: "" };
@@ -541,19 +541,19 @@ describe("Agent with a neutral mock transport", () => {
       flushSync();
 
       // Model is generating (a `text-out` chunk sets `modelTurnActive`).
-      transport.emit("text-out", { text: "working on it" });
+      model.emit("text-out", { text: "working on it" });
       // User fills only the name field mid-answer; `role` stays empty.
       state.dm = { name: "Mario", role: "" };
       flushSync();
       // Gated — must not interrupt the in-progress answer.
-      expect(transport.contextUpdates.length).toBe(0);
+      expect(model.contextUpdates.length).toBe(0);
 
       // Model goes idle → the buffered change flushes immediately.
-      transport.emit("turn-complete", {} as never);
+      model.emit("turn-complete", {} as never);
       flushSync();
-      expect(transport.contextUpdates.length).toBe(1);
+      expect(model.contextUpdates.length).toBe(1);
 
-      const ext = lastSilentExt(transport);
+      const ext = lastSilentExt(model);
       expect(ext.kind).toBe("clientDataModel");
       expect(ext.delta).toBe(true);
       // Only the CHANGED key — the unchanged empty `role` is not re-sent.
@@ -563,30 +563,30 @@ describe("Agent with a neutral mock transport", () => {
     });
 
     it("coalesces multiple edits during the model turn into a single final-value delivery", async () => {
-      const { state, transport, agent } = syncSetup(NO_POLL);
+      const { state, model, agent } = syncSetup(NO_POLL);
       await agent.start();
       flushSync();
 
-      transport.emit("text-out", { text: "thinking" });
+      model.emit("text-out", { text: "thinking" });
       state.dm = { name: "Luigi" };
       flushSync();
       state.dm = { name: "Mario" };
       flushSync();
-      expect(transport.contextUpdates.length).toBe(0);
+      expect(model.contextUpdates.length).toBe(0);
 
-      transport.emit("turn-complete", {} as never);
+      model.emit("turn-complete", {} as never);
       flushSync();
-      expect(transport.contextUpdates.length).toBe(1);
-      const ext = lastSilentExt(transport);
+      expect(model.contextUpdates.length).toBe(1);
+      const ext = lastSilentExt(model);
       expect(ext.surfaces).toEqual({ main: { name: "Mario" } });
       // The intermediate value never shipped.
-      expect(transport.contextUpdates[0]).not.toContain("Luigi");
+      expect(model.contextUpdates[0]).not.toContain("Luigi");
 
       await agent.stop();
     });
 
     it("sends a full surfaceUpdated re-sync when the structure changes (navigation)", async () => {
-      const { state, transport, agent } = syncSetup(NO_POLL);
+      const { state, model, agent } = syncSetup(NO_POLL);
       await agent.start();
       flushSync();
 
@@ -599,19 +599,19 @@ describe("Agent with a neutral mock transport", () => {
       const turn = agent.send("what changed?");
       flushSync();
 
-      expect(transport.contextUpdates.length).toBe(1);
-      const ext = lastSilentExt(transport);
+      expect(model.contextUpdates.length).toBe(1);
+      const ext = lastSilentExt(model);
       expect(ext.kind).toBe("surfaceUpdated");
       expect(ext.updatedSurfaces).toEqual([state.struct]);
       expect(Array.isArray(ext.availableElementIds)).toBe(true);
 
-      transport.emit("turn-complete", {});
+      model.emit("turn-complete", {});
       await turn;
       await agent.stop();
     });
 
     it("syncs the data-model delta before a typed message", async () => {
-      const { state, transport, agent } = syncSetup(NO_POLL);
+      const { state, model, agent } = syncSetup(NO_POLL);
       await agent.start();
       flushSync();
 
@@ -619,19 +619,19 @@ describe("Agent with a neutral mock transport", () => {
       const turn = agent.send("who did I add?");
       flushSync();
 
-      expect(transport.contextUpdates.length).toBe(1);
-      expect(lastSilentExt(transport).surfaces).toEqual({
+      expect(model.contextUpdates.length).toBe(1);
+      expect(lastSilentExt(model).surfaces).toEqual({
         main: { name: "Mario" },
       });
-      expect(transport.textsSent).toContain("who did I add?");
+      expect(model.textsSent).toContain("who did I add?");
 
-      transport.emit("turn-complete", {});
+      model.emit("turn-complete", {});
       await turn;
       await agent.stop();
     });
 
     it("syncs the data-model delta before a userAction (button click)", async () => {
-      const { state, transport, agent } = syncSetup(NO_POLL);
+      const { state, model, agent } = syncSetup(NO_POLL);
       await agent.start();
       flushSync();
 
@@ -645,11 +645,11 @@ describe("Agent with a neutral mock transport", () => {
       });
       flushSync();
 
-      expect(transport.contextUpdates.length).toBe(1);
-      expect(lastSilentExt(transport).surfaces).toEqual({
+      expect(model.contextUpdates.length).toBe(1);
+      expect(lastSilentExt(model).surfaces).toEqual({
         main: { name: "Mario" },
       });
-      expect(transport.textsSent.some((t) => t.includes("USER_ACTION"))).toBe(
+      expect(model.textsSent.some((t) => t.includes("USER_ACTION"))).toBe(
         true,
       );
 
@@ -657,21 +657,21 @@ describe("Agent with a neutral mock transport", () => {
     });
 
     it("does not flush when nothing changed since the model last saw it", async () => {
-      const { transport, agent } = syncSetup(NO_POLL);
+      const { model, agent } = syncSetup(NO_POLL);
       await agent.start();
       flushSync();
 
       const turn = agent.send("hello");
       flushSync();
-      expect(transport.contextUpdates.length).toBe(0);
+      expect(model.contextUpdates.length).toBe(0);
 
-      transport.emit("turn-complete", {});
+      model.emit("turn-complete", {});
       await turn;
       await agent.stop();
     });
 
     it("does not echo the agent's own tool-call write back to it", async () => {
-      const { state, transport, agent } = syncSetup(NO_POLL);
+      const { state, model, agent } = syncSetup(NO_POLL);
       // A backend-style tool that mutates the surface's data model.
       toolRegistry.register({
         name: "set_name",
@@ -685,7 +685,7 @@ describe("Agent with a neutral mock transport", () => {
       await agent.start();
       flushSync();
 
-      transport.emit("tool-call", {
+      model.emit("tool-call", {
         calls: [{ id: "c1", name: "set_name", args: { value: "Mario" } }],
       });
       await new Promise((r) => setTimeout(r, 0));
@@ -695,17 +695,17 @@ describe("Agent with a neutral mock transport", () => {
       // re-report it.
       const turn = agent.send("done?");
       flushSync();
-      expect(transport.contextUpdates.length).toBe(0);
+      expect(model.contextUpdates.length).toBe(0);
 
-      transport.emit("turn-complete", {});
+      model.emit("turn-complete", {});
       await turn;
       await agent.stop();
     });
 
-    it("falls back to a text turn when the transport has no silent context channel", async () => {
-      const { state, transport, agent } = syncSetup(NO_POLL);
+    it("falls back to a text turn when the model has no silent context channel", async () => {
+      const { state, model, agent } = syncSetup(NO_POLL);
       (
-        transport as unknown as { sendContextUpdate?: unknown }
+        model as unknown as { sendContextUpdate?: unknown }
       ).sendContextUpdate = undefined;
       await agent.start();
       flushSync();
@@ -715,10 +715,10 @@ describe("Agent with a neutral mock transport", () => {
       flushSync();
 
       expect(
-        transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
+        model.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
       ).toBe(true);
 
-      transport.emit("turn-complete", {});
+      model.emit("turn-complete", {});
       await turn;
       await agent.stop();
     });
@@ -726,7 +726,7 @@ describe("Agent with a neutral mock transport", () => {
     it("delivers a settled change on the idle poll tick — no spoken turn needed", async () => {
       vi.useFakeTimers();
       try {
-        const { state, transport, agent } = syncSetup({
+        const { state, model, agent } = syncSetup({
           mode: "sync",
           intervalMs: 100,
           settleMs: 300,
@@ -738,12 +738,12 @@ describe("Agent with a neutral mock transport", () => {
         vi.advanceTimersByTime(150);
         flushSync();
         // Not stable for settleMs yet.
-        expect(transport.contextUpdates.length).toBe(0);
+        expect(model.contextUpdates.length).toBe(0);
 
         vi.advanceTimersByTime(400);
         flushSync();
-        expect(transport.contextUpdates.length).toBe(1);
-        const ext = lastSilentExt(transport);
+        expect(model.contextUpdates.length).toBe(1);
+        const ext = lastSilentExt(model);
         expect(ext.kind).toBe("clientDataModel");
         expect(ext.surfaces).toEqual({ main: { name: "Mario" } });
 
@@ -756,7 +756,7 @@ describe("Agent with a neutral mock transport", () => {
     it("never delivers on a poll tick while the model is generating", async () => {
       vi.useFakeTimers();
       try {
-        const { state, transport, agent } = syncSetup({
+        const { state, model, agent } = syncSetup({
           mode: "sync",
           intervalMs: 100,
           settleMs: 0,
@@ -764,16 +764,16 @@ describe("Agent with a neutral mock transport", () => {
         await agent.start();
         flushSync();
 
-        transport.emit("text-out", { text: "generating" });
+        model.emit("text-out", { text: "generating" });
         state.dm = { name: "Mario" };
         vi.advanceTimersByTime(1000);
         flushSync();
-        expect(transport.contextUpdates.length).toBe(0);
+        expect(model.contextUpdates.length).toBe(0);
 
         // Once the model goes idle the buffered change flushes.
-        transport.emit("turn-complete", {} as never);
+        model.emit("turn-complete", {} as never);
         flushSync();
-        expect(transport.contextUpdates.length).toBe(1);
+        expect(model.contextUpdates.length).toBe(1);
 
         await agent.stop();
       } finally {
@@ -784,7 +784,7 @@ describe("Agent with a neutral mock transport", () => {
     it("never delivers on a poll tick while the model is thinking (post-input, pre-output window)", async () => {
       vi.useFakeTimers();
       try {
-        const { state, transport, agent } = syncSetup({
+        const { state, model, agent } = syncSetup({
           mode: "sync",
           intervalMs: 100,
           settleMs: 0,
@@ -796,17 +796,17 @@ describe("Agent with a neutral mock transport", () => {
         // hasn't started its output yet so `modelTurnActive` is still false.
         // This is the window the old `modelTurnActive`-only gate missed —
         // a poll-driven sendContextUpdate here barges into the forming answer.
-        transport.emit("text-in", { text: "what did I type?" });
+        model.emit("text-in", { text: "what did I type?" });
         state.dm = { name: "Mario" };
         vi.advanceTimersByTime(1000);
         flushSync();
-        expect(transport.contextUpdates.length).toBe(0);
+        expect(model.contextUpdates.length).toBe(0);
 
         // The model answers and the turn ends → the buffered change flushes.
-        transport.emit("turn-complete", {} as never);
+        model.emit("turn-complete", {} as never);
         flushSync();
-        expect(transport.contextUpdates.length).toBe(1);
-        expect(lastSilentExt(transport).surfaces).toEqual({
+        expect(model.contextUpdates.length).toBe(1);
+        expect(lastSilentExt(model).surfaces).toEqual({
           main: { name: "Mario" },
         });
 
@@ -818,7 +818,7 @@ describe("Agent with a neutral mock transport", () => {
 
     it("does not echo the agent's own dynamic render (surfaceUpdate + beginRendering) back to it", async () => {
       const surfaceId = "echo-canvas";
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           mode: "dynamic",
@@ -836,14 +836,14 @@ describe("Agent with a neutral mock transport", () => {
           instructions: "persona",
           surfaceWatchTuning: NO_POLL as never,
         },
-        transport,
+        model,
       );
 
       await agent.start();
       flushSync();
 
       // The agent renders a button on the canvas — its own write.
-      transport.emit("tool-call", {
+      model.emit("tool-call", {
         calls: [
           {
             id: "c1",
@@ -864,10 +864,10 @@ describe("Agent with a neutral mock transport", () => {
       const turn = agent.send("done?");
       flushSync();
       expect(
-        transport.contextUpdates.some((t) => t.includes("SURFACE_UPDATED")),
+        model.contextUpdates.some((t) => t.includes("SURFACE_UPDATED")),
       ).toBe(false);
 
-      transport.emit("turn-complete", {});
+      model.emit("turn-complete", {});
       await turn;
       a2uiState.deleteSurface(surfaceId);
       await agent.stop();
@@ -875,7 +875,7 @@ describe("Agent with a neutral mock transport", () => {
 
     it("hands a rejected surfaceUpdate back to the model instead of reporting success", async () => {
       const surfaceId = "reject-canvas";
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           mode: "dynamic",
@@ -890,13 +890,13 @@ describe("Agent with a neutral mock transport", () => {
           instructions: "persona",
           surfaceWatchTuning: NO_POLL as never,
         },
-        transport,
+        model,
       );
 
       await agent.start();
       flushSync();
 
-      transport.emit("tool-call", {
+      model.emit("tool-call", {
         calls: [
           {
             id: "c1",
@@ -913,7 +913,7 @@ describe("Agent with a neutral mock transport", () => {
       await new Promise((r) => setTimeout(r, 0));
       flushSync();
 
-      const result = transport.toolResults[0].result as {
+      const result = model.toolResults[0].result as {
         status: string;
         issues: Array<{ componentId: string; message: string }>;
       };
@@ -931,7 +931,7 @@ describe("Agent with a neutral mock transport", () => {
     it("defaults to sync mode when no surfaceWatchTuning is given", async () => {
       vi.useFakeTimers();
       try {
-        const { state, transport, agent } = syncSetup(undefined);
+        const { state, model, agent } = syncSetup(undefined);
         await agent.start();
         flushSync();
 
@@ -939,8 +939,8 @@ describe("Agent with a neutral mock transport", () => {
         vi.advanceTimersByTime(1500);
         flushSync();
 
-        expect(transport.contextUpdates.length).toBe(1);
-        expect(lastSilentExt(transport).kind).toBe("clientDataModel");
+        expect(model.contextUpdates.length).toBe(1);
+        expect(lastSilentExt(model).kind).toBe("clientDataModel");
 
         await agent.stop();
       } finally {
@@ -951,7 +951,7 @@ describe("Agent with a neutral mock transport", () => {
     it('treats the deprecated "piggyback" mode as an alias for "sync"', async () => {
       vi.useFakeTimers();
       try {
-        const { state, transport, agent } = syncSetup({
+        const { state, model, agent } = syncSetup({
           mode: "piggyback",
           intervalMs: 100,
           settleMs: 0,
@@ -963,8 +963,8 @@ describe("Agent with a neutral mock transport", () => {
         vi.advanceTimersByTime(300);
         flushSync();
 
-        expect(transport.contextUpdates.length).toBe(1);
-        expect(lastSilentExt(transport).kind).toBe("clientDataModel");
+        expect(model.contextUpdates.length).toBe(1);
+        expect(lastSilentExt(model).kind).toBe("clientDataModel");
 
         await agent.stop();
       } finally {
@@ -973,15 +973,15 @@ describe("Agent with a neutral mock transport", () => {
     });
   });
 
-  it("B5: falls back to wrapped text turn for userAction when transport has no sendUserAction", async () => {
-    const transport = new MockAgentTransport();
+  it("B5: falls back to wrapped text turn for userAction when model has no sendUserAction", async () => {
+    const model = new MockAgentModel();
     const agent = new Agent(
       {
         surfaces: () => [],
         contextInstructions: () => "",
         instructions: "persona",
       },
-      transport,
+      model,
     );
 
     await agent.start();
@@ -996,7 +996,7 @@ describe("Agent with a neutral mock transport", () => {
     };
     userActionBus.emit(action);
 
-    const ev = transport.textsSent.find((t) => t.includes("USER_ACTION"));
+    const ev = model.textsSent.find((t) => t.includes("USER_ACTION"));
     expect(ev).toBeDefined();
     const match = ev!.match(/<payload>\n([\s\S]*?)\n<\/payload>/);
     expect(match).toBeTruthy();
@@ -1014,10 +1014,10 @@ describe("Agent with a neutral mock transport", () => {
     await agent.stop();
   });
 
-  it("B5: forwards userAction via sendUserAction when the transport implements it", async () => {
+  it("B5: forwards userAction via sendUserAction when the model implements it", async () => {
     const received: UserAction[] = [];
-    const transport = new MockAgentTransport();
-    (transport as AgentTransport).sendUserAction = (a: UserAction) =>
+    const model = new MockAgentModel();
+    (model as AgentModel).sendUserAction = (a: UserAction) =>
       received.push(a);
 
     const agent = new Agent(
@@ -1026,7 +1026,7 @@ describe("Agent with a neutral mock transport", () => {
         contextInstructions: () => "",
         instructions: "persona",
       },
-      transport,
+      model,
     );
 
     await agent.start();
@@ -1043,7 +1043,7 @@ describe("Agent with a neutral mock transport", () => {
 
     expect(received).toEqual([action]);
     // Crucially: it must NOT also send a wrapped text turn.
-    expect(transport.textsSent.some((t) => t.includes("USER_ACTION"))).toBe(
+    expect(model.textsSent.some((t) => t.includes("USER_ACTION"))).toBe(
       false,
     );
 
@@ -1052,8 +1052,8 @@ describe("Agent with a neutral mock transport", () => {
 
   it("B5: defaults a missing context to {} so the emitted action is spec-conformant", async () => {
     const received: UserAction[] = [];
-    const transport = new MockAgentTransport();
-    (transport as AgentTransport).sendUserAction = (a: UserAction) =>
+    const model = new MockAgentModel();
+    (model as AgentModel).sendUserAction = (a: UserAction) =>
       received.push(a);
 
     const agent = new Agent(
@@ -1062,7 +1062,7 @@ describe("Agent with a neutral mock transport", () => {
         contextInstructions: () => "",
         instructions: "persona",
       },
-      transport,
+      model,
     );
 
     await agent.start();
@@ -1083,23 +1083,23 @@ describe("Agent with a neutral mock transport", () => {
   });
 
   it("captures text-in / text-out and clears thinking on turn-complete", async () => {
-    const transport = new MockAgentTransport();
+    const model = new MockAgentModel();
     const agent = new Agent(
       {
         surfaces: () => [],
         contextInstructions: () => "",
         instructions: "persona",
       },
-      transport,
+      model,
     );
 
     await agent.start();
     flushSync();
 
-    transport.emit("text-in", { text: "hello" });
+    model.emit("text-in", { text: "hello" });
     flushSync();
-    transport.emit("text-out", { text: "hi back" });
-    transport.emit("turn-complete", {} as never);
+    model.emit("text-out", { text: "hi back" });
+    model.emit("turn-complete", {} as never);
     flushSync();
 
     expect(agent.transcript[0]).toEqual({ role: "user", text: "hello" });
@@ -1110,14 +1110,14 @@ describe("Agent with a neutral mock transport", () => {
   });
 
   it("starts a new user turn after turn-complete even when the model produced no text (tool-only turn)", async () => {
-    const transport = new MockAgentTransport();
+    const model = new MockAgentModel();
     const agent = new Agent(
       {
         surfaces: () => [],
         contextInstructions: () => "",
         instructions: "persona",
       },
-      transport,
+      model,
     );
 
     await agent.start();
@@ -1125,12 +1125,12 @@ describe("Agent with a neutral mock transport", () => {
 
     // First utterance, then a tool-only turn (no text-out at all, as in
     // dynamic-surface renders) that simply completes.
-    transport.emit("text-in", { text: "first" });
-    transport.emit("turn-complete", {} as never);
+    model.emit("text-in", { text: "first" });
+    model.emit("turn-complete", {} as never);
     flushSync();
 
     // The next utterance must be its own turn — not appended to the first.
-    transport.emit("text-in", { text: "second" });
+    model.emit("text-in", { text: "second" });
     flushSync();
 
     const userTurns = agent.transcript.filter((m) => m.role === "user");
@@ -1142,21 +1142,21 @@ describe("Agent with a neutral mock transport", () => {
   it("self-heals a stuck 'thinking' badge after the watchdog window when no response arrives", async () => {
     vi.useFakeTimers();
     try {
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           surfaces: () => [],
           contextInstructions: () => "",
           instructions: "persona",
         },
-        transport,
+        model,
       );
 
       await agent.start();
       flushSync();
 
       // The user speaks; a response is now expected.
-      transport.emit("text-in", { text: "hello?" });
+      model.emit("text-in", { text: "hello?" });
       flushSync();
       expect(agent.status).toBe("thinking");
 
@@ -1181,20 +1181,20 @@ describe("Agent with a neutral mock transport", () => {
         parameters: { type: "object", properties: {} },
         execute: async () => ({ status: "success" }),
       });
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           surfaces: () => [],
           contextInstructions: () => "",
           instructions: "persona",
         },
-        transport,
+        model,
       );
 
       await agent.start();
       flushSync();
 
-      transport.emit("text-in", { text: "do some work" });
+      model.emit("text-in", { text: "do some work" });
       flushSync();
 
       // A tool call lands every few seconds — each is model activity that
@@ -1202,7 +1202,7 @@ describe("Agent with a neutral mock transport", () => {
       // cleared) across a multi-step turn that never speaks.
       for (let i = 0; i < 3; i++) {
         vi.advanceTimersByTime(8_000);
-        transport.emit("tool-call", {
+        model.emit("tool-call", {
           calls: [{ id: `c${i}`, name: "noop", args: {} }],
         });
         await Promise.resolve();
@@ -1218,12 +1218,12 @@ describe("Agent with a neutral mock transport", () => {
 
   describe("turn boundary (agent.send / agent.on)", () => {
     function connected() {
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         { surfaces: () => [], contextInstructions: () => "", instructions: "persona" },
-        transport,
+        model,
       );
-      return { transport, agent };
+      return { model, agent };
     }
 
     it("resolves only after the tool round trip, not at the intermediate events", async () => {
@@ -1233,7 +1233,7 @@ describe("Agent with a neutral mock transport", () => {
         parameters: { type: "object", properties: {} },
         execute: async () => ({ status: "success" }),
       });
-      const { transport, agent } = connected();
+      const { model, agent } = connected();
       await agent.start();
       flushSync();
 
@@ -1241,47 +1241,47 @@ describe("Agent with a neutral mock transport", () => {
       const turn = agent.send("do it").then(() => {
         settled = true;
       });
-      expect(transport.textsSent).toContain("do it");
+      expect(model.textsSent).toContain("do it");
 
       // Model text and a tool round trip are mid-turn: the turn is not over
-      // until the transport says so (WP3 suppresses the mid-loop boundary).
-      transport.emit("text-out", { text: "working…" });
-      transport.emit("tool-call", {
+      // until the model says so (WP3 suppresses the mid-loop boundary).
+      model.emit("text-out", { text: "working…" });
+      model.emit("tool-call", {
         calls: [{ id: "c1", name: "wp6_noop", args: {} }],
       });
       await new Promise((r) => setTimeout(r, 0));
       flushSync();
-      expect(transport.toolResults.length).toBe(1);
+      expect(model.toolResults.length).toBe(1);
       expect(settled).toBe(false);
 
-      transport.emit("turn-complete", {});
+      model.emit("turn-complete", {});
       await turn;
       expect(settled).toBe(true);
 
       await agent.stop();
     });
 
-    it("rejects when the transport errors during the turn", async () => {
+    it("rejects when the model errors during the turn", async () => {
       const err = vi.spyOn(console, "error").mockImplementation(() => {});
-      const { transport, agent } = connected();
+      const { model, agent } = connected();
       await agent.start();
       flushSync();
 
       const turn = agent.send("x");
-      transport.emit("error", { message: "socket died" });
+      model.emit("error", { message: "socket died" });
       await expect(turn).rejects.toThrow(/socket died/);
       expect(agent.status).toBe("error");
 
       err.mockRestore();
     });
 
-    it("rejects when the transport closes during the turn", async () => {
-      const { transport, agent } = connected();
+    it("rejects when the model closes during the turn", async () => {
+      const { model, agent } = connected();
       await agent.start();
       flushSync();
 
       const turn = agent.send("x");
-      transport.emit("close", { reason: "server hung up" });
+      model.emit("close", { reason: "server hung up" });
       await expect(turn).rejects.toThrow(/server hung up/);
 
     });
@@ -1298,24 +1298,24 @@ describe("Agent with a neutral mock transport", () => {
 
     it("rejects before start() and on an empty message, without sending", async () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const { transport, agent } = connected();
+      const { model, agent } = connected();
 
       await expect(agent.send("hi")).rejects.toThrow(/not connected/);
       await expect(agent.send("   ")).rejects.toThrow(/empty/);
-      expect(transport.textsSent).toEqual([]);
+      expect(model.textsSent).toEqual([]);
 
       // The void wrapper keeps its no-op-plus-warning behaviour and never
       // raises an unhandled rejection.
       expect(() => agent.sendTextMessage("hi")).not.toThrow();
       await new Promise((r) => setTimeout(r, 0));
       expect(warn).toHaveBeenCalled();
-      expect(transport.textsSent).toEqual([]);
+      expect(model.textsSent).toEqual([]);
 
       warn.mockRestore();
     });
 
     it("resolves sequential sends in order, one per turn boundary", async () => {
-      const { transport, agent } = connected();
+      const { model, agent } = connected();
       await agent.start();
       flushSync();
 
@@ -1323,11 +1323,11 @@ describe("Agent with a neutral mock transport", () => {
       const first = agent.send("one").then(() => order.push(1));
       const second = agent.send("two").then(() => order.push(2));
 
-      transport.emit("turn-complete", {});
+      model.emit("turn-complete", {});
       await first;
       expect(order).toEqual([1]);
 
-      transport.emit("turn-complete", {});
+      model.emit("turn-complete", {});
       await second;
       expect(order).toEqual([1, 2]);
 
@@ -1356,7 +1356,7 @@ describe("Agent with a neutral mock transport", () => {
 
     it("notifies on() subscribers of turns and errors, and unsubscribes", async () => {
       const err = vi.spyOn(console, "error").mockImplementation(() => {});
-      const { transport, agent } = connected();
+      const { model, agent } = connected();
       const seen: string[] = [];
       const off = agent.on("turn-complete", () => seen.push("turn"));
       agent.on("error", (p) => seen.push(`error:${p.message}`));
@@ -1364,21 +1364,21 @@ describe("Agent with a neutral mock transport", () => {
       await agent.start();
       flushSync();
 
-      transport.emit("turn-complete", {});
+      model.emit("turn-complete", {});
       expect(seen).toEqual(["turn"]);
 
       off();
-      transport.emit("turn-complete", {});
+      model.emit("turn-complete", {});
       expect(seen).toEqual(["turn"]);
 
-      transport.emit("error", { message: "socket died" });
+      model.emit("error", { message: "socket died" });
       expect(seen).toEqual(["turn", "error:socket died"]);
 
       err.mockRestore();
     });
 
     it("does not report an error for a close we asked for", async () => {
-      const { transport, agent } = connected();
+      const { model, agent } = connected();
       const seen: string[] = [];
       agent.on("error", (p) => seen.push(p.message));
 
@@ -1386,7 +1386,7 @@ describe("Agent with a neutral mock transport", () => {
       flushSync();
       // `toggle()` marks the disconnect intentional before closing.
       const closing = agent.toggle();
-      transport.emit("close", { reason: "client" });
+      model.emit("close", { reason: "client" });
       await closing;
 
       expect(seen).toEqual([]);
@@ -1396,15 +1396,15 @@ describe("Agent with a neutral mock transport", () => {
   });
 
   describe("history routing by capability", () => {
-    it("embeds prior turns in the prompt for a server-history transport", async () => {
-      const transport = new MockAgentTransport();
+    it("embeds prior turns in the prompt for a server-history model", async () => {
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           surfaces: () => [],
           contextInstructions: () => "",
           instructions: "persona",
         },
-        transport,
+        model,
       );
 
       // Seed a prior turn, then connect a fresh session.
@@ -1414,19 +1414,19 @@ describe("Agent with a neutral mock transport", () => {
 
       // Server-history (voice profile): history rides in the system prompt, not
       // the connect `history` option.
-      expect(transport.connectOpts?.systemInstruction).toContain(
+      expect(model.connectOpts?.systemInstruction).toContain(
         "remember this",
       );
-      expect(transport.connectOpts?.history).toBeUndefined();
+      expect(model.connectOpts?.history).toBeUndefined();
 
       await agent.stop();
     });
 
-    it("seeds prior turns via connect options for a client-history transport", async () => {
-      const transport = new MockAgentTransport();
+    it("seeds prior turns via connect options for a client-history model", async () => {
+      const model = new MockAgentModel();
       // Override to a client-history (text) profile.
-      Object.defineProperty(transport, "capabilities", {
-        get: (): TransportCapabilities => ({
+      Object.defineProperty(model, "capabilities", {
+        get: (): AgentModelCapabilities => ({
           streaming: false,
           interruptible: false,
           silentContext: false,
@@ -1442,7 +1442,7 @@ describe("Agent with a neutral mock transport", () => {
           contextInstructions: () => "",
           instructions: "persona",
         },
-        transport,
+        model,
       );
 
       agent.transcript = [{ role: "user", text: "remember this" }];
@@ -1451,10 +1451,10 @@ describe("Agent with a neutral mock transport", () => {
 
       // Client-history: the prompt omits the history block; prior turns are
       // seeded through the connect `history` option instead.
-      expect(transport.connectOpts?.systemInstruction).not.toContain(
+      expect(model.connectOpts?.systemInstruction).not.toContain(
         "remember this",
       );
-      expect(transport.connectOpts?.history).toEqual([
+      expect(model.connectOpts?.history).toEqual([
         { role: "user", text: "remember this" },
       ]);
 
@@ -1462,8 +1462,8 @@ describe("Agent with a neutral mock transport", () => {
     });
   });
 
-  describe("non-streaming (request/response) transport", () => {
-    function textProfile(): TransportCapabilities {
+  describe("non-streaming (request/response) model", () => {
+    function textProfile(): AgentModelCapabilities {
       return {
         streaming: false,
         interruptible: false,
@@ -1479,14 +1479,14 @@ describe("Agent with a neutral mock transport", () => {
       vi.useFakeTimers();
       try {
         const state = { dm: {} as Record<string, string> };
-        const transport = new MockAgentTransport();
-        Object.defineProperty(transport, "capabilities", {
+        const model = new MockAgentModel();
+        Object.defineProperty(model, "capabilities", {
           get: textProfile,
         });
-        // A non-streaming transport has no silent channel → it falls back to a
+        // A non-streaming model has no silent channel → it falls back to a
         // text turn for the pre-message surface flush.
         (
-          transport as unknown as { sendContextUpdate?: unknown }
+          model as unknown as { sendContextUpdate?: unknown }
         ).sendContextUpdate = undefined;
         const agent = new Agent(
           {
@@ -1501,10 +1501,10 @@ describe("Agent with a neutral mock transport", () => {
             contextInstructions: () => "ctx",
             instructions: "persona",
             // Even a fast poll cadence must not start a timer on a non-streaming
-            // transport.
+            // model.
             surfaceWatchTuning: { mode: "sync", intervalMs: 1, settleMs: 0 },
           },
-          transport,
+          model,
         );
 
         await agent.start();
@@ -1516,20 +1516,20 @@ describe("Agent with a neutral mock transport", () => {
         vi.advanceTimersByTime(1000);
         flushSync();
         expect(
-          transport.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
+          model.textsSent.some((t) => t.includes("SURFACE_UPDATED")),
         ).toBe(false);
 
         // The pre-turn flush attaches the current UI to the typed message.
         const turn = agent.send("who did I add?");
         flushSync();
-        const surfaceTurn = transport.textsSent.find((t) =>
+        const surfaceTurn = model.textsSent.find((t) =>
           t.includes("SURFACE_UPDATED"),
         );
         expect(surfaceTurn).toBeDefined();
         expect(surfaceTurn).toContain("Mario");
-        expect(transport.textsSent).toContain("who did I add?");
+        expect(model.textsSent).toContain("who did I add?");
 
-        transport.emit("turn-complete", {});
+        model.emit("turn-complete", {});
         await turn;
         await agent.stop();
       } finally {
@@ -1539,12 +1539,12 @@ describe("Agent with a neutral mock transport", () => {
 
     it("flushes the surface even while the model is mid-generation (no barge-in to fear)", async () => {
       const state = { dm: {} as Record<string, string> };
-      const transport = new MockAgentTransport();
-      Object.defineProperty(transport, "capabilities", { get: textProfile });
-      // A non-streaming transport has no silent channel → the flush rides a
+      const model = new MockAgentModel();
+      Object.defineProperty(model, "capabilities", { get: textProfile });
+      // A non-streaming model has no silent channel → the flush rides a
       // normal text turn.
       (
-        transport as unknown as { sendContextUpdate?: unknown }
+        model as unknown as { sendContextUpdate?: unknown }
       ).sendContextUpdate = undefined;
       const agent = new Agent(
         {
@@ -1560,35 +1560,35 @@ describe("Agent with a neutral mock transport", () => {
           instructions: "persona",
           surfaceWatchTuning: { mode: "sync", intervalMs: 1_000_000, settleMs: 0 },
         },
-        transport,
+        model,
       );
 
       await agent.start();
       flushSync();
 
-      // Model "generating" — on an interruptible transport this would gate the
-      // flush, but a request/response transport has nothing to interrupt.
-      transport.emit("text-out", { text: "partial answer" });
+      // Model "generating" — on an interruptible model this would gate the
+      // flush, but a request/response model has nothing to interrupt.
+      model.emit("text-out", { text: "partial answer" });
       state.dm = { name: "Mario" };
       const turn = agent.send("and now?");
       flushSync();
 
-      const surfaceTurn = transport.textsSent.find((t) =>
+      const surfaceTurn = model.textsSent.find((t) =>
         t.includes("SURFACE_UPDATED"),
       );
       expect(surfaceTurn).toBeDefined();
       expect(surfaceTurn).toContain("Mario");
 
-      transport.emit("turn-complete", {});
+      model.emit("turn-complete", {});
       await turn;
       await agent.stop();
     });
 
-    it("downgrades 'proactive' to 'sync' when the transport can't initiate turns", async () => {
-      const transport = new MockAgentTransport();
-      Object.defineProperty(transport, "capabilities", { get: textProfile });
+    it("downgrades 'proactive' to 'sync' when the model can't initiate turns", async () => {
+      const model = new MockAgentModel();
+      Object.defineProperty(model, "capabilities", { get: textProfile });
       (
-        transport as unknown as { sendContextUpdate?: unknown }
+        model as unknown as { sendContextUpdate?: unknown }
       ).sendContextUpdate = undefined;
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       try {
@@ -1607,7 +1607,7 @@ describe("Agent with a neutral mock transport", () => {
             instructions: "persona",
             surfaceWatchTuning: { mode: "proactive", settleMs: 0 },
           },
-          transport,
+          model,
         );
         expect(warn).toHaveBeenCalled();
 
@@ -1619,13 +1619,13 @@ describe("Agent with a neutral mock transport", () => {
         state.dm = { name: "Mario" };
         const turn = agent.send("hi");
         flushSync();
-        const surfaceTurn = transport.textsSent.find((t) =>
+        const surfaceTurn = model.textsSent.find((t) =>
           t.includes("SURFACE_UPDATED"),
         );
         expect(surfaceTurn).toBeDefined();
         expect(surfaceTurn).toContain("clientDataModel");
 
-        transport.emit("turn-complete", {});
+        model.emit("turn-complete", {});
         await turn;
         await agent.stop();
       } finally {
@@ -1636,25 +1636,25 @@ describe("Agent with a neutral mock transport", () => {
 
   describe("debug telemetry", () => {
     it("records the system-prompt and tools payload sizes at connect", async () => {
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           surfaces: () => [],
           contextInstructions: () => "",
           instructions: "You are a test agent.",
         },
-        transport,
+        model,
       );
 
       await agent.start();
       flushSync();
 
       const sp = agent.debug.outbound["system-prompt"];
-      const sent = transport.connectOpts!.systemInstruction;
+      const sent = model.connectOpts!.systemInstruction;
       expect(sp.count).toBe(1);
       expect(sp.bytes).toBe(new TextEncoder().encode(sent).length);
       expect(sp.estTokens).toBeGreaterThan(0);
-      expect(agent.debug.toolCount).toBe(transport.connectOpts!.tools.length);
+      expect(agent.debug.toolCount).toBe(model.connectOpts!.tools.length);
 
       await agent.stop();
     });
@@ -1675,27 +1675,27 @@ describe("Agent with a neutral mock transport", () => {
           extensions: { "a2ui-svelte": { updatedSurface: [bigSurface] } },
         }),
       });
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           surfaces: () => [],
           contextInstructions: () => "",
           instructions: "persona",
         },
-        transport,
+        model,
       );
 
       await agent.start();
       flushSync();
 
-      transport.emit("tool-call", {
+      model.emit("tool-call", {
         calls: [{ id: "c1", name: "update_text_fields", args: {} }],
       });
       await new Promise((r) => setTimeout(r, 0));
       flushSync();
 
       const tr = agent.debug.outbound["tool-result"];
-      const expectedBytes = JSON.stringify(transport.toolResults[0].result).length;
+      const expectedBytes = JSON.stringify(model.toolResults[0].result).length;
       expect(tr.count).toBe(1);
       expect(tr.bytes).toBe(expectedBytes);
       expect(tr.estTokens).toBeGreaterThan(0);
@@ -1709,21 +1709,21 @@ describe("Agent with a neutral mock transport", () => {
       await agent.stop();
     });
 
-    it("folds the provider's authoritative usage from the transport 'usage' event", async () => {
-      const transport = new MockAgentTransport();
+    it("folds the provider's authoritative usage from the model 'usage' event", async () => {
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           surfaces: () => [],
           contextInstructions: () => "",
           instructions: "persona",
         },
-        transport,
+        model,
       );
 
       await agent.start();
       flushSync();
 
-      transport.emit("usage", {
+      model.emit("usage", {
         promptTokenCount: 61432,
         responseTokenCount: 280,
         totalTokenCount: 61712,
@@ -1739,7 +1739,7 @@ describe("Agent with a neutral mock transport", () => {
     });
 
     it("records nothing when debug is disabled", async () => {
-      const transport = new MockAgentTransport();
+      const model = new MockAgentModel();
       const agent = new Agent(
         {
           surfaces: () => [],
@@ -1747,12 +1747,12 @@ describe("Agent with a neutral mock transport", () => {
           instructions: "persona",
           debug: false,
         },
-        transport,
+        model,
       );
 
       await agent.start();
       flushSync();
-      transport.emit("usage", { totalTokenCount: 1000 });
+      model.emit("usage", { totalTokenCount: 1000 });
       flushSync();
 
       expect(agent.debug.outbound["system-prompt"].count).toBe(0);
@@ -1764,11 +1764,11 @@ describe("Agent with a neutral mock transport", () => {
 });
 
 // The same Agent class drives the audio surface — gated purely on the
-// transport's capabilities. These cases were the old VoiceAgent suite.
-class MockAudioTransport extends MockAgentTransport {
+// model's capabilities. These cases were the old VoiceAgent suite.
+class MockAudioModel extends MockAgentModel {
   audioSent: string[] = [];
 
-  override get capabilities(): TransportCapabilities {
+  override get capabilities(): AgentModelCapabilities {
     return {
       streaming: true,
       interruptible: true,
@@ -1791,14 +1791,14 @@ describe("Agent audio surface (capability-gated)", () => {
     playerHolder.last = null;
   });
 
-  it("starts no recorder or player on a text-only transport", async () => {
-    const transport = new MockAgentTransport();
+  it("starts no recorder or player on a text-only model", async () => {
+    const model = new MockAgentModel();
     const agent = new Agent(
       {
         instructions: "persona",
         surfaces: () => [],
       },
-      transport,
+      model,
     );
 
     await agent.start();
@@ -1812,13 +1812,13 @@ describe("Agent audio surface (capability-gated)", () => {
   });
 
   it("drops captured audio while muted, resumes on unmute, and keeps the session open", async () => {
-    const transport = new MockAudioTransport();
+    const model = new MockAudioModel();
     const agent = new Agent(
       {
         instructions: "persona",
         surfaces: () => [],
       },
-      transport,
+      model,
     );
 
     await agent.start();
@@ -1831,16 +1831,16 @@ describe("Agent audio surface (capability-gated)", () => {
         new CustomEvent("data", { detail: b64 }),
       );
 
-    // Unmuted: audio reaches the transport.
+    // Unmuted: audio reaches the model.
     emitChunk("live-1");
-    expect(transport.audioSent).toEqual(["live-1"]);
+    expect(model.audioSent).toEqual(["live-1"]);
 
     // Muted: the chunk is dropped, but the session stays connected.
     agent.toggleMute();
     flushSync();
     expect(agent.muted).toBe(true);
     emitChunk("muted-1");
-    expect(transport.audioSent).toEqual(["live-1"]);
+    expect(model.audioSent).toEqual(["live-1"]);
     expect(agent.connected).toBe(true);
 
     // Unmuted again: audio flows once more.
@@ -1848,7 +1848,7 @@ describe("Agent audio surface (capability-gated)", () => {
     flushSync();
     expect(agent.muted).toBe(false);
     emitChunk("live-2");
-    expect(transport.audioSent).toEqual(["live-1", "live-2"]);
+    expect(model.audioSent).toEqual(["live-1", "live-2"]);
 
     await agent.stop();
     expect(agent.recording).toBe(false);
@@ -1858,7 +1858,7 @@ describe("Agent audio surface (capability-gated)", () => {
     vi.useFakeTimers();
     try {
       const state = { dm: {} as Record<string, string> };
-      const transport = new MockAudioTransport();
+      const model = new MockAudioModel();
       const agent = new Agent(
         {
           instructions: "persona",
@@ -1873,14 +1873,14 @@ describe("Agent audio surface (capability-gated)", () => {
           contextInstructions: () => "ctx",
           surfaceWatchTuning: { mode: "sync", intervalMs: 100, settleMs: 0 },
         },
-        transport,
+        model,
       );
 
       await agent.start();
       flushSync();
 
       // Inbound audio: queued to the player AND marks the model generating.
-      transport.emit("audio-out", { base64Pcm24k: "AAA" });
+      model.emit("audio-out", { base64Pcm24k: "AAA" });
       expect(playerHolder.last!.addToQueue).toHaveBeenCalledWith("AAA");
 
       // The user edits mid-answer; the poll tick must NOT deliver (would
@@ -1888,12 +1888,12 @@ describe("Agent audio surface (capability-gated)", () => {
       state.dm = { name: "Mario" };
       vi.advanceTimersByTime(500);
       flushSync();
-      expect(transport.contextUpdates.length).toBe(0);
+      expect(model.contextUpdates.length).toBe(0);
 
       // Turn ends → the gate clears and the buffered change flushes.
-      transport.emit("turn-complete", {} as never);
+      model.emit("turn-complete", {} as never);
       flushSync();
-      expect(transport.contextUpdates.length).toBe(1);
+      expect(model.contextUpdates.length).toBe(1);
 
       await agent.stop();
     } finally {
@@ -1902,20 +1902,20 @@ describe("Agent audio surface (capability-gated)", () => {
   });
 
   it("on interruption stops playback and returns to 'thinking'", async () => {
-    const transport = new MockAudioTransport();
+    const model = new MockAudioModel();
     const agent = new Agent(
       {
         instructions: "persona",
         surfaces: () => [],
       },
-      transport,
+      model,
     );
 
     await agent.start();
     flushSync();
 
-    transport.emit("audio-out", { base64Pcm24k: "AAA" });
-    transport.emit("interrupted", {} as never);
+    model.emit("audio-out", { base64Pcm24k: "AAA" });
+    model.emit("interrupted", {} as never);
     flushSync();
 
     expect(playerHolder.last!.stop).toHaveBeenCalled();

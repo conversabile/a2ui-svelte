@@ -1,9 +1,9 @@
 /**
- * Small PCM/base64 helpers shared by the audio transports. The neutral
- * `AgentTransport` contract fixes the audio shapes at its edges — mic input is
+ * Small PCM/base64 helpers shared by the audio models. The neutral
+ * `AgentModel` contract fixes the audio shapes at its edges — mic input is
  * 16-bit PCM @ 16 kHz base64 (`sendAudioChunk`), speaker output is 16-bit PCM
  * @ 24 kHz base64 (`audio-out`) — so any provider that speaks a different
- * rate or container adapts here, inside its transport, and the `Agent` never
+ * rate or container adapts here, inside its own adapter, and the `Agent` never
  * knows. Browser-safe (uses `atob`/`btoa`, no Node Buffers).
  */
 

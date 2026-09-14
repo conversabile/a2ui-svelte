@@ -1,17 +1,17 @@
 import type { UserAction } from '../core/registries/event-bus';
 
 /**
- * Static descriptor of what a transport can do. Lets the shared `Agent`
+ * Static descriptor of what a model can do. Lets the shared `Agent`
  * orchestrator adapt its behaviour to the channel (streaming voice vs.
- * request/response text) without ever branching on the transport's identity.
+ * request/response text) without ever branching on the model's identity.
  *
- * The keystone of the transport-neutral design: a request/response transport
+ * The keystone of the model-neutral design: a request/response model
  * drives the agentic tool-loop *internally* and emits the **same events** a
- * voice transport does, while this descriptor tells the orchestrator which of
+ * voice model does, while this descriptor tells the orchestrator which of
  * its voice-shaped gates (barge-in, poll loop, proactive turns, history
  * embedding) actually apply.
  */
-export interface TransportCapabilities {
+export interface AgentModelCapabilities {
 	/** Persistent bidi session (voice) vs request/response (text). */
 	streaming: boolean;
 	/** Barge-in possible. When false, the surface-sync barge-in gates are bypassed. */
@@ -21,52 +21,52 @@ export interface TransportCapabilities {
 	/**
 	 * `'server'` — the live session holds history (voice); the agent embeds prior
 	 *            turns in the system prompt (historyBlock).
-	 * `'client'` — the transport owns `messages[]`; the agent omits historyBlock
+	 * `'client'` — the model owns `messages[]`; the agent omits historyBlock
 	 *            and seeds prior turns via connect opts (`history`).
 	 */
 	historyOwnership: 'server' | 'client';
 	/**
-	 * Can the transport start a model turn on its own (without a user message)?
+	 * Can this model start a turn on its own (without a user message)?
 	 * Needed by surface-watch `'proactive'` mode. Voice: true. Text: typically
-	 * false unless the transport implements an autonomous kick.
+	 * false unless the model implements an autonomous kick.
 	 */
 	canInitiateTurn: boolean;
-	/** Input modalities the transport accepts. */
+	/** Input modalities the model accepts. */
 	input: Array<'audio' | 'text'>;
-	/** Output modalities the transport produces. */
+	/** Output modalities the model produces. */
 	output: Array<'audio' | 'text'>;
 }
 
 /**
- * Provider-agnostic agent transport — the per-model adapter that presents a
+ * Provider-agnostic agent model — the per-provider adapter that presents a
  * uniform event stream to the shared `Agent`, regardless of whether the agentic
  * tool-loop runs server-side (a voice live API such as Gemini Live) or
  * client-side (a text request/response API such as Claude).
  *
  * Implementations adapt a specific SDK to the same event shape, so the
  * orchestrator works unchanged across providers and modalities. Audio is part
- * of the same contract: a transport that advertises `'audio'` in
+ * of the same contract: a model that advertises `'audio'` in
  * `capabilities.input`/`output` implements `sendAudioChunk` and emits
  * `audio-out`; the `Agent` then runs the mic recorder and speaker player for
- * it. A text-only transport simply omits them.
+ * it. A text-only model simply omits them.
  *
- * **Auth belongs to the transport, not the agent.** Each implementation takes
+ * **Auth belongs to the model, not the agent.** Each implementation takes
  * its credential (API key, ephemeral-token minter, proxy URL…) in its own
  * constructor and resolves it inside `connect()` — the `Agent` never sees a
  * token.
  *
- * Lifetime: caller calls `connect()` once; the transport emits events until
+ * Lifetime: caller calls `connect()` once; the model emits events until
  * `close()` is called or `'close'`/`'error'` fires.
  */
-export interface AgentTransport {
-	/** What this transport can do; read by the `Agent` to gate channel-specific behaviour. */
-	readonly capabilities: TransportCapabilities;
+export interface AgentModel {
+	/** What this model can do; read by the `Agent` to gate channel-specific behaviour. */
+	readonly capabilities: AgentModelCapabilities;
 
 	/**
 	 * Establish the session. Resolves once it is open; rejects with a normalised
 	 * Error if it cannot connect.
 	 */
-	connect(opts: AgentTransportConnectOptions): Promise<void>;
+	connect(opts: AgentModelConnectOptions): Promise<void>;
 
 	/**
 	 * Send a user turn. Also used for tagged events (e.g. USER_ACTION and
@@ -85,7 +85,7 @@ export interface AgentTransport {
 	 * user asks a question the model already sees the current UI — without the
 	 * agent reacting on its own, and without interrupting an answer in flight.
 	 *
-	 * Optional: transports without a silent context channel omit it (advertise
+	 * Optional: models without a silent context channel omit it (advertise
 	 * `capabilities.silentContext: false`); the agent falls back to attaching the
 	 * state to the next `sendText` turn — acceptable degradation for those
 	 * providers.
@@ -102,7 +102,7 @@ export interface AgentTransport {
 	 * the model context (e.g. Gemini Live), and the historical behaviour of this
 	 * library.
 	 *
-	 * Transports that ride a spec-aligned channel (e.g. A2A `DataPart` with
+	 * Models that use a spec-aligned channel (e.g. A2A `DataPart` with
 	 * `mimeType: "application/json+a2ui"`) implement this natively so the payload
 	 * reaches the agent as a structured `userAction` event rather than as an
 	 * opaque text turn.
@@ -116,22 +116,22 @@ export interface AgentTransport {
 	/**
 	 * Stream a chunk of microphone audio to the model: 16-bit little-endian PCM
 	 * @ 16 kHz, base64-encoded. Required when `capabilities.input` includes
-	 * `'audio'`; text-only transports omit it. The `Agent` owns the recorder and
+	 * `'audio'`; text-only models omit it. The `Agent` owns the recorder and
 	 * calls this for every captured chunk while the session is open and unmuted.
 	 */
 	sendAudioChunk?(base64Pcm16k: string): void;
 
-	/** Subscribe to a transport event. Returns an unsubscribe function. */
-	on<E extends keyof AgentTransportEventMap>(
+	/** Subscribe to a model event. Returns an unsubscribe function. */
+	on<E extends keyof AgentModelEventMap>(
 		event: E,
-		handler: (payload: AgentTransportEventMap[E]) => void
+		handler: (payload: AgentModelEventMap[E]) => void
 	): () => void;
 
 	/** Close the session. Idempotent. */
 	close(): void;
 }
 
-export interface AgentTransportConnectOptions {
+export interface AgentModelConnectOptions {
 	/** Full system prompt (assembled by the `Agent` + prompt-builder). */
 	systemInstruction: string;
 
@@ -150,7 +150,7 @@ export interface AgentTransportConnectOptions {
 	history?: Array<{ role: 'user' | 'model'; text: string }>;
 }
 
-export interface AgentTransportEventMap {
+export interface AgentModelEventMap {
 	/** Agent invoked one or more tools. The `Agent` dispatches them and replies via `sendToolResult`. */
 	'tool-call': {
 		calls: Array<{ id: string; name: string; args: Record<string, unknown> }>;
@@ -158,13 +158,13 @@ export interface AgentTransportEventMap {
 
 	/**
 	 * Model-produced text — a streaming delta or a whole turn. For a voice
-	 * transport this is the TTS transcript of the model's audio output.
+	 * model this is the TTS transcript of the model's audio output.
 	 */
 	'text-out': { text: string };
 
 	/**
 	 * User-produced text — a streaming delta or a whole turn. For a voice
-	 * transport this is the ASR transcript of the user's mic input.
+	 * model this is the ASR transcript of the user's mic input.
 	 */
 	'text-in': { text: string };
 
@@ -179,14 +179,14 @@ export interface AgentTransportEventMap {
 
 	/**
 	 * Model-produced audio chunk (base64 PCM 16-bit @ 24 kHz). Only emitted by
-	 * transports whose `capabilities.output` includes `'audio'`; the `Agent`
+	 * models whose `capabilities.output` includes `'audio'`; the `Agent`
 	 * queues it to the speaker player.
 	 */
 	'audio-out': { base64Pcm24k: string };
 
 	/**
 	 * The model's turn was cut off (the user spoke over it — barge-in). Only
-	 * emitted by transports advertising `capabilities.interruptible`; the `Agent`
+	 * emitted by models advertising `capabilities.interruptible`; the `Agent`
 	 * stops playback and re-opens the response window.
 	 */
 	'interrupted': Record<string, never>;
@@ -194,19 +194,19 @@ export interface AgentTransportEventMap {
 	/**
 	 * A non-fatal, informational signal worth surfacing in debug tooling — e.g.
 	 * a retry after a rate-limit (429). Unlike `'error'` it does NOT end the
-	 * session. Optional for transports to emit; the `Agent` folds it into
+	 * session. Optional for models to emit; the `Agent` folds it into
 	 * `debug.events`.
 	 */
 	'notice': { message: string };
 
-	/** Recoverable error from the transport. */
+	/** Recoverable error from the model. */
 	'error': { message: string; cause?: unknown };
 
 	/** Session ended (either by client or server). */
 	'close': { reason?: string };
 
 	/**
-	 * Provider-reported token usage. Optional — only transports whose API returns
+	 * Provider-reported token usage. Optional — only models whose API returns
 	 * usage metadata (e.g. Gemini Live's `usageMetadata`, Anthropic's `usage`)
 	 * emit this. It is the **authoritative** token count (no estimation), so the
 	 * debug tooling prefers it over byte-based estimates when present. See
@@ -218,7 +218,7 @@ export interface AgentTransportEventMap {
 /**
  * Normalised, provider-agnostic token-usage report. Maps each API's usage shape
  * onto a common one so debug tooling and hosts read the same fields regardless
- * of transport.
+ * of model.
  *
  * Whether the counts are **cumulative for the session** or **per-turn** depends
  * on the provider (Gemini Live reports cumulative session totals). Treat

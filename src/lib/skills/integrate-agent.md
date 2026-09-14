@@ -1,6 +1,6 @@
 ---
 name: integrate-agent
-description: Use when wiring an AI agent (voice via Gemini Live / OpenAI Realtime / Deepgram / Hume EVI, text via Gemini / Anthropic Claude / OpenAI, or a custom AgentTransport) to the A2UI surfaces in a SvelteKit app. Covers the AgentDefinition, transport auth, AgentShell mounting, and the tool-result echo.
+description: Use when wiring an AI agent (voice via Gemini Live / OpenAI Realtime / Deepgram / Hume EVI, text via Gemini / Anthropic Claude / OpenAI, or a custom AgentModel) to the A2UI surfaces in a SvelteKit app. Covers the AgentDefinition, model auth, AgentShell mounting, and the tool-result echo.
 type: skill
 ---
 
@@ -11,11 +11,11 @@ type: skill
 Use this skill when you need to **connect a live AI agent** to the
 A2UI surfaces declared on your pages. The agent reads your surfaces,
 dispatches tool calls back to your action handlers, and gives the user
-a chat bar — with a microphone when the transport supports audio.
+a chat bar — with a microphone when the model supports audio.
 
 Trigger phrases: "wire up the agent", "set up Gemini Live", "use
 Claude/GPT for the agent", "set up OpenAI Realtime", "add the
-mic", "add a chat agent", "connect a custom transport", "integrate
+mic", "add a chat agent", "connect a custom model", "integrate
 voice", "integrate the assistant".
 
 ## How to apply
@@ -24,7 +24,7 @@ voice", "integrate the assistant".
 
 The definition is what the agent *is* — persona, surfaces, page
 context. It is a plain object, independent of any model or channel;
-the same definition runs over every transport.
+the same definition runs over every model.
 
 ```ts
 // src/lib/agent-definition.ts
@@ -47,10 +47,10 @@ less than what is on screen (per-route scoping, a surface you hide from
 the model); `surface(id)` from the same module gets one by id.
 
 Keep the definition in its own module (the layout then holds only the
-transport). Both callbacks are invoked on every surface-watch tick *and*
+model). Both callbacks are invoked on every surface-watch tick *and*
 on every tool call, so keep them fast — read reactive state, don't do work.
 
-### 2. Construct a transport (auth lives here)
+### 2. Construct a model (auth lives here)
 
 **Streaming voice (Gemini Live).** Authenticates with a short-lived
 ephemeral token, not your raw API key. Mint server-side:
@@ -69,9 +69,9 @@ export async function POST() {
 ```
 
 ```ts
-import { GeminiLiveTransport } from 'a2ui-svelte/agent/gemini';
+import { GeminiLiveModel } from 'a2ui-svelte/agent/gemini';
 
-const transport = new GeminiLiveTransport({
+const model = new GeminiLiveModel({
   // called once per connect — every session gets a fresh single-use token
   token: async () => {
     const r = await fetch('/api/voice-token', { method: 'POST' });
@@ -85,10 +85,10 @@ const transport = new GeminiLiveTransport({
 same-origin proxy route that injects `x-goog-api-key`:
 
 ```ts
-import { GeminiTextTransport } from 'a2ui-svelte/agent/gemini';
+import { GeminiTextModel } from 'a2ui-svelte/agent/gemini';
 
-const transport = new GeminiTextTransport({ baseUrl: '/api/gemini' });
-// or, key in the browser (dev only): new GeminiTextTransport({ apiKey })
+const model = new GeminiTextModel({ baseUrl: '/api/gemini' });
+// or, key in the browser (dev only): new GeminiTextModel({ apiKey })
 ```
 
 **Other built-in providers.** Same contract, same agent, same shell —
@@ -96,27 +96,27 @@ only the constructor changes. Text (request/response, `apiKey` or a
 `baseUrl` key proxy exactly like Gemini's):
 
 ```ts
-import { AnthropicTextTransport } from 'a2ui-svelte/agent/anthropic';
-import { OpenAITextTransport } from 'a2ui-svelte/agent/openai';
+import { AnthropicTextModel } from 'a2ui-svelte/agent/anthropic';
+import { OpenAITextModel } from 'a2ui-svelte/agent/openai';
 
-new AnthropicTextTransport({ baseUrl: '/api/claude' });  // Claude (default claude-opus-4-8)
-new OpenAITextTransport({ baseUrl: '/api/openai' });     // GPT (default gpt-5.2)
+new AnthropicTextModel({ baseUrl: '/api/claude' });  // Claude (default claude-opus-4-8)
+new OpenAITextModel({ baseUrl: '/api/openai' });     // GPT (default gpt-5.2)
 ```
 
 Streaming voice (each authenticates with a short-lived credential minted
 server-side by the matching helper, exactly like the Gemini route above):
 
 ```ts
-import { OpenAIRealtimeTransport } from 'a2ui-svelte/agent/openai';   // mintOpenAIRealtimeSecret
-import { DeepgramVoiceAgentTransport } from 'a2ui-svelte/agent/deepgram'; // mintDeepgramToken
-import { HumeEviTransport } from 'a2ui-svelte/agent/hume';            // fetchHumeAccessToken
+import { OpenAIRealtimeModel } from 'a2ui-svelte/agent/openai';   // mintOpenAIRealtimeSecret
+import { DeepgramVoiceAgentModel } from 'a2ui-svelte/agent/deepgram'; // mintDeepgramToken
+import { HumeEviModel } from 'a2ui-svelte/agent/hume';            // fetchHumeAccessToken
 
-new OpenAIRealtimeTransport({ token: fetchTokenFromYourServer });
-new DeepgramVoiceAgentTransport({ token: fetchTokenFromYourServer });
-new HumeEviTransport({ accessToken: fetchTokenFromYourServer });
+new OpenAIRealtimeModel({ token: fetchTokenFromYourServer });
+new DeepgramVoiceAgentModel({ token: fetchTokenFromYourServer });
+new HumeEviModel({ accessToken: fetchTokenFromYourServer });
 ```
 
-**Custom provider.** Implement the `AgentTransport` interface
+**Custom provider.** Implement the `AgentModel` interface
 (`a2ui-svelte/agent`): a `capabilities` getter (this is what the agent
 and shell adapt to — modalities, barge-in, silent context, history
 ownership), `connect`, `sendText`, `sendToolResult`, `close`, plus an
@@ -124,19 +124,18 @@ ownership), `connect`, `sendText`, `sendToolResult`, `close`, plus an
 `turn-complete`, `error`, `close` (and `audio-out` / `interrupted` /
 `usage` / `notice` where applicable — `notice` is a non-fatal info
 signal, e.g. a rate-limit retry, that the agent logs to its debug box).
-Audio transports also implement
-`sendAudioChunk`. Optionally implement `sendContextUpdate(text)` — a
-channel that appends to the model's context *without* triggering a
-response (Gemini Live: `sendClientContent({ turnComplete: false })`);
+Audio models also implement `sendAudioChunk`. Optionally implement
+`sendContextUpdate(text)` — a channel that appends to the model's context
+*without* triggering a response (Gemini Live: `sendClientContent({ turnComplete: false })`);
 the agent uses it to sync the surface data model into context during
-idle windows; transports that omit it fall back to `sendText`.
+idle windows; models that omit it fall back to `sendText`.
 
-### 3. Connect the definition to the transport
+### 3. Connect the definition to the model
 
 ```ts
 import { Agent } from 'a2ui-svelte/agent';
 
-const agent = new Agent(assistant, transport);
+const agent = new Agent(assistant, model);
 ```
 
 That's the whole orchestrator. Swapping the second argument switches
@@ -150,7 +149,7 @@ voice ↔ text ↔ scripted-test without touching anything else.
   import { onDestroy } from 'svelte';
   import { AgentShell } from 'a2ui-svelte/agent';
   import 'a2ui-svelte/renderer/styles.css';
-  // ...definition + transport + agent construction from steps 1–3...
+  // ...definition + model + agent construction from steps 1–3...
 
   onDestroy(() => agent.stop());
 </script>
@@ -159,10 +158,10 @@ voice ↔ text ↔ scripted-test without touching anything else.
 <AgentShell {agent} />
 ```
 
-One shell for every transport: chat bar, transcript peek/panel, status,
+One shell for every model: chat bar, transcript peek/panel, status,
 reset and debug controls. When `agent.capabilities.input` includes
 `'audio'`, a mic button (session toggle) and a mute button join the bar
-automatically. Typing lazy-starts the session on any transport.
+automatically. Typing lazy-starts the session on any model.
 
 For a headless setup (custom UI):
 
@@ -180,7 +179,7 @@ For a headless setup (custom UI):
 `agent.connected`, `agent.recording`, `agent.muted`, `agent.status`,
 `agent.transcript`, `agent.hasStarted`, `agent.configIssue` are all
 `$state` — bind freely. `agent.capabilities` tells you what the
-transport can do.
+model can do.
 
 ### 5. The tool-result echo — nothing to wire
 
@@ -219,32 +218,32 @@ throws: a bad element id comes back as an `error` item so the model can
 recover. In a test use `agentClick` / `agentFill` / `agentCall` from
 `a2ui-svelte/testing`, which throw on exactly that.
 
-### 6. Test with `ScriptedTransport` (no model, no network)
+### 6. Test with `ScriptedModel` (no LLM, no network)
 
 ```ts
-import { Agent, ScriptedTransport } from 'a2ui-svelte/agent';
+import { Agent, ScriptedModel } from 'a2ui-svelte/agent';
 
-const transport = new ScriptedTransport([
+const model = new ScriptedModel([
   {
     on: 'save it',
     calls: [{ name: 'click_button', args: { element_id: 'save-btn' } }],
     text: 'Saved.'
   }
 ]);
-const agent = new Agent(assistant, transport);
+const agent = new Agent(assistant, model);
 await agent.start();
 await agent.send('please save it');   // resolves at the model's turn-complete
-// assert the action ran, transport.toolResults echoed, transcript updated…
+// assert the action ran, model.toolResults echoed, transcript updated…
 ```
 
 `agent.send()` resolves at the turn boundary (after any tool round trip) and
 rejects if the turn can't finish — so a test never sleeps. (`sendTextMessage`
 is the deprecated fire-and-forget form; don't write new code against it.)
 
-For finer control, stub `AgentTransport` yourself and emit synthetic
+For finer control, stub `AgentModel` yourself and emit synthetic
 events; advertise text-only modalities in `capabilities` unless your
 test environment can construct Web Audio objects. To drive a **real**
-voice transport where there is no mic or speaker (node/jsdom evals, a
+voice model where there is no mic or speaker (node/jsdom evals, a
 headless deployment), wrap it in `withoutAudio` from `a2ui-svelte/agent`:
 it strips the `'audio'` modality and hides `sendAudioChunk`, so the agent
 runs the session text-in/text-out. The model still generates audio — the
@@ -268,7 +267,7 @@ token bill is the production one; only the frames are dropped.
   definition to override the assembled system prompt entirely. Use
   `staticSurfacesBlock`, `toolsBlock`, etc. from `a2ui-svelte/agent` to
   compose your own.
-- **Custom TTS voice.** `new GeminiLiveTransport({ token, voice: 'Charon' })`.
+- **Custom TTS voice.** `new GeminiLiveModel({ token, voice: 'Charon' })`.
 - **Bring-your-own UI.** `headless={true}` plus snippet slots
   (`messages`, `input`, `mic`, `status`, `controls`, `debug`) let you
   mix-and-match — replace one piece, keep the rest.
@@ -277,5 +276,5 @@ token bill is the production one; only the frames are dropped.
 
 - `build-a2ui-page` — making a page the agent can read.
 - `style-and-theme` — restyling the default `<AgentShell>`.
-- `test-a2ui-app` — testing the wiring: agent actions, `ScriptedTransport`,
+- `test-a2ui-app` — testing the wiring: agent actions, `ScriptedModel`,
   evals.

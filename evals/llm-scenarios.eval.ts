@@ -5,7 +5,7 @@
  * so the report answers the question: do the context optimizations make the
  * agent unstable?
  *
- * The transport family is selectable (`A2UI_EVAL_TRANSPORT=text|live`, see
+ * The model family is selectable (`A2UI_EVAL_MODEL_FAMILY=text|live`, see
  * setup.ts): the request/response text loop, or the streaming Live API — the
  * family whose per-turn context re-billing the optimizations target.
  *
@@ -15,8 +15,8 @@
  *
  *   pnpm eval
  *
- * Env knobs: A2UI_EVAL_TRANSPORT (default text),
- *            A2UI_EVAL_MODEL (default per transport — see setup.ts),
+ * Env knobs: A2UI_EVAL_MODEL_FAMILY (default text),
+ *            A2UI_EVAL_MODEL (default per model — see setup.ts),
  *            A2UI_EVAL_PROFILES (comma list, default all).
  */
 import { describe, it, expect, afterEach, afterAll } from 'vitest';
@@ -28,12 +28,12 @@ import { surface } from '../src/lib/core/registries/surface-index';
 import {
 	requireApiKey,
 	EVAL_MODEL,
-	EVAL_TRANSPORT,
+	EVAL_MODEL_FAMILY,
 	EVAL_TODO_COUNT,
 	EVAL_TURN_GAP_MS,
 	type EvalProfile,
 	selectedProfiles,
-	makeEvalTransport
+	makeEvalModel
 } from './setup';
 import { record, printSummary } from './report';
 import { todoList } from './fixtures/todo-list-agent';
@@ -57,7 +57,7 @@ let lastTurnEndedAt = 0;
 /**
  * One user turn, paced against the provider's per-minute quota: wait out the
  * remainder of {@link EVAL_TURN_GAP_MS} since the previous turn, then send.
- * `agent.send` resolves at the turn boundary and rejects on transport error,
+ * `agent.send` resolves at the turn boundary and rejects on model error,
  * close, or timeout — there is nothing to poll.
  */
 async function sendPaced(agent: Agent, text: string): Promise<void> {
@@ -72,11 +72,11 @@ async function sendPaced(agent: Agent, text: string): Promise<void> {
 	}
 }
 
-/** The app's definition plus this arm's experimental knob and a fresh transport. */
+/** The app's definition plus this arm's experimental knob and a fresh model. */
 async function startAgent(definition: typeof todoList, profile: EvalProfile): Promise<Agent> {
 	const agent = new Agent(
 		{ ...definition, compactSurfaceJson: profile.compactSurfaceJson },
-		makeEvalTransport()
+		makeEvalModel()
 	);
 	await agent.start();
 	if (agent.configIssue) throw new Error(`agent failed to start: ${agent.configIssue}`);
@@ -275,7 +275,7 @@ afterAll(() => {
 	// Live results persist under their own tag so the text-loop history stays
 	// diffable against text-loop runs only.
 	printSummary(
-		`LLM eval results — model ${EVAL_MODEL} (${EVAL_TRANSPORT} transport)`,
-		EVAL_TRANSPORT === 'live' ? 'llm-scenarios-live' : 'llm-scenarios'
+		`LLM eval results — model ${EVAL_MODEL} (${EVAL_MODEL_FAMILY} family)`,
+		EVAL_MODEL_FAMILY === 'live' ? 'llm-scenarios-live' : 'llm-scenarios'
 	);
 });

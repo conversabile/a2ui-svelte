@@ -2,7 +2,7 @@
 
 **What you're testing:** whether a real model, given the prompt your app
 ships, actually does what the user asked — and what that costs. Render
-your page, attach your agent to a real transport, send a message, assert.
+your page, attach your agent to a real model, send a message, assert.
 
 Keep them in your own `*.eval.ts` files with your own runner (ours:
 [evals/](../../evals/)), never in `pnpm test`: they cost money and are
@@ -11,13 +11,13 @@ non-deterministic.
 ```ts
 import { render, screen } from '@testing-library/svelte';
 import { Agent } from 'a2ui-svelte/agent';
-import { GeminiTextTransport } from 'a2ui-svelte/agent/gemini';
+import { GeminiTextModel } from 'a2ui-svelte/agent/gemini';
 import { todoList } from '../src/lib/agent-definition';      // your app's agent
 import TodoListPage from '../src/routes/todos/+page.svelte'; // your app's page
 
 it('sets a due date', async () => {
   render(TodoListPage);
-  const agent = new Agent(todoList, new GeminiTextTransport({ apiKey, model }));
+  const agent = new Agent(todoList, new GeminiTextModel({ apiKey, model }));
   await agent.start();
   if (agent.configIssue) throw new Error(agent.configIssue);
 
@@ -31,8 +31,8 @@ it('sets a due date', async () => {
 
 ## It is your agent
 
-An `Agent` is your definition plus a transport, and the eval changes only
-the transport — node has no browser to mint a token, and each scenario
+An `Agent` is your definition plus a model, and the eval changes only
+the model — node has no browser to mint a token, and each scenario
 wants a fresh conversation. So keep the definition in a module
 (`src/lib/agent-definition.ts`) that your layout and your evals both
 import; with `surfaces: mountedSurfaces` it needs no other wiring.
@@ -53,15 +53,15 @@ Through the same handles as a [component test](testing.md):
 throwing. Without the `if (agent.configIssue) throw …` line above, a wrong
 API key reads as the model getting the answer wrong.
 
-## Voice transports under node
+## Voice models under node
 
-Wrap the transport:
+Wrap the model:
 
 ```ts
 import { Agent, withoutAudio } from 'a2ui-svelte/agent';
-import { GeminiLiveTransport } from 'a2ui-svelte/agent/gemini';
+import { GeminiLiveModel } from 'a2ui-svelte/agent/gemini';
 
-new Agent(todoList, withoutAudio(new GeminiLiveTransport({ token })));
+new Agent(todoList, withoutAudio(new GeminiLiveModel({ token })));
 ```
 
 The model still generates audio, so the token bill is unchanged — exactly

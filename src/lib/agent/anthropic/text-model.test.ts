@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { AnthropicTextTransport } from './text-transport';
+import { AnthropicTextModel } from './text-model';
 
 // Mock the SDK: `new Anthropic(...)` yields a client whose `messages.stream`
 // is our programmable stub. `vi.hoisted` makes the stub (and a record of
@@ -52,8 +52,8 @@ beforeEach(() => {
 	});
 });
 
-// Capture every neutral event the transport emits.
-function listen(transport: AnthropicTextTransport) {
+// Capture every neutral event the model emits.
+function listen(model: AnthropicTextModel) {
 	const ev = {
 		textOut: [] as string[],
 		toolCall: [] as Array<Array<{ id: string; name: string; args: Record<string, unknown> }>>,
@@ -61,11 +61,11 @@ function listen(transport: AnthropicTextTransport) {
 		usage: [] as unknown[],
 		error: [] as string[]
 	};
-	transport.on('text-out', (p) => ev.textOut.push(p.text));
-	transport.on('tool-call', (p) => ev.toolCall.push(p.calls));
-	transport.on('turn-complete', () => (ev.turnComplete += 1));
-	transport.on('usage', (u) => ev.usage.push(u));
-	transport.on('error', (e) => ev.error.push(e.message));
+	model.on('text-out', (p) => ev.textOut.push(p.text));
+	model.on('tool-call', (p) => ev.toolCall.push(p.calls));
+	model.on('turn-complete', () => (ev.turnComplete += 1));
+	model.on('usage', (u) => ev.usage.push(u));
+	model.on('error', (e) => ev.error.push(e.message));
 	return ev;
 }
 
@@ -77,11 +77,11 @@ const TOOLS = [
 	}
 ];
 
-describe('AnthropicTextTransport', () => {
+describe('AnthropicTextModel', () => {
 	it('maps tools to input_schema, seeds history, and streams a final text turn', async () => {
-		const transport = new AnthropicTextTransport({ apiKey: 'key' });
-		const ev = listen(transport);
-		await transport.connect({
+		const model = new AnthropicTextModel({ apiKey: 'key' });
+		const ev = listen(model);
+		await model.connect({
 			systemInstruction: 'sys',
 			tools: TOOLS,
 			history: [
@@ -99,7 +99,7 @@ describe('AnthropicTextTransport', () => {
 				deltas: ['o', 'k']
 			}
 		];
-		transport.sendText('do it');
+		model.sendText('do it');
 		await flush();
 
 		expect(ev.turnComplete).toBe(1);
@@ -125,12 +125,12 @@ describe('AnthropicTextTransport', () => {
 	});
 
 	it('omits thinking when disabled and tools when empty', async () => {
-		const transport = new AnthropicTextTransport({ apiKey: 'key', thinking: false });
-		listen(transport);
-		await transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new AnthropicTextModel({ apiKey: 'key', thinking: false });
+		listen(model);
+		await model.connect({ systemInstruction: 'sys', tools: [] });
 
 		programs = [{ final: { content: [{ type: 'text', text: 'hi' }], stop_reason: 'end_turn' } }];
-		transport.sendText('hi');
+		model.sendText('hi');
 		await flush();
 
 		expect(recorded[0].thinking).toBeUndefined();
@@ -138,9 +138,9 @@ describe('AnthropicTextTransport', () => {
 	});
 
 	it('emits one tool-call for two tool_use blocks and re-calls only after both results', async () => {
-		const transport = new AnthropicTextTransport({ apiKey: 'key' });
-		const ev = listen(transport);
-		await transport.connect({ systemInstruction: 'sys', tools: TOOLS });
+		const model = new AnthropicTextModel({ apiKey: 'key' });
+		const ev = listen(model);
+		await model.connect({ systemInstruction: 'sys', tools: TOOLS });
 
 		const assistantContent = [
 			{ type: 'thinking', thinking: 'hmm', signature: 'sig-1' },
@@ -152,7 +152,7 @@ describe('AnthropicTextTransport', () => {
 			{ final: { content: [{ type: 'text', text: 'done' }], stop_reason: 'end_turn' } }
 		];
 
-		transport.sendText('go');
+		model.sendText('go');
 		await flush();
 
 		// One tool-call event carrying both calls.
@@ -166,12 +166,12 @@ describe('AnthropicTextTransport', () => {
 		expect(streamMock).toHaveBeenCalledTimes(1);
 
 		// First result in: still must NOT re-call (batch incomplete).
-		transport.sendToolResult('tu_1', 'a', { status: 'success' });
+		model.sendToolResult('tu_1', 'a', { status: 'success' });
 		await flush();
 		expect(streamMock).toHaveBeenCalledTimes(1);
 
 		// Second result in: now it re-calls.
-		transport.sendToolResult('tu_2', 'b', { result: 5 });
+		model.sendToolResult('tu_2', 'b', { result: 5 });
 		await flush();
 		expect(streamMock).toHaveBeenCalledTimes(2);
 		expect(ev.turnComplete).toBe(1);
@@ -190,9 +190,9 @@ describe('AnthropicTextTransport', () => {
 	});
 
 	it('maps usage to the neutral AgentUsage shape (cache counts folded into prompt)', async () => {
-		const transport = new AnthropicTextTransport({ apiKey: 'key' });
-		const ev = listen(transport);
-		await transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new AnthropicTextModel({ apiKey: 'key' });
+		const ev = listen(model);
+		await model.connect({ systemInstruction: 'sys', tools: [] });
 
 		programs = [
 			{
@@ -208,7 +208,7 @@ describe('AnthropicTextTransport', () => {
 				}
 			}
 		];
-		transport.sendText('hi');
+		model.sendText('hi');
 		await flush();
 
 		expect(ev.usage).toEqual([
@@ -222,9 +222,9 @@ describe('AnthropicTextTransport', () => {
 	});
 
 	it('reports an SDK failure as a normalised error event', async () => {
-		const transport = new AnthropicTextTransport({ apiKey: 'key' });
-		const ev = listen(transport);
-		await transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new AnthropicTextModel({ apiKey: 'key' });
+		const ev = listen(model);
+		await model.connect({ systemInstruction: 'sys', tools: [] });
 
 		streamMock.mockImplementationOnce(() => ({
 			on() {
@@ -234,7 +234,7 @@ describe('AnthropicTextTransport', () => {
 				throw new Error('boom');
 			}
 		}));
-		transport.sendText('hi');
+		model.sendText('hi');
 		await flush();
 
 		expect(ev.error).toEqual(['boom']);
@@ -242,20 +242,20 @@ describe('AnthropicTextTransport', () => {
 	});
 
 	it('constructs a browser-enabled client pointing at Anthropic by default', async () => {
-		const transport = new AnthropicTextTransport({ apiKey: 'real-key' });
-		await transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new AnthropicTextModel({ apiKey: 'real-key' });
+		await model.connect({ systemInstruction: 'sys', tools: [] });
 		expect(ctorArgs.at(-1)).toEqual({ apiKey: 'real-key', dangerouslyAllowBrowser: true });
 	});
 
 	it('resolves a function-valued apiKey once per connect', async () => {
-		const transport = new AnthropicTextTransport({ apiKey: async () => 'minted-key' });
-		await transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new AnthropicTextModel({ apiKey: async () => 'minted-key' });
+		await model.connect({ systemInstruction: 'sys', tools: [] });
 		expect(ctorArgs.at(-1)).toEqual({ apiKey: 'minted-key', dangerouslyAllowBrowser: true });
 	});
 
 	it('points the SDK at a proxy baseUrl with a placeholder key when apiKey is omitted', async () => {
-		const transport = new AnthropicTextTransport({ baseUrl: 'https://example.test/api/claude' });
-		await transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new AnthropicTextModel({ baseUrl: 'https://example.test/api/claude' });
+		await model.connect({ systemInstruction: 'sys', tools: [] });
 		expect(ctorArgs.at(-1)).toEqual({
 			apiKey: 'proxied-server-side',
 			dangerouslyAllowBrowser: true,
@@ -264,21 +264,21 @@ describe('AnthropicTextTransport', () => {
 	});
 
 	it('rejects connect() when neither apiKey nor baseUrl is configured', async () => {
-		const transport = new AnthropicTextTransport();
-		await expect(transport.connect({ systemInstruction: 'sys', tools: [] })).rejects.toThrow(
+		const model = new AnthropicTextModel();
+		await expect(model.connect({ systemInstruction: 'sys', tools: [] })).rejects.toThrow(
 			/apiKey/
 		);
 	});
 
 	it('close() guards the loop and is idempotent', async () => {
-		const transport = new AnthropicTextTransport({ apiKey: 'key' });
-		const ev = listen(transport);
-		await transport.connect({ systemInstruction: 'sys', tools: [] });
+		const model = new AnthropicTextModel({ apiKey: 'key' });
+		const ev = listen(model);
+		await model.connect({ systemInstruction: 'sys', tools: [] });
 
-		transport.close();
-		transport.close(); // idempotent — must not throw
+		model.close();
+		model.close(); // idempotent — must not throw
 
-		transport.sendText('hi');
+		model.sendText('hi');
 		await flush();
 
 		expect(streamMock).not.toHaveBeenCalled();

@@ -34,17 +34,17 @@ The key and the knobs come from the environment or from a repo-root `.env`
 `process.env`; a var set on the command line wins.
 
 ```bash
-A2UI_EVAL_TRANSPORT=text              # transport family: text (request/response) | live (Live API)
-A2UI_EVAL_MODEL=gemini-3.5-flash      # model under test (live default: gemini-3.1-flash-live-preview)
-A2UI_EVAL_PROFILES=baseline,optimized # subset of the profile matrix
-A2UI_EVAL_TODO_COUNT=6                # task rows on the static fixture (surface density)
-A2UI_EVAL_TURN_GAP_MS=30000           # min gap between conversation turns (quota pacing)
-A2UI_EVAL_MAX_RETRIES=1               # 429 retries (exponential backoff) before failing (text only)
+A2UI_EVAL_MODEL_FAMILY=text            # model family: text (request/response) | live (Live API)
+A2UI_EVAL_MODEL=gemini-3.5-flash       # model under test (live default: gemini-3.1-flash-live-preview)
+A2UI_EVAL_PROFILES=baseline,optimized  # subset of the profile matrix
+A2UI_EVAL_TODO_COUNT=6                 # task rows on the static fixture (surface density)
+A2UI_EVAL_TURN_GAP_MS=30000            # min gap between conversation turns (quota pacing)
+A2UI_EVAL_MAX_RETRIES=1                # 429 retries (exponential backoff) before failing (text only)
 ```
 
 ### Running against Gemini Live
 
-`A2UI_EVAL_TRANSPORT=live` drives the same scenarios through `GeminiLiveTransport`
+`A2UI_EVAL_MODEL_FAMILY=live` drives the same scenarios through `GeminiLiveModel`
 — the streaming socket whose per-turn context re-billing the optimizations
 target. The session generates audio exactly as in production (that bill is the
 point); `withoutAudio` masks the audio *capabilities* so the `Agent` runs headless
@@ -56,7 +56,7 @@ matrix run is not survivable on a free key. Run one scenario × one profile per
 invocation and give the per-minute token window time to reset between runs:
 
 ```bash
-A2UI_EVAL_TRANSPORT=live A2UI_EVAL_PROFILES=optimized \
+A2UI_EVAL_MODEL_FAMILY=live A2UI_EVAL_PROFILES=optimized \
   pnpm exec vitest run --config evals/vitest.config.ts llm-scenarios -t add-task-then-edit
 ```
 
@@ -72,8 +72,8 @@ mechanisms keep a run alive:
 
 - **Turn gap** (`A2UI_EVAL_TURN_GAP_MS`, default `30000`) — the scenarios wait at
   least this long between consecutive conversation turns (spanning scenarios),
-  pacing the run proactively. This lives in the eval file, not the transport,
-  so the live agent is never slowed. The per-test timeout scales with it.
+  pacing the run proactively. This lives in the eval file, not the model
+  adapter, so the live agent is never slowed. The per-test timeout scales with it.
 - **Backoff retries** (`A2UI_EVAL_MAX_RETRIES`, default `1`) — any 429 that still
   slips through (e.g. a burst within a single turn's tool loop) is retried with
   exponential backoff, honouring the server's `retryDelay` hint, and announced
@@ -95,7 +95,7 @@ Each LLM scenario runs once per **profile**:
 - `context-cost.eval.ts` — hermetic measurement: prompt sizes (pretty vs
   compact, scaling with surface density), per-call tool-result sizes per echo
   mode, and the cumulative billed input over a realistic 7-call task on both
-  transport families. Runs under both commands; doubles as a regression test
+  model families. Runs under both commands; doubles as a regression test
   of the optimization claims.
 - `llm-scenarios.eval.ts` — live A/B scenarios (`pnpm eval` only; requires
   `GEMINI_API_KEY`): single-field edit, batch edit, *add-task-then-edit*
@@ -111,7 +111,7 @@ Each LLM scenario runs once per **profile**:
   page mounts the surface, the definition names the persona; `surfaces:
   mountedSurfaces` joins them. The evals override only `compactSurfaceJson`,
   which is the experiment's variable, not the app's.
-- `setup.ts` — the run's configuration: transport family, model, env knobs, and
+- `setup.ts` — the run's configuration: model family, model, env knobs, and
   the profile matrix. Nothing else: the `Agent` is the harness, `agent.send`
   waits for the turn, `agent.debug.usage` meters the tokens.
 - `report.ts` — per-scenario result rows + the comparison summary table;

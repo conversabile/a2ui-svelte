@@ -11,7 +11,7 @@
  *
  * This is the **A2A / true-compliance** path. It lives out-of-band in message
  * metadata and replaces the prior copy each time, so the full model is sent
- * (no deltas). The voice transport can't use metadata (a live audio API has no
+ * (no deltas). The voice model can't use metadata (a live audio API has no
  * such side-channel and attaching at speech time interrupts the answer), so it
  * synchronises the same `{ fieldId → value }` unit via in-band deltas instead —
  * see the `Agent`'s `'sync'` mode and the surface-data-model-sync plan.

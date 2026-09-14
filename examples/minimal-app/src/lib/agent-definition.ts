@@ -4,7 +4,7 @@ import { session } from './session.svelte';
 
 /**
  * What the agent IS — persona, surfaces, page context — declared once,
- * independent of any model or channel. Every transport in the layout's picker
+ * independent of any model or channel. Every model in the layout's picker
  * runs this same definition unchanged.
  *
  * `surfaces` is the library's own index of mounted surfaces, so a page just
