@@ -50,6 +50,15 @@ literal when Pico isn't loaded.
 | `--a2ui-shell-border-active`   | `--a2ui-shell-accent-bg`                 | `<AgentShell>` active border   |
 | `--a2ui-shell-left`            | `0`                                      | `<AgentShell>` left inset (e.g. for a sidebar layout) |
 | `--a2ui-shell-right`           | `0`                                      | `<AgentShell>` right inset      |
+| `--a2ui-trace-bg`              | currentColor @ 5%                        | Turn-latency timeline panel (debug view) |
+| `--a2ui-trace-border`          | currentColor @ 15%                       | Timeline panel border          |
+| `--a2ui-trace-fg`              | `--pico-color`                           | Timeline text                  |
+| `--a2ui-trace-muted-fg`        | `--pico-muted-color`                     | Timeline labels and durations  |
+| `--a2ui-trace-track-bg`        | currentColor @ 10%                       | Timeline bar track / detail panes |
+| `--a2ui-trace-thinking`        | currentColor @ 40%                       | `thinking` span bar            |
+| `--a2ui-trace-generating`      | `--a2ui-shell-accent-bg`                 | `generating` span bar          |
+| `--a2ui-trace-tool`            | `--pico-ins-color`                       | Tool-call span bar             |
+| `--a2ui-trace-error`           | `--pico-del-color`                       | Failed tool call               |
 
 The shell is `position: fixed` and spans the full viewport width by default.
 If your app has a fixed sidebar or right panel, set `--a2ui-shell-left` /

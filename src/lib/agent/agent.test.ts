@@ -1827,8 +1827,123 @@ describe("Agent with a neutral mock model", () => {
 
       expect(agent.debug.outbound["system-prompt"].count).toBe(0);
       expect(agent.debug.usage.reports).toBe(0);
+      expect(agent.trace.turns).toEqual([]);
 
       await agent.stop();
+    });
+  });
+
+  describe("latency trace", () => {
+    it("charts a typed turn: the wait, the tool call, and the reply", async () => {
+      toolRegistry.register({
+        name: "click_buttons",
+        description: "click",
+        parameters: { type: "object", properties: {} },
+        execute: async () => ({
+          results: [{ element_id: "save-button", status: "success" }],
+        }),
+      });
+      const model = new MockAgentModel();
+      const agent = new Agent(
+        {
+          surfaces: () => [],
+          contextInstructions: () => "",
+          instructions: "persona",
+        },
+        model,
+      );
+
+      await agent.start();
+      flushSync();
+      const turn1 = agent.send("save it");
+
+      model.emit("tool-call", {
+        calls: [
+          { id: "c1", name: "click_buttons", args: { element_ids: ["save-button"] } },
+        ],
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      flushSync();
+      model.emit("text-out", { text: "Saved." });
+      model.emit("turn-complete", {});
+      await turn1;
+      flushSync();
+
+      expect(agent.trace.turns).toHaveLength(1);
+      const turn = agent.trace.turns[0];
+      // The timeline renders after the user message (transcript index 1) and
+      // before the reply the model wrote at index 1.
+      expect(turn.index).toBe(1);
+      expect(turn.endedAt).not.toBeNull();
+      expect(turn.spans.map((s) => s.kind)).toEqual([
+        "thinking",
+        "tool",
+        "thinking",
+        "generating",
+      ]);
+
+      const tool = turn.spans[1];
+      expect(tool.name).toBe("click_buttons");
+      expect(tool.tool?.status).toBe("success");
+      expect(tool.tool?.args).toContain("save-button");
+      expect(tool.tool?.output).toContain("success");
+      // The result payload the model actually received, echo included.
+      expect(tool.tool?.sentBytes).toBe(
+        new TextEncoder().encode(JSON.stringify(model.toolResults[0].result))
+          .length,
+      );
+
+      await agent.stop();
+    });
+
+    it("reports a failed tool call so the slow/broken call is identifiable", async () => {
+      toolRegistry.register({
+        name: "exploding_tool",
+        description: "throws",
+        parameters: { type: "object", properties: {} },
+        execute: async () => {
+          throw new Error("backend down");
+        },
+      });
+      const model = new MockAgentModel();
+      const agent = new Agent(
+        { surfaces: () => [], instructions: "persona" },
+        model,
+      );
+
+      await agent.start();
+      flushSync();
+      model.emit("tool-call", {
+        calls: [{ id: "c1", name: "exploding_tool", args: {} }],
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      flushSync();
+
+      const tool = agent.trace.turns[0].spans.find((s) => s.kind === "tool");
+      expect(tool?.tool?.status).toBe("error");
+      expect(tool?.tool?.output).toContain("backend down");
+
+      await agent.stop();
+    });
+
+    it("reset clears the trace with the transcript", async () => {
+      const model = new MockAgentModel();
+      const agent = new Agent(
+        { surfaces: () => [], instructions: "persona" },
+        model,
+      );
+
+      await agent.start();
+      flushSync();
+      const turn = agent.send("hi");
+      model.emit("turn-complete", {});
+      await turn;
+      flushSync();
+      expect(agent.trace.turns).toHaveLength(1);
+
+      await agent.reset();
+      expect(agent.trace.turns).toEqual([]);
+      expect(agent.transcript).toEqual([]);
     });
   });
 });

@@ -26,6 +26,18 @@ export {
 	type DebugInboundKind
 } from './debug.svelte';
 export {
+	AgentTrace,
+	toolResultStatus,
+	spanDuration,
+	turnDuration,
+	formatDuration,
+	type AgentTraceOptions,
+	type TraceTurn,
+	type TraceSpan,
+	type TraceSpanKind,
+	type TraceToolDetail
+} from './trace.svelte';
+export {
 	buildSystemPrompt,
 	staticSurfacesBlock,
 	dynamicSurfacesBlock,
@@ -41,3 +53,4 @@ export { AudioRecorder } from './audio-recorder';
 export { AudioPlayer } from './audio-player';
 export { default as AgentShell } from './AgentShell.svelte';
 export { default as DebugBox } from './DebugBox.svelte';
+export { default as TurnTimeline } from './TurnTimeline.svelte';

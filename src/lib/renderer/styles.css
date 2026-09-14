@@ -52,6 +52,20 @@
 	   dark-on-dark. The fallbacks (#5d6b89 / #fff) keep it readable regardless. */
 	--a2ui-shell-bubble-bg: var(--a2ui-button-secondary-bg);
 	--a2ui-shell-bubble-fg: var(--a2ui-button-secondary-fg);
+
+	/* Turn-latency timeline (<AgentShell debug>). A development panel, so it
+	   defaults to neutral, low-contrast surfaces mixed from the current text
+	   colour — that way it tracks light/dark without its own palette. The three
+	   bar colours separate waiting from generating from tool work. */
+	--a2ui-trace-bg: color-mix(in srgb, currentColor 5%, transparent);
+	--a2ui-trace-border: color-mix(in srgb, currentColor 15%, transparent);
+	--a2ui-trace-fg: var(--pico-color, currentColor);
+	--a2ui-trace-muted-fg: var(--pico-muted-color, color-mix(in srgb, currentColor 60%, transparent));
+	--a2ui-trace-track-bg: color-mix(in srgb, currentColor 10%, transparent);
+	--a2ui-trace-thinking: color-mix(in srgb, currentColor 40%, transparent);
+	--a2ui-trace-generating: var(--a2ui-shell-accent-bg);
+	--a2ui-trace-tool: var(--pico-ins-color, seagreen);
+	--a2ui-trace-error: var(--pico-del-color, crimson);
 }
 
 /* Honour the input tokens on native form controls inside a surface. Pico styles

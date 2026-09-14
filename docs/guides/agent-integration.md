@@ -307,7 +307,8 @@ compatibility — it is the one token-saving option still off by default;
 
 ### Reactive state
 
-`Agent` exposes Svelte 5 `$state` fields you can bind anywhere:
+`Agent` exposes Svelte 5 `$state` fields that UIs can read to render the
+conversation:
 
 | Field            | Type                                                  |
 |------------------|-------------------------------------------------------|
@@ -319,6 +320,7 @@ compatibility — it is the one token-saving option still off by default;
 | `hasStarted`     | `boolean`                                             |
 | `configIssue`    | `string | null` — surfaces connect/auth failures      |
 | `debug`          | `AgentDebugStats` — live token/byte telemetry (below) |
+| `trace`          | `AgentTrace` — per-turn debug trace (below)           |
 
 Plus the read-only `capabilities` getter — what the shell uses to decide
 whether to render the mic.
@@ -347,7 +349,7 @@ whether to render the mic.
   nobody asked for.
 - `reset()` — clear transcript, stop session, ready for a fresh start.
 
-## Debugging token usage
+## Debugging a session
 
 A live session can run up a very large token bill, and the provider answers
 with a `RESOURCE_EXHAUSTED` quota error that does not say which part of your
@@ -438,6 +440,58 @@ can render the debug toggle wherever your own controls live.
 To turn measurement off entirely, pass `debug: false` in the definition (the
 `agent.debug` instance still exists, it just stays empty).
 
+### Per-turn detail — `agent.trace` (`AgentTrace`)
+
+The token stats say what a session is costing; the trace says what each turn
+did — every tool call it made, with arguments, result and echo, and how the
+turn's time split between waiting, generating and those calls. The agent
+records one `TraceTurn` per model turn, holding ordered spans:
+
+| Span kind    | Measures                                                     |
+|--------------|--------------------------------------------------------------|
+| `thinking`   | a response is expected and nothing has come back yet — the wait before the first token, and the wait after each tool result |
+| `generating` | text/audio arriving                                          |
+| `tool`       | one tool call: `name`, `args`, `output` (the tool's own return value), `status`, `echo` + `echoParts` (the surface echo the agent attached, by key and size), and `sentBytes` (the whole payload the model received) |
+
+Each turn carries the transcript position it belongs at, so the shell charts it
+between the user's message and the agent's answer. Reads:
+
+```ts
+agent.trace.turns                  // oldest first, capped at 20
+agent.trace.turnsAt(2)             // the turns charted at transcript index 2
+agent.trace.turns.at(-1)?.spans    // the last turn's waterfall
+```
+
+The echo is reported separately from the result because it is usually most of
+the payload: a 300-byte `{ results: [...] }` can go out as 32 KB once
+`updatedSurface` is attached. `echoParts` names the cost per key, so the
+answer to "why was this call so expensive" is on screen rather than inferred —
+see [The tool-result echo](#the-tool-result-echo) for what triggers the
+full-tree branch.
+
+Each payload pane has a copy button that yields the exact bytes: arguments,
+results and echoes are stored whole, so what you paste into an issue is what
+the model received. They are stored as JSON **strings**, never as references,
+so the trace can't keep a live surface tree alive; the turn ring (`maxTurns`,
+default 20) is what bounds the total, and `maxDetailChars` caps individual
+payloads for anyone who would rather not hold a 32 KB echo per call. The same
+`debug: false` option turns the whole thing off.
+
+### Turning the debug view on (and off)
+
+The debug view is for development — a chart-icon button in the shell's controls
+that reveals the stats box and the per-turn timelines together. `debug="auto"`
+enables it in development builds only (`import.meta.env.DEV`), which is what an
+app should ship:
+
+```svelte
+<AgentShell {agent} debug="auto" />
+```
+
+`debug` (or `debug={true}`) forces it on in any build; `debug={false}` (the
+default) renders no button at all. Measurement is separate: `debug: false` in
+the *definition* stops the agent recording, whatever the shell shows.
+
 ### Two settings that cut the token count
 
 One setting addresses each of the two sources above. Both keep the JSON
@@ -501,17 +555,17 @@ can opt out of any of them while keeping the rest:
 
 | Snippet      | Receives                                                                |
 |--------------|-------------------------------------------------------------------------|
-| `messages`   | `{ entries, sendText }`                                                 |
+| `messages`   | `{ entries, sendText, trace }` — `trace` is the `AgentTrace` when the debug view is on, else `null` |
 | `input`      | `{ sendText, connected, status }`                                       |
 | `mic`        | `{ connected, status, toggle, muted, toggleMute }` — only rendered on audio-input models |
 | `status`     | `{ status }`                                                            |
 | `controls`   | `{ resetConversation, toggleChat, isChatOpen, toggleDebug, isDebugOpen }` |
-| `debug`      | `{ debug }` — see [Debugging token usage](#debugging-token-usage)       |
+| `debug`      | `{ debug }` — see [Debugging a session](#debugging-a-session)       |
 
 Or skip the UI entirely with `headless={true}` and render your own
-bound to the agent's `$state` fields. `debug` doubles as a boolean prop:
-`<AgentShell {agent} debug />` adds a toggle button that reveals the built-in
-token panel.
+bound to the agent's `$state` fields. `debug` doubles as a prop:
+`<AgentShell {agent} debug="auto" />` adds a toggle button — in development
+builds only — that reveals the token panel and the per-turn latency timelines.
 
 ## The tool-result echo
 

@@ -3,6 +3,7 @@ import { render, fireEvent } from '@testing-library/svelte';
 import AgentShell from './AgentShell.svelte';
 import { Agent } from './agent.svelte';
 import { ScriptedModel } from './scripted-model';
+import { toolRegistry } from '../core/registries/tool-registry';
 import type {
 	AgentModel,
 	AgentModelConnectOptions,
@@ -162,6 +163,57 @@ describe('AgentShell', () => {
 		await fireEvent.click(expandBtn);
 		expect(container.querySelector('.transcript')).not.toBeNull();
 		expect(container.querySelector('.peek')).toBeNull();
+
+		await agent.stop();
+	});
+
+	it('charts each turn between the user message and the reply when debug is open', async () => {
+		const agent = makeAgent([
+			{ on: 'save', calls: [{ name: 'shell_trace_tool', args: { x: 1 } }], text: 'Saved.' }
+		]);
+		toolRegistry.register({
+			name: 'shell_trace_tool',
+			description: 'test tool',
+			parameters: { type: 'object', properties: {} },
+			execute: async () => ({ results: [{ element_id: 'a', status: 'success' }] })
+		});
+		const { container } = render(AgentShell, { agent, debug: true });
+
+		await sendMessage(container, 'save');
+		await fireEvent.click(container.querySelector('.expand-btn') as HTMLButtonElement);
+
+		// Debug is enabled but still collapsed — no timeline yet.
+		expect(container.querySelector('.a2ui-turn-trace')).toBeNull();
+
+		await fireEvent.click(container.querySelector('.debug-toggle-btn') as HTMLButtonElement);
+
+		const rows = [...container.querySelectorAll('.transcript > *')];
+		const classes = rows.map((el) => el.className);
+		// user message · timeline · model reply, in that order.
+		expect(classes[0]).toContain('message user');
+		expect(classes[1]).toContain('a2ui-turn-trace');
+		expect(classes[2]).toContain('message model');
+
+		// The tool call is a row of the chart, with its detail behind a toggle.
+		const trace = rows[1] as HTMLElement;
+		expect(trace.textContent).toContain('shell_trace_tool');
+		expect(trace.querySelector('details')).not.toBeNull();
+		expect(trace.textContent).toContain('thinking');
+		expect(trace.textContent).toContain('generating');
+
+		await agent.stop();
+	});
+
+	it('renders no timeline when debug is off', async () => {
+		const agent = makeAgent([{ on: 'hello', text: 'Hi there.' }]);
+		const { container } = render(AgentShell, { agent });
+
+		await sendMessage(container, 'hello');
+		await fireEvent.click(container.querySelector('.expand-btn') as HTMLButtonElement);
+
+		expect(container.querySelector('.a2ui-turn-trace')).toBeNull();
+		// Without `debug` there is no way to switch it on, either.
+		expect(container.querySelector('.debug-toggle-btn')).toBeNull();
 
 		await agent.stop();
 	});

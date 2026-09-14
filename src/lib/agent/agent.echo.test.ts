@@ -236,3 +236,56 @@ describe('Agent — which tools the model is told about', () => {
 		expect(declared).not.toContain('click_buttons');
 	});
 });
+
+describe('Agent — the echo in the latency trace', () => {
+	/** The tool span of the most recent turn. */
+	const toolSpan = (agent: Agent) =>
+		agent.trace.turns.at(-1)!.spans.find((s) => s.kind === 'tool')!;
+
+	it('records what the echo contained, so a small result billed as 30 KB is explainable', async () => {
+		configureExtensions({ toolResultSurfaceEcho: 'changed' });
+		render(FieldSurface, { surfaceId: 'a', prefix: 'a' });
+		const { agent, model } = await connectedAgent();
+
+		const result = await call(model, 'update_text_field', { element_id: 'a-name', value: 'John' });
+
+		const detail = toolSpan(agent).tool!;
+		// The output pane shows the tool's own return value …
+		expect(detail.output).toContain('a-name');
+		expect(detail.output).not.toContain('updatedDataModel');
+		// … and the echo is reported separately, by key and by size.
+		expect(detail.echo).toContain('updatedDataModel');
+		expect(detail.echoParts.map((p) => p.key)).toContain('updatedDataModel');
+		expect(detail.echoParts.every((p) => p.bytes > 0)).toBe(true);
+		// `sentBytes` is the whole payload the model received, echo included.
+		expect(detail.sentBytes).toBe(new TextEncoder().encode(JSON.stringify(result)).length);
+		expect(detail.sentBytes!).toBeGreaterThan(
+			new TextEncoder().encode(JSON.stringify({ results: result.results })).length
+		);
+	});
+
+	it("names updatedSurface when a structural change forces the whole tree", async () => {
+		configureExtensions({ toolResultSurfaceEcho: 'full' });
+		render(FieldSurface, { surfaceId: 'a', prefix: 'a' });
+		const { agent, model } = await connectedAgent();
+
+		await call(model, 'click_button', { element_id: 'a-btn' });
+
+		const parts = toolSpan(agent).tool!.echoParts;
+		expect(parts.map((p) => p.key)).toContain('updatedSurface');
+		// Sorted largest first: the key responsible for the size leads.
+		expect(parts[0].bytes).toBeGreaterThanOrEqual(parts[parts.length - 1].bytes);
+	});
+
+	it('leaves the echo empty when the extension is off', async () => {
+		configureExtensions(STRICT);
+		render(FieldSurface, { surfaceId: 'a', prefix: 'a' });
+		const { agent, model } = await connectedAgent();
+
+		await call(model, 'click_button', { element_id: 'a-btn' });
+
+		const detail = toolSpan(agent).tool!;
+		expect(detail.echo).toBeNull();
+		expect(detail.echoParts).toEqual([]);
+	});
+});

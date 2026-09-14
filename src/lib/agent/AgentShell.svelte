@@ -3,7 +3,9 @@
 	import { marked } from 'marked';
 	import type { Agent, AgentStatus } from './agent.svelte';
 	import type { AgentDebugStats } from './debug.svelte';
+	import type { AgentTrace } from './trace.svelte';
 	import DebugBox from './DebugBox.svelte';
+	import TurnTimeline from './TurnTimeline.svelte';
 
 	interface Props {
 		agent: Agent;
@@ -15,6 +17,11 @@
 				{
 					entries: Array<{ role: 'user' | 'model'; text: string }>;
 					sendText: (t: string) => void;
+					/**
+					 * The latency trace when the debug view is on, else `null` —
+					 * `trace.turnsAt(i)` gives the turns to chart before entry `i`.
+					 */
+					trace: AgentTrace | null;
 				}
 			]
 		>;
@@ -59,13 +66,19 @@
 			]
 		>;
 		/**
-		 * Enable the token/byte debug panel, bound to `agent.debug`. A chart-icon
-		 * button in the controls toggles a stats box at the top of the shell —
-		 * collapsed by default. `true` uses the batteries-included box; pass a
-		 * snippet to render your own from the same reactive `AgentDebugStats`.
+		 * Enable the debug view. A chart-icon button in the controls toggles it;
+		 * when open it shows the token/byte stats box at the top of the shell
+		 * (bound to `agent.debug`) **and** a latency timeline per turn inside the
+		 * transcript (bound to `agent.trace`). Collapsed by default.
+		 *
+		 * `true` uses the batteries-included box; a snippet replaces the box with
+		 * your own, rendered from the same reactive `AgentDebugStats`.
+		 *
+		 * `'auto'` enables it in a development build only (`import.meta.env.DEV`)
+		 * — the recommended setting, so the button never reaches end users.
 		 * Off by default.
 		 */
-		debug?: boolean | Snippet<[{ debug: AgentDebugStats }]>;
+		debug?: boolean | 'auto' | Snippet<[{ debug: AgentDebugStats }]>;
 	}
 
 	let {
@@ -79,7 +92,18 @@
 		debug = false
 	}: Props = $props();
 
-	const showDebug = $derived(debug !== false);
+	// `import.meta.env` is Vite's, and this file runs in whatever bundler the
+	// consumer uses (and in SSR) — read it defensively so a non-Vite host gets
+	// "off" rather than a crash.
+	const isDevBuild = (): boolean => {
+		try {
+			return !!import.meta.env?.DEV;
+		} catch {
+			return false;
+		}
+	};
+
+	const showDebug = $derived(debug === 'auto' ? isDevBuild() : debug !== false);
 	const customDebug = $derived(typeof debug === 'function' ? debug : null);
 
 	// The one switch that adapts the shell to the model: audio modality from
@@ -89,6 +113,9 @@
 
 	let isChatOpen = $state(false);
 	let isDebugOpen = $state(false);
+	// One switch for the whole debug view: the stats box and the per-turn
+	// latency timelines appear and disappear together.
+	const showTrace = $derived(showDebug && isDebugOpen);
 	let textInput = $state('');
 
 	function toggleChat() {
@@ -179,7 +206,11 @@
 		{/if}
 
 		{#if messages}
-			{@render messages({ entries: agent.transcript, sendText: (t) => send(t) })}
+			{@render messages({
+				entries: agent.transcript,
+				sendText: (t) => send(t),
+				trace: showTrace ? agent.trace : null
+			})}
 		{:else if agent.hasStarted && isChatOpen}
 			<div class="chat-wrapper">
 				<div class="chat-container container">
@@ -193,7 +224,14 @@
 								</em>
 							</p>
 						{/if}
-						{#each agent.transcript as message}
+						{#each agent.transcript as message, i}
+							<!-- A turn's timeline sits at the transcript position it recorded:
+							     after the message that started the turn, before the answer. -->
+							{#if showTrace}
+								{#each agent.trace.turnsAt(i) as turn (turn.id)}
+									<TurnTimeline {turn} />
+								{/each}
+							{/if}
 							<div class="message {message.role}">
 								<strong class="role">{message.role === 'user' ? 'You' : 'Agent'}:</strong>
 								{#if message.role === 'model'}
@@ -203,6 +241,13 @@
 								{/if}
 							</div>
 						{/each}
+						<!-- A turn still running, or one that only called tools, has no
+						     message after it yet — chart it at the end. -->
+						{#if showTrace}
+							{#each agent.trace.turnsAt(agent.transcript.length) as turn (turn.id)}
+								<TurnTimeline {turn} />
+							{/each}
+						{/if}
 					</div>
 				</div>
 			</div>

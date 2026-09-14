@@ -155,13 +155,22 @@ voice ↔ text ↔ scripted-test without touching anything else.
 </script>
 
 <slot />
-<AgentShell {agent} />
+<AgentShell {agent} debug="auto" />
 ```
 
 One shell for every model: chat bar, transcript peek/panel, status,
 reset and debug controls. When `agent.capabilities.input` includes
 `'audio'`, a mic button (session toggle) and a mute button join the bar
 automatically. Typing lazy-starts the session on any model.
+
+`debug="auto"` adds a chart-icon button in development builds only
+(`import.meta.env.DEV`); production builds show no debug control. Opening
+it reveals the token/byte stats box (`agent.debug`) and, inline in the
+transcript between each user message and the agent's answer, a latency
+timeline for that turn (`agent.trace`): how long the model waited, how
+long it generated, and every tool call — name, arguments, result, status
+and duration — expandable from its row. `debug={true}` forces it on in
+any build; omit the prop for no debug UI at all.
 
 For a headless setup (custom UI):
 

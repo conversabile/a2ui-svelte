@@ -18,6 +18,7 @@ import type {
 } from './model';
 import { buildSystemPrompt, type PromptInputs } from './prompt-builder';
 import { AgentDebugStats, type DebugOutboundKind } from './debug.svelte';
+import { AgentTrace } from './trace.svelte';
 import { AudioRecorder } from './audio-recorder';
 import { AudioPlayer } from './audio-player';
 
@@ -195,6 +196,8 @@ export interface AgentDefinition {
 	 *    `charsPerToken`);
 	 *  - `false` → recording off (the instance still exists but stays empty),
 	 *    for hosts that don't want the (cheap) measurement overhead.
+	 *
+	 * The same switch gates the per-turn latency trace (`agent.trace`).
 	 */
 	debug?: boolean | AgentDebugStats;
 }
@@ -239,6 +242,13 @@ export class Agent {
 	 * (or pass `debug` to `<AgentShell>`). See `AgentDebugStats`.
 	 */
 	debug: AgentDebugStats;
+	/**
+	 * Per-turn latency trace — one entry per model turn, with a span for each
+	 * wait, generation and tool call. Reactive; `<AgentShell debug>` renders it
+	 * as a timeline inline in the transcript. Gated by the same `debug` option
+	 * as `debug`/`AgentDebugStats`. See `AgentTrace`.
+	 */
+	trace: AgentTrace;
 
 	#def: AgentDefinition;
 	#model: AgentModel;
@@ -330,6 +340,7 @@ export class Agent {
 		this.debug =
 			definition.debug instanceof AgentDebugStats ? definition.debug : new AgentDebugStats();
 		this.#debugEnabled = definition.debug !== false;
+		this.trace = new AgentTrace({ enabled: this.#debugEnabled });
 		this.#mode = definition.mode ?? 'static';
 		// `'piggyback'` is a deprecated alias for `'sync'` — normalise it so the
 		// rest of the class only ever sees `'sync'` / `'proactive'`.
@@ -461,6 +472,7 @@ export class Agent {
 		// closing the entry is all that is needed — appending the accumulator
 		// again produced a duplicate of the last message.
 		this.#closeModelEntry();
+		this.trace.endTurn();
 
 		this.connected = false;
 		this.canAppendToUser = false;
@@ -559,6 +571,9 @@ export class Agent {
 	#dispatchText(trimmed: string): void {
 		if (this.status !== 'error') this.setStatus('thinking');
 		this.transcript = [...this.transcript, { role: 'user', text: trimmed }];
+		// Open the latency trace at the position right after the message that
+		// started the turn, so its timeline renders between the two.
+		this.trace.startTurn(this.transcript.length);
 		this.canAppendToUser = false;
 		// Sync the current data model onto this typed turn (silently, via the
 		// context channel) so the model sees the latest UI before it reads the
@@ -600,6 +615,7 @@ export class Agent {
 		}
 		this.setStatus('idle');
 		this.transcript = [];
+		this.trace.reset();
 		this.#closeModelEntry();
 		this.canAppendToUser = false;
 		this.hasStarted = false;
@@ -696,6 +712,8 @@ export class Agent {
 				// Model is producing a turn — gate sync delivery so we never
 				// interrupt the answer in flight.
 				this.modelTurnActive = true;
+				this.trace.ensureTurn(this.transcript.length);
+				this.trace.modelOutput();
 				if (this.#debugEnabled) this.debug.recordInboundAudio(p.base64Pcm24k);
 				this.#player?.addToQueue(p.base64Pcm24k);
 				this.onModelActivity();
@@ -708,6 +726,7 @@ export class Agent {
 				// its own message instead of continuing this one.
 				this.modelTurnActive = false;
 				this.#closeModelEntry();
+				this.trace.endTurn();
 				this.#player?.stop();
 				if (this.status !== 'error') this.setStatus('thinking');
 			}),
@@ -787,6 +806,10 @@ export class Agent {
 		if (!text) return;
 		// Model is producing a turn — gate sync delivery (see `modelTurnActive`).
 		this.modelTurnActive = true;
+		// Before the entry is appended, so an unprompted turn's timeline lands
+		// above the message it belongs to rather than below it.
+		this.trace.ensureTurn(this.transcript.length);
+		this.trace.modelOutput();
 		this.onModelActivity();
 		this.canAppendToUser = false;
 		const last = this.transcript.length - 1;
@@ -832,10 +855,15 @@ export class Agent {
 			this.transcript = [...this.transcript, { role: 'user', text }];
 			this.canAppendToUser = true;
 		}
+		// Spoken turns reach us as transcription, which on a live API arrives at
+		// turn-close — so the trace may already be open from the model's own
+		// output. Either way the turn's timeline belongs after this message.
+		this.trace.noteUserMessage(this.transcript.length);
 	}
 
 	#onTurnComplete(): void {
 		this.#closeModelEntry();
+		this.trace.endTurn();
 		// A turn boundary always ends the current user turn: the next inbound
 		// chunk is a fresh user turn, not a continuation. Reset unconditionally —
 		// a tool-only turn (common in dynamic mode) produces no model text, so
@@ -983,9 +1011,11 @@ export class Agent {
 	): Promise<void> {
 		if (this.status !== 'error') this.setStatus('thinking');
 		this.#lastAgentMutationAt = Date.now();
+		this.trace.ensureTurn(this.transcript.length);
 
 		for (const call of calls) {
 			// WP7 extension point: an onBeforeToolCall guard would slot here.
+			const span = this.trace.toolStart(call.name, call.args);
 			let result: unknown;
 			try {
 				if (
@@ -1011,7 +1041,13 @@ export class Agent {
 			} catch (e) {
 				result = { status: 'error', error: (e as Error).message ?? 'Unknown tool error' };
 			}
-			result = this.#withSurfaceEcho(call.name, result);
+			// What the tool itself returned, before the echo — the trace stores
+			// this as the call's output and reports the echo as a byte count, so
+			// the detail view doesn't become another copy of the surface.
+			const toolOutput = result;
+			const echoed = this.#withSurfaceEcho(call.name, result);
+			result = echoed.result;
+			this.trace.toolEnd(span, toolOutput, payloadBytes(result), echoed.echo);
 			try {
 				// Tool results are a top quota cost: with the surface-echo
 				// extension the result echoes the FULL serialized surface back to
@@ -1023,6 +1059,8 @@ export class Agent {
 				this.setStatus('error');
 			}
 		}
+		// Results are in; the model is working again with nothing to show yet.
+		this.trace.modelThinking();
 	}
 
 	/**
@@ -1066,11 +1104,19 @@ export class Agent {
 	 * Only tools that declare `mutatesSurface` get one: a purely visual gesture
 	 * (`point_to_elements`) leaves the model's understanding unchanged, and
 	 * echoing the tree back on it is the exact token amplifier we avoid.
+	 *
+	 * Returns the echo it attached alongside the result, so the latency trace
+	 * can report what the model actually received — the echo is usually most
+	 * of the payload, and a developer reading a tool result has no other way
+	 * to see it.
 	 */
-	#withSurfaceEcho(name: string, result: unknown): unknown {
+	#withSurfaceEcho(
+		name: string,
+		result: unknown
+	): { result: unknown; echo: Record<string, unknown> | null } {
 		const mode = getExtensions().toolResultSurfaceEcho;
-		if (mode === 'none') return result;
-		if (!toolRegistry.get(name)?.mutatesSurface) return result;
+		if (mode === 'none') return { result, echo: null };
+		if (!toolRegistry.get(name)?.mutatesSurface) return { result, echo: null };
 
 		const surfaces = this.#surfaceJson();
 		const context = this.#contextInstructions();
@@ -1097,7 +1143,7 @@ export class Agent {
 			if (!prev || context !== prev.context) extras.updatedContext = context;
 			if (!prev || elementIds !== prev.elementIds) extras.availableElementIds = actions;
 			this.#echoBaseline = { structure, dataModels, context, elementIds };
-			if (Object.keys(extras).length === 0) return result;
+			if (Object.keys(extras).length === 0) return { result, echo: null };
 		} else {
 			extras = {
 				availableElementIds: actions,
@@ -1109,14 +1155,17 @@ export class Agent {
 		const carrier = (result ?? {}) as Record<string, unknown>;
 		const existing = (carrier.extensions ?? {}) as Record<string, unknown>;
 		return {
-			...carrier,
-			extensions: {
-				...existing,
-				[A2UI_EXTENSION_NAMESPACE]: {
-					...((existing[A2UI_EXTENSION_NAMESPACE] as Record<string, unknown>) ?? {}),
-					...extras
+			result: {
+				...carrier,
+				extensions: {
+					...existing,
+					[A2UI_EXTENSION_NAMESPACE]: {
+						...((existing[A2UI_EXTENSION_NAMESPACE] as Record<string, unknown>) ?? {}),
+						...extras
+					}
 				}
-			}
+			},
+			echo: extras
 		};
 	}
 
@@ -1547,4 +1596,21 @@ export class Agent {
 			console.warn('[Agent] Failed to deliver surface update:', e);
 		}
 	}
+}
+
+/**
+ * UTF-8 byte size of a tool-result payload as it goes on the wire. Used for the
+ * latency trace's per-call cost figure; `AgentDebugStats` sizes the same
+ * payloads for the token totals.
+ */
+function payloadBytes(payload: unknown): number {
+	let text: string;
+	try {
+		text = typeof payload === 'string' ? payload : (JSON.stringify(payload) ?? '');
+	} catch {
+		return 0;
+	}
+	return typeof TextEncoder !== 'undefined'
+		? new TextEncoder().encode(text).length
+		: text.length;
 }

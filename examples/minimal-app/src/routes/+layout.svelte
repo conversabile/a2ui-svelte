@@ -196,11 +196,11 @@
 
 <!-- One shell for every model. It adapts itself to `agent.capabilities`:
      audio input ⇒ the mic + mute cluster joins the chat bar; text-only ⇒ the
-     bar alone. `debug` surfaces a chart-icon button that toggles a live
-     token/byte stats box — handy for watching what each session pushes into
-     context. -->
+     bar alone. `debug="auto"` surfaces a chart-icon button in development
+     builds only; it toggles the token/byte stats box plus a latency timeline
+     per turn in the transcript. Production builds show no debug control. -->
 {#if agent}
-	<AgentShell {agent} debug />
+	<AgentShell {agent} debug="auto" />
 {/if}
 
 <style>
