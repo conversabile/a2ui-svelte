@@ -9,9 +9,11 @@
  * setup.ts): the request/response text loop, or the streaming Live API — the
  * family whose per-turn context re-billing the optimizations target.
  *
- * Requires GEMINI_API_KEY (skips cleanly without it):
+ * Requires GEMINI_API_KEY (environment or repo-root `.env`) — the run fails
+ * without it. `pnpm eval:hermetic` skips this file and runs only the
+ * no-network context-cost measurement.
  *
- *   GEMINI_API_KEY=… pnpm eval
+ *   pnpm eval
  *
  * Env knobs: A2UI_EVAL_TRANSPORT (default text),
  *            A2UI_EVAL_MODEL (default per transport — see setup.ts),
@@ -24,7 +26,7 @@ import { a2uiState } from '../src/lib/core/state.svelte';
 import { configureExtensions } from '../src/lib/core/extensions';
 import { surface } from '../src/lib/core/registries/surface-index';
 import {
-	API_KEY,
+	requireApiKey,
 	EVAL_MODEL,
 	EVAL_TRANSPORT,
 	EVAL_TODO_COUNT,
@@ -39,12 +41,9 @@ import { dynamicCanvas } from './fixtures/dynamic-canvas-agent';
 import TodoListPage from './fixtures/TodoListPage.svelte';
 import DynamicCanvasPage from './fixtures/DynamicCanvasPage.svelte';
 
-const describeLive = API_KEY ? describe : describe.skip;
-if (!API_KEY) {
-	process.stdout.write(
-		'[evals] GEMINI_API_KEY not set — skipping LLM scenarios (the hermetic context-cost measurement still ran).\n'
-	);
-}
+// No key, no eval: fail collection with the reason rather than reporting a
+// green run that drove no model.
+requireApiKey();
 
 /**
  * Per-turn budget. A live turn can run well past `send()`'s 60 s default —
@@ -140,7 +139,7 @@ const todos = () => surface('todo-list')!.getDataModel!();
 const shown = (id: string) =>
 	document.querySelector(`[data-a2ui-id="${id}"]`)?.textContent?.trim() ?? '';
 
-describeLive('LLM evals — static todo list', () => {
+describe('LLM evals — static todo list', () => {
 	afterEach(() => cleanup());
 
 	for (const profile of selectedProfiles()) {
@@ -232,7 +231,7 @@ describeLive('LLM evals — static todo list', () => {
 	}
 });
 
-describeLive('LLM evals — dynamic surface', () => {
+describe('LLM evals — dynamic surface', () => {
 	afterEach(() => {
 		cleanup();
 		a2uiState.deleteSurface('ai-canvas');

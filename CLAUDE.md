@@ -286,7 +286,8 @@ theming is done, update the matching skill — it's what teaches consuming IDEs.
 | Command | Does |
 |---|---|
 | `pnpm test` | Run Vitest (unit tests only — never the evals) |
-| `pnpm eval` | Run the eval suite in [evals/](evals/): hermetic context-cost measurement always; live LLM A/B scenarios when `GEMINI_API_KEY` is set |
+| `pnpm eval` | Run the full eval suite in [evals/](evals/): context-cost measurement + live LLM A/B scenarios. Fails if `GEMINI_API_KEY` is unset (env or repo-root `.env`) |
+| `pnpm eval:hermetic` | Run only the context-cost measurement — no network, no key |
 | `pnpm check` | `svelte-check` type/diagnostic pass |
 | `pnpm lint` / `pnpm format` | ESLint / Prettier |
 | `pnpm package` | Build the publishable `dist/` (`svelte-package` + `publint`) |

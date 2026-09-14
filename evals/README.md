@@ -2,9 +2,8 @@
 
 Model-in-the-loop evaluation suite — **separate from the unit tests**
 (`pnpm test` never touches this directory; `pnpm eval` never runs the unit
-suite). A real Gemini text model drives real mounted surfaces through the real
-`Agent` + `GeminiTextTransport`, and scenarios assert on tool results and the
-resulting UI state.
+suite). A real Gemini model drives real mounted surfaces through the real
+`Agent`, and scenarios assert on tool results and the resulting UI state.
 
 **This is our suite, not a shipped product.** The library ships no eval runner —
 no scenario DSL, no rubric scoring, no retries, no comparison CLI. What it ships
@@ -26,17 +25,15 @@ the follow-up question: **do the context optimizations
 ## Running
 
 ```bash
-# Hermetic context-cost measurement only (no network, no key):
-pnpm eval
+pnpm eval            # context cost + LLM scenarios; fails without GEMINI_API_KEY
+pnpm eval:hermetic   # context cost alone: no network, no key
+```
 
-# Full run including LLM scenarios:
-GEMINI_API_KEY=… pnpm eval
+The key and the knobs come from the environment or from a repo-root `.env`
+(`cp .env.template .env`) — the eval config loads that file into
+`process.env`; a var set on the command line wins.
 
-# …or `cp .env.template .env` in the repo root and fill it in — the eval
-# config loads every var there into process.env (GEMINI_API_KEY and any
-# A2UI_EVAL_* knob). A var set on the command line always wins.
-
-# Knobs:
+```bash
 A2UI_EVAL_TRANSPORT=text              # transport family: text (request/response) | live (Live API)
 A2UI_EVAL_MODEL=gemini-3.5-flash      # model under test (live default: gemini-3.1-flash-live-preview)
 A2UI_EVAL_PROFILES=baseline,optimized # subset of the profile matrix
@@ -98,9 +95,9 @@ Each LLM scenario runs once per **profile**:
 - `context-cost.eval.ts` — hermetic measurement: prompt sizes (pretty vs
   compact, scaling with surface density), per-call tool-result sizes per echo
   mode, and the cumulative billed input over a realistic 7-call task on both
-  transport families. Always runs; doubles as a regression test of the
-  optimization claims.
-- `llm-scenarios.eval.ts` — live A/B scenarios (skipped without
+  transport families. Runs under both commands; doubles as a regression test
+  of the optimization claims.
+- `llm-scenarios.eval.ts` — live A/B scenarios (`pnpm eval` only; requires
   `GEMINI_API_KEY`): single-field edit, batch edit, *add-task-then-edit*
   (the stability probe — the model must target a field that only exists after
   its own structural change), a read-only comprehension question, and a

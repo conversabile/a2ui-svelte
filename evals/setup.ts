@@ -28,7 +28,23 @@ if (EVAL_TRANSPORT !== 'text' && EVAL_TRANSPORT !== 'live') {
 export const EVAL_MODEL =
 	process.env.A2UI_EVAL_MODEL ??
 	(EVAL_TRANSPORT === 'live' ? 'gemini-3.1-flash-live-preview' : 'gemini-3.5-flash');
-export const API_KEY = process.env.GEMINI_API_KEY;
+const API_KEY = process.env.GEMINI_API_KEY;
+
+/**
+ * The key, or a thrown error. `pnpm eval` drives a real model and has no
+ * meaning without a key, so it fails loudly instead of skipping — the
+ * hermetic measurement is its own command (`pnpm eval:hermetic`).
+ */
+export function requireApiKey(): string {
+	if (!API_KEY) {
+		throw new Error(
+			'GEMINI_API_KEY is not set. `pnpm eval` drives a real Gemini model.\n' +
+				'Set it in the environment or in a repo-root `.env`, or run ' +
+				'`pnpm eval:hermetic` for the no-network context-cost measurement.'
+		);
+	}
+	return API_KEY;
+}
 
 /**
  * Quota survival knobs. A full matrix run sends many conversation turns and
@@ -105,10 +121,10 @@ export function selectedProfiles(defaults: string[] = Object.keys(PROFILES)): Ev
  */
 export function makeEvalTransport(): AgentTransport {
 	if (EVAL_TRANSPORT === 'live') {
-		return withoutAudio(new GeminiLiveTransport({ token: API_KEY!, model: EVAL_MODEL }));
+		return withoutAudio(new GeminiLiveTransport({ token: requireApiKey(), model: EVAL_MODEL }));
 	}
 	return new GeminiTextTransport({
-		apiKey: API_KEY!,
+		apiKey: requireApiKey(),
 		model: EVAL_MODEL,
 		maxRetries: EVAL_MAX_RETRIES
 	});

@@ -353,7 +353,8 @@ cp node_modules/a2ui-svelte/dist/skills/*.md .claude/skills/
 
 ```bash
 pnpm test            # unit tests (Vitest) — never the evals
-pnpm eval            # context-cost evals; add GEMINI_API_KEY for live A/B scenarios
+pnpm eval            # context cost + live LLM A/B scenarios (needs GEMINI_API_KEY)
+pnpm eval:hermetic   # context cost only (no network, no key)
 pnpm check           # svelte-check
 
 cp .env.template .env   # GEMINI_API_KEY + A2UI_EVAL_* knobs, picked up by pnpm eval

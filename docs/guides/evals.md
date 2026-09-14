@@ -77,7 +77,9 @@ socket, and retry 429s with backoff rather than widening the matrix.
 
 ## The worked example
 
-[evals/](../../evals/) is our own suite and the thing to copy: a hermetic
-context-cost measurement that needs no key, plus live scenarios that drive
-a real Gemini model over the real `Agent`. See its
-[README](../../evals/README.md) for the knobs and the profile matrix.
+[evals/](../../evals/) is our own suite and the thing to copy: `pnpm eval`
+runs the context-cost measurement and drives a real Gemini model over the
+real `Agent`, failing if `GEMINI_API_KEY` is unset (environment or repo-root
+`.env`); `pnpm eval:hermetic` runs the context-cost measurement alone, with
+no key and no network. See its [README](../../evals/README.md) for the knobs
+and the profile matrix.

@@ -11,10 +11,11 @@ import { defineConfig, loadEnv } from 'vite';
  * assert on tool results, so they are slow, cost quota, and are inherently
  * non-deterministic. Run them explicitly:
  *
- *   GEMINI_API_KEY=… pnpm eval
+ *   GEMINI_API_KEY=… pnpm eval   # context cost + LLM scenarios; fails without the key
+ *   pnpm eval:hermetic           # context cost only — no network, no key
  *
- * Without the key the LLM scenarios skip; the hermetic context-cost
- * measurement still runs.
+ * `eval:hermetic` gets there by passing vitest a filename filter; `eval` runs
+ * every `*.eval.ts` this config includes.
  *
  * Vitest does not surface `.env` files on `process.env` (only `VITE_`-prefixed
  * vars reach `import.meta.env`), and the harness reads `process.env.GEMINI_API_KEY`
