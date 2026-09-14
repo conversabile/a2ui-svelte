@@ -1109,6 +1109,76 @@ describe("Agent with a neutral mock model", () => {
     await agent.stop();
   });
 
+  it("starts a new model message when text arrives after the turn was reported complete", async () => {
+    const model = new MockAgentModel();
+    const agent = new Agent(
+      { surfaces: () => [], contextInstructions: () => "", instructions: "persona" },
+      model,
+    );
+
+    await agent.start();
+    flushSync();
+
+    model.emit("text-out", { text: "In the display tab " });
+    model.emit("text-out", { text: "there is an image" });
+    // A turn-complete the model did not really mean (on Gemini Live: the
+    // adapter's safety net firing while the answer was still streaming).
+    model.emit("turn-complete", {} as never);
+    model.emit("text-out", { text: ", some icons and a caption." });
+    flushSync();
+
+    // The first part must survive — it used to be overwritten by the tail.
+    expect(agent.transcript.map((m) => m.text)).toEqual([
+      "In the display tab there is an image",
+      ", some icons and a caption.",
+    ]);
+
+    await agent.stop();
+  });
+
+  it("does not duplicate the answer in flight when the session is stopped mid-turn", async () => {
+    const model = new MockAgentModel();
+    const agent = new Agent(
+      { surfaces: () => [], contextInstructions: () => "", instructions: "persona" },
+      model,
+    );
+
+    await agent.start();
+    flushSync();
+
+    model.emit("text-out", { text: "still talking" });
+    flushSync();
+
+    // Pause while the model is speaking: no turn-complete ever arrives.
+    await agent.stop();
+    flushSync();
+
+    expect(agent.transcript).toEqual([{ role: "model", text: "still talking" }]);
+  });
+
+  it("closes the model message on barge-in so the next turn does not inherit it", async () => {
+    const model = new MockAgentModel();
+    const agent = new Agent(
+      { surfaces: () => [], contextInstructions: () => "", instructions: "persona" },
+      model,
+    );
+
+    await agent.start();
+    flushSync();
+
+    model.emit("text-out", { text: "let me tell you abo" });
+    model.emit("interrupted", {} as never);
+    model.emit("text-out", { text: "sure, one moment" });
+    flushSync();
+
+    expect(agent.transcript.map((m) => m.text)).toEqual([
+      "let me tell you abo",
+      "sure, one moment",
+    ]);
+
+    await agent.stop();
+  });
+
   it("starts a new user turn after turn-complete even when the model produced no text (tool-only turn)", async () => {
     const model = new MockAgentModel();
     const agent = new Agent(

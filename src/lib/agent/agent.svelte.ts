@@ -302,7 +302,14 @@ export class Agent {
 		elementIds: string;
 	} | null = null;
 	#intentionalDisconnect = false;
+	// Text accumulated into the model message currently being written. Always
+	// equal to the text of that transcript entry; empty when no entry is open.
 	#currentModelText = '';
+	// Whether the last transcript entry is a model message we are still
+	// appending to. A turn boundary (turn-complete, barge-in, stop) closes it,
+	// so text that arrives afterwards starts a new message instead of
+	// overwriting a finished one.
+	#modelEntryOpen = false;
 	// Whether the next inbound text chunk continues the current user turn.
 	protected canAppendToUser = false;
 	// Watchdog for the `'thinking'` badge. Armed whenever status becomes
@@ -449,13 +456,11 @@ export class Agent {
 
 		this.#stopAudio();
 
-		if (this.#currentModelText.trim()) {
-			this.transcript = [
-				...this.transcript,
-				{ role: 'model', text: this.#currentModelText.trim() }
-			];
-			this.#currentModelText = '';
-		}
+		// A pause mid-turn ends the answer in flight. Every chunk of it is
+		// already in the open transcript entry (`#onTextOut` writes there), so
+		// closing the entry is all that is needed — appending the accumulator
+		// again produced a duplicate of the last message.
+		this.#closeModelEntry();
 
 		this.connected = false;
 		this.canAppendToUser = false;
@@ -595,7 +600,7 @@ export class Agent {
 		}
 		this.setStatus('idle');
 		this.transcript = [];
-		this.#currentModelText = '';
+		this.#closeModelEntry();
 		this.canAppendToUser = false;
 		this.hasStarted = false;
 		this.configIssue = null;
@@ -698,7 +703,11 @@ export class Agent {
 			}),
 			this.#model.on('interrupted', () => {
 				// Generation was cut off (barge-in) — the model is idle again.
+				// The partial answer stays in the transcript (it was spoken), but
+				// the turn is over: close the entry so the next turn's text starts
+				// its own message instead of continuing this one.
 				this.modelTurnActive = false;
+				this.#closeModelEntry();
 				this.#player?.stop();
 				if (this.status !== 'error') this.setStatus('thinking');
 			}),
@@ -780,13 +789,28 @@ export class Agent {
 		this.modelTurnActive = true;
 		this.onModelActivity();
 		this.canAppendToUser = false;
-		this.#currentModelText += text;
 		const last = this.transcript.length - 1;
-		if (last >= 0 && this.transcript[last].role === 'model') {
+		// Append only into an entry we are still writing. Without the
+		// `#modelEntryOpen` check, text arriving after a turn boundary
+		// overwrote the finished message with just that tail — the answer
+		// appeared to lose its beginning.
+		if (this.#modelEntryOpen && last >= 0 && this.transcript[last].role === 'model') {
+			this.#currentModelText += text;
 			this.transcript[last].text = this.#currentModelText;
 		} else {
-			this.transcript = [...this.transcript, { role: 'model', text: this.#currentModelText }];
+			this.#currentModelText = text;
+			this.transcript = [...this.transcript, { role: 'model', text }];
+			this.#modelEntryOpen = true;
 		}
+	}
+
+	/**
+	 * End the model message currently being written. The text stays in the
+	 * transcript; only the accumulator and the "still writing" flag reset.
+	 */
+	#closeModelEntry(): void {
+		this.#modelEntryOpen = false;
+		this.#currentModelText = '';
 	}
 
 	#onTextIn(text: string): void {
@@ -811,13 +835,7 @@ export class Agent {
 	}
 
 	#onTurnComplete(): void {
-		if (this.#currentModelText.trim()) {
-			const last = this.transcript.length - 1;
-			if (last >= 0 && this.transcript[last].role === 'model') {
-				this.transcript[last].text = this.#currentModelText;
-			}
-			this.#currentModelText = '';
-		}
+		this.#closeModelEntry();
 		// A turn boundary always ends the current user turn: the next inbound
 		// chunk is a fresh user turn, not a continuation. Reset unconditionally —
 		// a tool-only turn (common in dynamic mode) produces no model text, so

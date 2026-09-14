@@ -26,11 +26,13 @@ export interface GeminiLiveModelOptions {
 type EventName = keyof AgentModelEventMap;
 
 /**
- * How long to wait, after the last tool result went out, for the server's
- * genuine end-of-turn `turnComplete`. If the continuation never arrives (a
- * dropped frame, a server that answers the call silently) we synthesise one so
- * listeners aren't stuck mid-turn forever. Deliberately not a public option —
- * it is an adapter-level safety net, not a tuning knob.
+ * How long the server may stay silent, after the last tool result went out,
+ * before we synthesise the genuine end-of-turn `turnComplete` it owes us. The
+ * window is measured from the last thing the server said, not from the result:
+ * a continuation that keeps streaming pushes it back (see `#touchFallback`),
+ * so a long answer is never cut in half. It only fires when nothing follows —
+ * a dropped frame, or a server that answers the call silently. Deliberately
+ * not a public option: an adapter-level safety net, not a tuning option.
  */
 const TURN_COMPLETE_FALLBACK_MS = 1500;
 
@@ -58,6 +60,16 @@ export class GeminiLiveModel implements AgentModel {
 	 */
 	#pendingToolResults = 0;
 	#fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * Whether a turn is under way that we have not reported as finished yet.
+	 * Anything that starts or continues one sets it — a typed turn, model
+	 * content, a user transcription, a tool call; `#completeTurn` clears it. A
+	 * `turnComplete` arriving while it is already clear is the server's late
+	 * copy of an end the safety net already reported, and is dropped: emitting
+	 * it twice would tell `Agent` that the *next* turn had finished too, and
+	 * settle an `await agent.send(…)` that is still waiting for its answer.
+	 */
+	#turnOpen = false;
 
 	constructor(opts: GeminiLiveModelOptions) {
 		this.#token = opts.token;
@@ -146,6 +158,9 @@ export class GeminiLiveModel implements AgentModel {
 
 	sendText(text: string): void {
 		if (!this.#session || this.#closed) return;
+		// A typed turn asks for an answer, so the `turnComplete` that ends it is
+		// genuine even when the model replies with nothing at all.
+		this.#turnOpen = true;
 		this.#session.sendRealtimeInput({ text });
 	}
 
@@ -210,6 +225,7 @@ export class GeminiLiveModel implements AgentModel {
 		if (this.#closed) return;
 		this.#closed = true;
 		this.#resetTurnTracking();
+		this.#turnOpen = false;
 		if (this.#session) {
 			try {
 				if (typeof this.#session.close === 'function') this.#session.close();
@@ -224,6 +240,7 @@ export class GeminiLiveModel implements AgentModel {
 	/** Emit the normalised end-of-turn and stand the safety net down. */
 	#completeTurn(): void {
 		this.#resetTurnTracking();
+		this.#turnOpen = false;
 		this.#emit('turn-complete', {} as never);
 	}
 
@@ -233,6 +250,18 @@ export class GeminiLiveModel implements AgentModel {
 			this.#fallbackTimer = null;
 			if (!this.#closed) this.#completeTurn();
 		}, TURN_COMPLETE_FALLBACK_MS);
+	}
+
+	/**
+	 * Push the armed safety net back by another window. Any server content
+	 * after the tool result proves the continuation arrived, so the deadline
+	 * must be measured from that content. Without this, a continuation that
+	 * took longer than the window emitted a `turn-complete` in the middle of
+	 * the answer, and the agent closed the transcript entry mid-sentence.
+	 * No-op when nothing is armed.
+	 */
+	#touchFallback(): void {
+		if (this.#fallbackTimer) this.#armFallback();
 	}
 
 	#cancelFallback(): void {
@@ -307,6 +336,7 @@ export class GeminiLiveModel implements AgentModel {
 			// several `toolCall` messages, and each still owes us a result. A new
 			// batch also stands down a fallback armed by the previous one.
 			this.#cancelFallback();
+			this.#turnOpen = true;
 			this.#pendingToolResults += calls.length;
 			this.#emit('tool-call', { calls });
 			return;
@@ -320,8 +350,13 @@ export class GeminiLiveModel implements AgentModel {
 			return;
 		}
 
+		// The server is still talking: the continuation we are waiting for is
+		// under way, so the safety net restarts from here.
+		if (message.serverContent) this.#touchFallback();
+
 		const modelTurn = message.serverContent?.modelTurn;
 		if (modelTurn?.parts) {
+			this.#turnOpen = true;
 			for (const part of modelTurn.parts) {
 				if (part.inlineData?.data) {
 					this.#emit('audio-out', { base64Pcm24k: part.inlineData.data });
@@ -331,11 +366,15 @@ export class GeminiLiveModel implements AgentModel {
 
 		const outputText = message.serverContent?.outputTranscription?.text;
 		if (outputText) {
+			this.#turnOpen = true;
 			this.#emit('text-out', { text: outputText });
 		}
 
 		const inputText = message.serverContent?.inputTranscription?.text;
 		if (inputText) {
+			// The user is speaking: a turn is under way even before the model
+			// answers, so the `turnComplete` that ends it is genuine.
+			this.#turnOpen = true;
 			this.#emit('text-in', { text: inputText });
 		}
 
@@ -343,6 +382,9 @@ export class GeminiLiveModel implements AgentModel {
 			// Mid-loop `turnComplete` (the one that trails a `toolCall`) is not a
 			// finished turn — drop it and wait for the post-continuation one.
 			if (this.#pendingToolResults > 0) return;
+			// The safety net already reported this turn's end and nothing has
+			// happened since: this is the server's late copy, not a second turn.
+			if (!this.#turnOpen) return;
 			this.#completeTurn();
 		}
 	}
