@@ -117,6 +117,16 @@ export class SurfaceRegistry {
                 } else {
                     delete clone.component.Card.child;
                 }
+            } else if (type === 'Button') {
+                // Per A2UI spec, Button has a single `child`. A real
+                // `children` snippet wins over the synthetic label id that
+                // a2ui() already set; no children keeps that id.
+                const children = this.childrenByParent.get(comp.id) || [];
+                if (children.length === 1) {
+                    clone.component.Button.child = children[0];
+                } else if (children.length > 1) {
+                    delete clone.component.Button.child;
+                }
             } else if (type === 'Modal') {
                 // Per A2UI spec, Modal references an `entryPointChild` and a
                 // `contentChild` by id. Modal.svelte registers them as its

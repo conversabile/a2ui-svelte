@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { onDestroy } from 'svelte';
 	import { getSurfaceContext } from '../core/surface-registry';
 	import { defineA2uiComponent } from '../authoring/define-component.svelte';
 
@@ -31,7 +30,7 @@
 	// Pre-resolve the component id so the synthetic label child can reference it.
 	const ctx = getSurfaceContext();
 	const _componentId: string | undefined = ctx ? (id ?? ctx.generateId('button')) : undefined;
-	const labelId = label && _componentId ? `${_componentId}-label` : undefined;
+	const labelId = $derived(label && _componentId ? `${_componentId}-label` : undefined);
 
 	const handle = defineA2uiComponent<{
 		primary: boolean;
@@ -46,26 +45,29 @@
 		a2ui: (componentId) => ({
 			primary,
 			...(componentId ? { action: { name: componentId } } : {}),
+			// Synthetic label Text node; a real `children` snippet overrides
+			// it in the serializer (`Button` case in surface-registry.ts).
 			...(labelId ? { child: labelId } : {}),
 			...(accessibility ? { accessibility } : {}),
 			...(weight != null ? { weight } : {})
 		}),
 		// Registered unconditionally: a Button is clickable because it is a
 		// Button, not because the author remembered to declare an action.
-		action: { type: 'click', handler: () => onclick?.() }
+		action: { type: 'click', handler: () => onclick?.() },
+		// Attaches a `children` snippet (e.g. an Icon) to this Button's id
+		// instead of the parent's, so it can become the spec `child`.
+		isContainer: true
 	});
 
-	// Per A2UI spec, Button has a single `child` (its label Text node).
-	// The label is registered as a free-standing Text component referenced
-	// by `child` — not as a positional child of any container.
-	if (ctx && labelId) {
-		$effect(() => {
-			ctx.register(labelId, null, { Text: { text: { literalString: label ?? '' } } });
-		});
-	}
-
-	onDestroy(() => {
-		if (ctx && labelId) ctx.unregister(labelId);
+	// The label Text node is registered parentless (`null`) so it never
+	// collides with a `children` snippet under the same Button id. The
+	// effect re-runs when `labelId` changes, so clearing or setting `label`
+	// unregisters or registers to match.
+	$effect(() => {
+		if (!ctx || !labelId) return;
+		const currentLabelId = labelId;
+		ctx.register(currentLabelId, null, { Text: { text: { literalString: label ?? '' } } });
+		return () => ctx.unregister(currentLabelId);
 	});
 
 	export const dataAttr = handle.dataAttr;

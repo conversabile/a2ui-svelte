@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { actionRegistry } from '../core/registries/action-registry';
 import { toolRegistry } from '../core/registries/tool-registry';
 import ButtonActionHarness from './__fixtures__/ButtonActionHarness.svelte';
+import ButtonChildHarness from './__fixtures__/ButtonChildHarness.svelte';
 
 interface HarnessApi {
 	getJson: () => { components: Array<{ id: string; component: Record<string, any> }> };
@@ -61,5 +62,64 @@ describe('Button — actions without an action prop', () => {
 
 		expect(buttonProps(api, 'plain-btn').action).toEqual({ name: 'plain-btn' });
 		expect(buttonProps(api, 'inert-btn').action).toEqual({ name: 'inert-btn' });
+	});
+});
+
+describe('Button — child resolution', () => {
+	interface ChildHarnessApi {
+		getJson: () => { components: Array<{ id: string; component: Record<string, any> }> };
+		setLateLabel: (next: string | undefined) => void;
+	}
+
+	async function mountChildHarness(): Promise<ChildHarnessApi> {
+		let api!: ChildHarnessApi;
+		render(ButtonChildHarness, { onReady: (a: ChildHarnessApi) => (api = a) });
+		await tick();
+		return api;
+	}
+
+	function buttonProps(api: ChildHarnessApi, id: string): Record<string, any> {
+		const node = api.getJson().components.find((c) => c.id === id);
+		return node?.component.Button ?? {};
+	}
+
+	it('takes a real `children` component as `child` instead of a synthetic label', async () => {
+		const api = await mountChildHarness();
+
+		const json = api.getJson();
+		expect(buttonProps(api, 'icon-btn').child).toBe('icon-btn-icon');
+		// No synthetic `icon-btn-label` Text node — nothing to be, `label` was never set.
+		expect(json.components.some((c) => c.id === 'icon-btn-label')).toBe(false);
+		expect(json.components.some((c) => c.id === 'icon-btn-icon' && 'Icon' in c.component)).toBe(
+			true
+		);
+	});
+
+	it('registers the label Text node once `label` arrives after mount, not only at setup', async () => {
+		const api = await mountChildHarness();
+
+		// Absent at mount: no `child`, no synthetic Text node yet.
+		expect(buttonProps(api, 'late-label-btn').child).toBeUndefined();
+		expect(api.getJson().components.some((c) => c.id === 'late-label-btn-label')).toBe(false);
+
+		api.setLateLabel('Confirm');
+		await tick();
+
+		const json = api.getJson();
+		expect(buttonProps(api, 'late-label-btn').child).toBe('late-label-btn-label');
+		const labelNode = json.components.find((c) => c.id === 'late-label-btn-label');
+		expect(labelNode?.component.Text.text).toEqual({ literalString: 'Confirm' });
+	});
+
+	it('unregisters the synthetic label Text node when `label` is cleared again', async () => {
+		const api = await mountChildHarness();
+		api.setLateLabel('Confirm');
+		await tick();
+
+		api.setLateLabel(undefined);
+		await tick();
+
+		expect(buttonProps(api, 'late-label-btn').child).toBeUndefined();
+		expect(api.getJson().components.some((c) => c.id === 'late-label-btn-label')).toBe(false);
 	});
 });
