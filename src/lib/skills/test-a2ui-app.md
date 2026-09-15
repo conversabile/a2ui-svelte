@@ -156,7 +156,8 @@ Wrap a voice model in `withoutAudio(...)` to run it under node.
 ## Keep the definition in a module
 
 `src/lib/agent-definition.ts`, imported by the layout, the tests and the
-evals — with `surfaces: mountedSurfaces` it needs no other wiring. A test
+evals — it needs no other wiring, since the agent sees every mounted
+surface by default. A test
 that re-declares the definition is testing a prompt the app never ships.
 
 ## Related skills

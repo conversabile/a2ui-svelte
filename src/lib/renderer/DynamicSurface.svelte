@@ -72,7 +72,7 @@
 
 	// The handle the agent reads this surface through. Joins the global surface
 	// index on mount (never at module scope — that would leave an entry behind
-	// after a server render) so `surfaces: mountedSurfaces` finds it.
+	// after a server render) so the agent's default surface source finds it.
 	const handle: AgentSurface = {
 		id: surfaceId,
 		type: 'dynamic',

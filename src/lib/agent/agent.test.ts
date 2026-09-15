@@ -8,6 +8,10 @@ import type {
   AgentModelCapabilities,
 } from "./model";
 import { toolRegistry } from "../core/registries/tool-registry";
+import {
+  registerSurface,
+  unregisterSurface,
+} from "../core/registries/surface-index";
 import { userActionBus, type UserAction } from "../core/registries/event-bus";
 import { STRICT, configureExtensions } from "../core/extensions";
 import { serializeSurface } from "../core/serializer";
@@ -120,6 +124,26 @@ class MockAgentModel implements AgentModel {
 afterEach(() => configureExtensions({}));
 
 describe("Agent with a neutral mock model", () => {
+  it("defaults `surfaces` to every mounted surface", async () => {
+    const mounted: AgentSurface = {
+      id: "hello",
+      type: "static",
+      getJson: () => ({ surfaceId: "hello", components: [] }),
+    };
+    registerSurface(mounted);
+    try {
+      const model = new MockAgentModel();
+      // No `surfaces` in the definition — the quick-start shape.
+      const agent = new Agent({ instructions: "be brief" }, model);
+      await agent.start();
+      flushSync();
+      expect(model.connectOpts?.systemInstruction).toContain("hello");
+      await agent.stop();
+    } finally {
+      unregisterSurface(mounted);
+    }
+  });
+
   it("connects, dispatches a tool call, and replies with the result", async () => {
     toolRegistry.register({
       name: "add_one",

@@ -230,11 +230,11 @@ mountedSurfaces();          // every mounted surface, in mount order
 surface('checkout-form');   // one by id, or undefined
 ```
 
-`surfaces: mountedSurfaces` is the whole wiring for the common case —
-"whatever is on screen". Keep your own callback when the agent should
-see less than that (per-route scoping, a surface you deliberately hide
-from the model). Surface ids must be unique: two live surfaces with one
-id break agent targeting, so the index warns and the newcomer wins.
+`AgentDefinition.surfaces` defaults to `mountedSurfaces` — "whatever is on
+screen" needs no wiring at all. Set it to your own callback when the agent
+should see less than that (per-route scoping, a surface you deliberately
+hide from the model). Surface ids must be unique: two live surfaces with
+one id break agent targeting, so the index warns and the newcomer wins.
 
 ## `Agent` construction
 
@@ -243,15 +243,14 @@ An agent is a **definition** connected to a **model**:
 ```ts
 import { Agent, type AgentDefinition } from 'a2ui-svelte/agent';
 import { GeminiLiveModel, GeminiTextModel } from 'a2ui-svelte/agent/gemini';
-import { mountedSurfaces } from 'a2ui-svelte/core';
 import { session } from '$lib/session.svelte';
 
 // What the agent IS — declare once, valid for every model.
 const assistant: AgentDefinition = {
   instructions:        'You are a helpful assistant.',
-  surfaces:            mountedSurfaces,
   contextInstructions: () => session.contextInstructions,
   mode:                'static'
+  // `surfaces` omitted → every mounted surface
 };
 
 // Streaming voice…
@@ -582,8 +581,8 @@ surfaces your own `AgentDefinition` declares:
 ```ts
 export const assistant: AgentDefinition = {
   instructions: '…',
-  surfaces: mountedSurfaces,                        // what the echo reports
   contextInstructions: () => session.contextInstructions
+  // `surfaces` — the default (every mounted surface) is what the echo reports
 };
 ```
 
@@ -762,14 +761,13 @@ For deterministic, network-free tests, use the built-in
 
 ```ts
 import { Agent, ScriptedModel } from 'a2ui-svelte/agent';
-import { mountedSurfaces } from 'a2ui-svelte/core';
 
 render(MyPage);   // the page's surfaces join the index as they mount
 
 const model = new ScriptedModel([
   { on: 'save it', calls: [{ name: 'click_button', args: { element_id: 'save-btn' } }], text: 'Saved.' }
 ]);
-const agent = new Agent({ instructions: 'persona', surfaces: mountedSurfaces }, model);
+const agent = new Agent({ instructions: 'persona' }, model);
 await agent.start();
 await agent.send('please save it');   // resolves at the model's turn-complete
 // assert the action ran, the tool result echoed, the transcript updated…

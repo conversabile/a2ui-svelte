@@ -154,7 +154,7 @@ test('the human Save button locks while the agent is working', async () => {
     { on: 'save', calls: [{ name: 'click_button', args: { element_id: 'save-list-btn' } }] }
   ]);
   const agent = new Agent(todoList, model);
-  render(TodoListPage, { agent });    // mounts the surface `mountedSurfaces` finds
+  render(TodoListPage, { agent });    // mounts the surface the agent reads
   await agent.start();
 
   const turn = agent.send('save the list');   // resolves at the model's turn-complete

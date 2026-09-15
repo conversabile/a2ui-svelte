@@ -43,69 +43,48 @@ The library ships:
 npm add a2ui-svelte
 ```
 
-One file — a surface the human can use and a voice agent that can drive
-the same surface, with all defaults enabled:
+One file — a surface the human can use, and an agent that reads and drives
+the same surface:
 
 ```svelte
 <!-- src/routes/+page.svelte -->
 <script lang="ts">
   import { StaticSurface } from 'a2ui-svelte/renderer';
-  import { Card, Column, TextField, Button } from 'a2ui-svelte/components';
+  import { Column, TextField, Button } from 'a2ui-svelte/components';
   import { Agent, AgentShell } from 'a2ui-svelte/agent';
-  import { GeminiLiveModel } from 'a2ui-svelte/agent/gemini';
-  import { mountedSurfaces } from 'a2ui-svelte/core';
+  import { GeminiTextModel } from 'a2ui-svelte/agent/gemini';
+  import { PUBLIC_GEMINI_API_KEY } from '$env/static/public';
   import 'a2ui-svelte/renderer/styles.css';
 
   let name = $state('');
 
   const agent = new Agent(
-    {
-      instructions:        'You are a friendly assistant.',
-      surfaces:            mountedSurfaces,   // every surface on screen
-      contextInstructions: () => 'The user can set their name here.'
-    },
-    new GeminiLiveModel({
-      token: async () =>
-        (await (await fetch('/api/voice-token', { method: 'POST' })).json()).token
-    })
+    { instructions: 'You are a friendly assistant.' },
+    new GeminiTextModel({ apiKey: PUBLIC_GEMINI_API_KEY })
   );
 </script>
 
 <StaticSurface surfaceId="hello">
-  <Card><Column>
+  <Column>
     <TextField id="name" label="Name" bind:value={name} />
     <Button id="save" primary label="Save"
             onclick={() => alert(`Hi ${name}!`)} />
-  </Column></Card>
+  </Column>
 </StaticSurface>
 
 <AgentShell {agent} />
 ```
 
-You'll also need a `/api/voice-token` endpoint that mints a short-lived
-Gemini token (server-side, keeps your API key out of the browser) —
-`mintGeminiToken` from `a2ui-svelte/agent/gemini` does it in three lines.
+Type *"set the name to Alice and save it"* into the shell and watch the
+field fill in.
 
-Prefer a text model? Swap the model — nothing else changes:
+The `PUBLIC_` key is for localhost only, and swapping `GeminiTextModel` for
+a voice model gives `<AgentShell>` a mic and changes nothing else — the
+[agent integration guide](docs/guides/agent-integration.md) covers both.
 
-```ts
-import { GeminiTextModel } from 'a2ui-svelte/agent/gemini';
-
-const agent = new Agent(sameDefinition, new GeminiTextModel({ baseUrl: '/api/gemini' }));
-```
-
-`<AgentShell>` notices the model has no audio and renders the same
-shell without the mic.
-
-**Next steps:**
-
-- The [agent integration guide](docs/guides/agent-integration.md) for
-  the token endpoint, the production layout pattern (session store +
-  layout-level agent), and how to write your own model.
-- The [`examples/minimal-app/`](examples/minimal-app/README.md) for a
-  runnable SvelteKit project exercising every public API.
-- The [guides](docs/guides/) for authoring components, composites,
-  theming.
+Next: [`examples/minimal-app/`](examples/minimal-app/README.md) is a
+runnable project exercising every public API, and the
+[guides](docs/guides/) cover authoring components, composites and theming.
 
 ## Concepts
 
@@ -154,8 +133,8 @@ import { Agent, ScriptedModel, type AgentDefinition } from 'a2ui-svelte/agent';
 import { GeminiLiveModel, GeminiTextModel } from 'a2ui-svelte/agent/gemini';
 
 const assistant: AgentDefinition = {
-  instructions: 'You are a helpful assistant.',
-  surfaces: mountedSurfaces          // from 'a2ui-svelte/core'
+  instructions: 'You are a helpful assistant.'
+  // `surfaces` defaults to every surface mounted on the page
 };
 
 // Streaming voice (mic + mute appear in the shell):

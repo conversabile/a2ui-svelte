@@ -79,8 +79,8 @@ in a test: `expect(validateSurface(surface.getJson())).toEqual([])`.
 ### 3. Publish the page's context
 
 The surface itself needs no publishing: `<StaticSurface>` joins the
-library's global index on mount and leaves it on destroy, so the layout's
-`surfaces: mountedSurfaces` sees it (see `integrate-agent` skill).
+library's global index on mount and leaves it on destroy, and the agent
+reads that index by default (see `integrate-agent` skill).
 
 What is still yours to publish is the page's prose context — a thin
 reactive store the layout reads:

@@ -29,26 +29,32 @@ the same definition runs over every model.
 ```ts
 // src/lib/agent-definition.ts
 import type { AgentDefinition } from 'a2ui-svelte/agent';
-import { mountedSurfaces } from 'a2ui-svelte/core';
 import { session } from '$lib/session.svelte';
 
 const assistant: AgentDefinition = {
   instructions: 'You are a helpful assistant. Always be concise.',
-  surfaces: mountedSurfaces,
   contextInstructions: () => session.contextInstructions,
   mode: 'static' // 'static' | 'dynamic' | 'both'
 };
 ```
 
-`mountedSurfaces()` is the library's own index: every `<StaticSurface>` /
-`<DynamicSurface>` joins it on mount and leaves on destroy, so pages
-publish nothing. Write your own callback only when the agent should see
+`surfaces` defaults to `mountedSurfaces`, the library's own index: every
+`<StaticSurface>` / `<DynamicSurface>` joins it on mount and leaves on
+destroy, so pages publish nothing. Set it only when the agent should see
 less than what is on screen (per-route scoping, a surface you hide from
-the model); `surface(id)` from the same module gets one by id.
+the model):
+
+```ts
+import { surface, mountedSurfaces } from 'a2ui-svelte/core';
+
+surfaces: () => mountedSurfaces().filter((s) => s.id !== 'debug-panel')
+// or a fixed set: () => [surface('checkout')!]
+```
 
 Keep the definition in its own module (the layout then holds only the
-model). Both callbacks are invoked on every surface-watch tick *and*
-on every tool call, so keep them fast — read reactive state, don't do work.
+model). `surfaces()` and `contextInstructions()` are invoked on every
+surface-watch tick *and* on every tool call, so keep them fast — read
+reactive state, don't do work.
 
 ### 2. Construct a model (auth lives here)
 
@@ -196,8 +202,9 @@ When the agent calls `click_button` / `update_text_field`, the tool runs the
 action and returns a bare `{ results }`. The **`Agent`** then
 attaches what the page looks like afterwards, under
 `extensions['a2ui-svelte']`, reading the same `surfaces()` and
-`contextInstructions()` your `AgentDefinition` already declares (step 1). So
-`surfaces: mountedSurfaces` is the whole wiring.
+`contextInstructions()` your `AgentDefinition` already declares (step 1) —
+and `surfaces` defaults to every mounted surface, so there is nothing to
+wire.
 
 Size it with the app-wide `toolResultSurfaceEcho` extension:
 

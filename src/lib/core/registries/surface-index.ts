@@ -3,9 +3,9 @@
  *
  * `<StaticSurface>` / `<DynamicSurface>` add themselves on mount and remove
  * themselves on destroy, so an app never has to keep its own list just to
- * answer `AgentDefinition.surfaces()` — `surfaces: mountedSurfaces` is the
- * whole wiring. Like the tool and action registries, this is module-global:
- * one page, one set of live surfaces.
+ * answer `AgentDefinition.surfaces()` — it defaults to this index. Like the
+ * tool and action registries, this is module-global: one page, one set of
+ * live surfaces.
  */
 
 import { registerBuiltinTools, unregisterBuiltinTools } from '../builtin-tools';

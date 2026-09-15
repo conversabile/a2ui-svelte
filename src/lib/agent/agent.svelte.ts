@@ -1,7 +1,7 @@
 import { processMessage } from '../core/processor';
 import { toolRegistry } from '../core/registries/tool-registry';
 import { actionRegistry } from '../core/registries/action-registry';
-import type { AgentSurface } from '../core/registries/surface-index';
+import { mountedSurfaces, type AgentSurface } from '../core/registries/surface-index';
 import { userActionBus, type UserAction } from '../core/registries/event-bus';
 import { A2UI_EXTENSION_NAMESPACE, wrapExtension, getExtensions } from '../core/extensions';
 import {
@@ -164,8 +164,13 @@ export interface SurfaceWatchTuning {
 export interface AgentDefinition {
 	/** The agent's persona + behaviour prompt (the base system instruction). */
 	instructions: string;
-	/** Live source of currently-active surfaces. Called on every interval tick. */
-	surfaces: () => AgentSurface[];
+	/**
+	 * Live source of the surfaces the agent can see and act on. Called on every
+	 * interval tick. Defaults to `mountedSurfaces` — every `<StaticSurface>` /
+	 * `<DynamicSurface>` currently on the page. Pass your own function only to
+	 * show the agent a subset.
+	 */
+	surfaces?: () => AgentSurface[];
 	/** Live source of page-specific context instructions. Default: none. */
 	contextInstructions?: () => string;
 	/** Static / dynamic / both. Default 'static'. */
@@ -377,6 +382,11 @@ export class Agent {
 	/** Page context source with the definition's optional field defaulted. */
 	#contextInstructions(): string {
 		return this.#def.contextInstructions?.() ?? '';
+	}
+
+	/** Surface source with the definition's optional field defaulted. */
+	#surfaces(): AgentSurface[] {
+		return (this.#def.surfaces ?? mountedSurfaces)();
 	}
 
 	async start(): Promise<void> {
@@ -976,7 +986,7 @@ export class Agent {
 	#buildPrompt(
 		tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
 	): string {
-		const surfaces = this.#def.surfaces();
+		const surfaces = this.#surfaces();
 		const allowStatic = this.#mode === 'static' || this.#mode === 'both';
 		const allowDynamic = this.#mode === 'dynamic' || this.#mode === 'both';
 
@@ -1071,7 +1081,7 @@ export class Agent {
 
 	/** Every surface the definition declares, dropping empty slots. */
 	#declaredSurfaces(): AgentSurface[] {
-		return this.#def.surfaces().filter((s) => s);
+		return this.#surfaces().filter((s) => s);
 	}
 
 	/** Record the current page state as "what this model has seen". */
@@ -1214,11 +1224,11 @@ export class Agent {
 	 * serialized JSON includes its data model, so polling lets the agent
 	 * notice user input written into a path-bound field (e.g. a TextField
 	 * the agent rendered, then the user typed into). To exclude one surface,
-	 * leave it out of `definition.surfaces()`.
+	 * leave it out of `definition.surfaces`.
 	 */
 	#watchedSurfaces(): AgentSurface[] {
 		if (!getExtensions().surfaceWatch) return [];
-		return this.#def.surfaces().filter((s) => s);
+		return this.#surfaces().filter((s) => s);
 	}
 
 	#getSurfaceSnapshot(): string {

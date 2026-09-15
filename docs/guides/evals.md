@@ -35,7 +35,8 @@ An `Agent` is your definition plus a model, and the eval changes only
 the model — node has no browser to mint a token, and each scenario
 wants a fresh conversation. So keep the definition in a module
 (`src/lib/agent-definition.ts`) that your layout and your evals both
-import; with `surfaces: mountedSurfaces` it needs no other wiring.
+import; it needs no other wiring, since the agent sees every mounted
+surface by default.
 
 ## Assert on your app
 
