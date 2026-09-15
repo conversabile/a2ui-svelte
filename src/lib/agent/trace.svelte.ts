@@ -49,7 +49,7 @@ export interface TraceToolDetail {
 	 */
 	echo: string | null;
 	/**
-	 * Per-key byte sizes of that echo (`updatedSurface`, `updatedDataModel`,
+	 * Per-key byte sizes of that echo (`surfaceDelta`, `updatedSurface`,
 	 * `updatedContext`, `availableElementIds`), largest first — so the key
 	 * responsible for the size is named even when `echo` is truncated.
 	 */

@@ -55,7 +55,7 @@
 	}
 
 	/**
-	 * "surface echo · updatedSurface 31.8 KB · updatedContext 120 B" — what the
+	 * "surface echo · surfaceDelta 240 B · updatedContext 120 B" — what the
 	 * agent appended to the result. Named per key, because one of them is
 	 * usually the whole payload.
 	 */

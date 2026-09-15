@@ -244,9 +244,11 @@ Commit messages follow **Conventional Commits** (`feat:`, `fix:`, `refactor:`,
 `perf:`, …) because `standard-version` generates `CHANGELOG.md` and bumps the
 version from them — so when you propose a commit message, use the right type.
 
-**Be concise in docs, guides, plans and this file.** State the rule and the one
-reason it exists; skip the worked argument. An essay per concept is how these
-files become an unmaintainable, context-overflowing mess.
+**Be concise in docs, guides, plans, comments, prompts and this file.** State the
+rule and the one reason; skip the argument. Never restate what the reader already
+has — the agent receives the payload, so describing its shape in a prompt is dead
+weight. Prompt text is paid on every request and causes hallucination. Cut before
+adding.
 
 **Write plainly. No figurative language.** Docs, comments, commit messages and
 replies are read by coders who are busy. Say what the code does, in what

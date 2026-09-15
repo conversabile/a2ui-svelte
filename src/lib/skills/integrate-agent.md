@@ -205,13 +205,21 @@ Size it with the app-wide `toolResultSurfaceEcho` extension:
 import { configureExtensions } from 'a2ui-svelte/core';
 
 // once, at startup, before any surface mounts
-configureExtensions({ toolResultSurfaceEcho: 'full' }); // 'full' | 'changed' | 'none'
+configureExtensions({ toolResultSurfaceEcho: 'full' }); // 'full' | 'delta' | 'none'
 ```
 
-`'changed'` (default): the result contains only the values the action changed.
+`'delta'` (default): the result contains a `surfaceDelta` — only the
+components the action changed, in only the surfaces that changed. A surface
+that did not move is not mentioned; a surface whose delta would cost about as
+much as its own tree (a route change) carries the tree instead, under `full`.
 `'full'`: every result contains the whole surface JSON again — on a big
 surface that is what makes the token count explode. `'none'`: the result is
 exactly `{ results }` and nothing else, which is what the spec defines.
+
+Nothing in your page needs to opt in. The diff is per component, so it does not
+matter whether a value lives in the data model (a `TextField`) or as a literal
+in the component definition (a `Text` showing a recomputed total) — both cost
+one entry.
 
 Driving a surface without an `Agent` (tests, or an external agent) goes
 through the registry and gets no echo. The tool names are ours, not A2UI's:
@@ -265,7 +273,7 @@ token bill is the production one; only the frames are dropped.
   both. `'dynamic'` only registers the `surfaceUpdate` /
   `dataModelUpdate` / `beginRendering` tools.
 - **Dense surfaces / quota pressure.** Tool results already report only
-  what changed (`toolResultSurfaceEcho: 'changed'` is the default), but
+  what changed (`toolResultSurfaceEcho: 'delta'` is the default), but
   the prompt still embeds the surface pretty-printed. Set
   `compactSurfaceJson: true` on the definition (single-line surface JSON,
   ~30% smaller prompt) — it is the one token-saving option still off by

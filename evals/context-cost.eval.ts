@@ -8,7 +8,7 @@
  *
  *  - prompt size, pretty vs compact JSON;
  *  - per-call tool-result size with the full surface echo
- *    (`toolResultSurfaceEcho: 'full'`), the changed-only echo (`'changed'`),
+ *    (`toolResultSurfaceEcho: 'full'`), the per-component delta echo (`'delta'`),
  *    and no echo (`'none'`);
  *  - the cumulative billed input across the agentic loop on a client-history
  *    (request/response) model, where every tool result is re-sent on
@@ -132,7 +132,8 @@ describe('context-cost measurement (hermetic)', () => {
 		prettyPromptChars = buildPrompt(surface, false).length;
 		compactPromptChars = buildPrompt(surface, true).length;
 		// Compaction must save at least 30% — it historically saves ~half of the
-		// surface block, which dominates the prompt.
+		// surface block, which dominates the prompt. The rules text does not
+		// compact, so this doubles as a guard on the prompt staying lean.
 		expect(compactPromptChars).toBeLessThan(prettyPromptChars * 0.7);
 	});
 
@@ -147,10 +148,10 @@ describe('context-cost measurement (hermetic)', () => {
 	});
 
 	for (const [mode, extensions] of [
-		// Spelled out: `'changed'` is the shipped default, so `{}` would measure
-		// the changed-only arm twice.
+		// Spelled out: `'delta'` is the shipped default, so `{}` would measure
+		// the diff arm twice.
 		["full-echo ('full')", { toolResultSurfaceEcho: 'full' as const }],
-		["changed-only ('changed')", { toolResultSurfaceEcho: 'changed' as const }],
+		["delta ('delta')", { toolResultSurfaceEcho: 'delta' as const }],
 		["no-echo ('none')", { toolResultSurfaceEcho: 'none' as const }]
 	] as Array<[string, Partial<Extensions>]>) {
 		it(`measures tool-result sizes with ${mode}`, async () => {
@@ -173,7 +174,7 @@ describe('context-cost measurement (hermetic)', () => {
 	it('sanity: the optimizations actually shrink the bill', () => {
 		const byMode = Object.fromEntries(rows.map((r) => [r.mode, r]));
 		const full = byMode["full-echo ('full')"];
-		const diff = byMode["changed-only ('changed')"];
+		const diff = byMode["delta ('delta')"];
 		const bare = byMode["no-echo ('none')"];
 		expect(full && diff && bare).toBeTruthy();
 		// The diff echo only ships the full tree on the structural change (1 of

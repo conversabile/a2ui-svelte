@@ -42,7 +42,8 @@ export {
     STRICT,
     ALL_EXTRAS,
     type ExtensionEnvelope,
-    type Extensions
+    type Extensions,
+    type ExtensionsInput
 } from './extensions';
 export {
     STANDARD_CATALOG_ID,
@@ -63,6 +64,14 @@ export {
     readDataModelFromJson,
     readDataModelsBySurface,
     diffDataModel,
-    diffDataModelsBySurface
+    diffDataModelsBySurface,
+    snapshotSurface,
+    snapshotSurfaces,
+    snapshotFingerprint,
+    diffSurfaces,
+    FULL_RESYNC_RATIO,
+    type SurfaceSnapshot,
+    type SurfaceDelta,
+    type SurfaceDeltaEntry
 } from './surface-snapshot';
 export { devGlobal, type A2uiDevGlobal } from './dev-global';

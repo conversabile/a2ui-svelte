@@ -41,13 +41,34 @@ describe('extension presets', () => {
 		});
 	});
 
-	it('ALL_EXTRAS enables every extension, with the changed-only echo', () => {
+	it('ALL_EXTRAS enables every extension, with the diff echo', () => {
 		expect(ALL_EXTRAS).toEqual({
 			surfaceWatch: true,
 			batchTools: true,
-			toolResultSurfaceEcho: 'changed',
+			toolResultSurfaceEcho: 'delta',
 			pointerTool: true
 		});
+	});
+});
+
+describe("toolResultSurfaceEcho: the 'changed' alias", () => {
+	afterEach(() => configureExtensions({}));
+
+	it("normalises the deprecated 'changed' to 'delta', so nothing downstream sees it", () => {
+		configureExtensions({ toolResultSurfaceEcho: 'changed' });
+		expect(getExtensions().toolResultSurfaceEcho).toBe('delta');
+	});
+
+	it('leaves the other two spellings alone', () => {
+		configureExtensions({ toolResultSurfaceEcho: 'full' });
+		expect(getExtensions().toolResultSurfaceEcho).toBe('full');
+		configureExtensions({ toolResultSurfaceEcho: 'none' });
+		expect(getExtensions().toolResultSurfaceEcho).toBe('none');
+	});
+
+	it('an app configured with the old spelling still gets the delta behaviour', () => {
+		configureExtensions({ toolResultSurfaceEcho: 'changed' });
+		expect(getExtensions()).toEqual(ALL_EXTRAS);
 	});
 });
 

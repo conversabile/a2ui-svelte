@@ -19,7 +19,7 @@ amplified it: the whole serialized surface rides in the system prompt
 result echoes the full surface again. On dense surfaces this exhausts provider
 quotas and slows dynamic generation. The evals quantify that cost and answer
 the follow-up question: **do the context optimizations
-(`toolResultSurfaceEcho: 'changed'` — now the default — and
+(`toolResultSurfaceEcho: 'delta'` — the default — and
 `compactSurfaceJson`) make the agent unstable?**
 
 ## Running
@@ -87,7 +87,7 @@ Each LLM scenario runs once per **profile**:
 | Profile     | Extensions                             | Agent options              |
 |-------------|----------------------------------------|----------------------------|
 | `baseline`  | `toolResultSurfaceEcho: 'full'`        | pretty JSON                |
-| `optimized` | `toolResultSurfaceEcho: 'changed'`     | `compactSurfaceJson: true` |
+| `optimized` | `toolResultSurfaceEcho: 'delta'`        | `compactSurfaceJson: true` |
 | `bare`      | `toolResultSurfaceEcho: 'none'`        | `compactSurfaceJson: true` |
 
 ## Files

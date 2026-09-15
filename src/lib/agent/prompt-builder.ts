@@ -111,42 +111,11 @@ export function staticSurfacesBlock(
   let ruleNo = 4;
   if (surfaceWatchEnabled) {
     out +=
-      `${ruleNo}. **SURFACE UPDATES**: You may receive messages tagged with \`<event>SURFACE_UPDATED</event>\` that tell you the UI changed (the user typed into a field, navigated, or edited data through the UI). They arrive silently, attached to the user's message — the current state of the UI at the moment the user is speaking to you. Treat them as the authoritative current state. There are TWO kinds, distinguished by \`kind\` inside \`extensions["a2ui-svelte"]\`:\n` +
-      "   \n" +
-      '   **(a) `kind: "clientDataModel"` — a data-model update (the common case).** The values the user has entered, as a map of field id to value. **Only CHANGED fields are included.** Merge them into your understanding (upsert each key); fields not listed are unchanged. The component STRUCTURE you were shown at session start does NOT change here — only these values do.\n' +
-      "   ```\n" +
-      "   {\n" +
-      '     "extensions": {\n' +
-      '       "a2ui-svelte": {\n' +
-      '         "kind": "clientDataModel",\n' +
-      '         "version": "v0.9",\n' +
-      '         "delta": true,\n' +
-      '         "surfaces": { "<surfaceId>": { "<fieldId>": "<value>" } },\n' +
-      '         "updatedContext": "..."\n' +
-      "       }\n" +
-      "     }\n" +
-      "   }\n" +
-      "   ```\n" +
-      '   A field cleared by the user arrives as `"<fieldId>": ""`. No need to re-read the whole surface — just apply the changed values to the structure you already know. `updatedContext` is present only when the page context also changed.\n' +
-      "   \n" +
-      '   **(b) `kind: "surfaceUpdated"` — a full re-sync (structure changed).** Sent when the STRUCTURE changed (navigation, a component appeared or disappeared), because a value delta cannot convey new structure. Replace your structural understanding from `updatedSurfaces`.\n' +
-      "   ```\n" +
-      "   {\n" +
-      '     "extensions": {\n' +
-      '       "a2ui-svelte": {\n' +
-      '         "kind": "surfaceUpdated",\n' +
-      '         "updatedSurfaces": [ ... ],\n' +
-      '         "updatedContext": "...",\n' +
-      '         "availableElementIds": [ ... ]\n' +
-      "       }\n" +
-      "     }\n" +
-      "   }\n" +
-      "   ```\n" +
-      "   For EITHER kind:\n" +
-      "   - Do NOT speak or generate audio in response, unless the user is clearly waiting for your commentary on the change\n" +
-      "   - Never read the XML tags or raw payload aloud\n" +
-      "   - `updatedContext`, when present, is the current page-specific knowledge (the visible list, the selected item, the current filter, …)\n" +
-      "   - `updatedSurfaces` (kind `surfaceUpdated`) is the full JSON of the static surfaces, in the same shape as the static-surface JSON at session start; `availableElementIds` lists the component IDs you can target with `click_button` / `update_text_field`\n";
+      `${ruleNo}. **SURFACE UPDATES**: \`<event>SURFACE_UPDATED</event>\` messages arrive silently alongside the user's message and are the authoritative current state of the UI. Apply each to what you already know — never re-read or re-request a surface. \`kind\`, inside \`extensions["a2ui-svelte"]\`, says how:\n` +
+      '   - `clientDataModel` — `surfaces` maps each surfaceId to its CHANGED field values only. Upsert each key; a field the user cleared arrives as `""`. The component structure is unchanged.\n' +
+      '   - `surfaceDelta` — per entry in `surfaces`: upsert each `changed` entry by its `id` (an unfamiliar id is a new component), drop every id in `removed`, upsert `dataModel`. An entry with `"full": true` replaces that surface entirely from its `surface` field, and `removedSurfaces` names surfaces that are gone. Anything not mentioned is unchanged.\n' +
+      '   - `surfaceUpdated` — replace your whole structural understanding from `updatedSurfaces`.\n' +
+      "   Do NOT speak or generate audio in response unless the user is clearly waiting for your commentary on the change, and never read the tags or payload aloud. `updatedContext`, when present, is the current page-specific knowledge; `availableElementIds` lists the component IDs you can target.\n";
     ruleNo++;
   }
 
@@ -157,30 +126,13 @@ export function staticSurfacesBlock(
     `${ruleNo}. **TOOL RESULTS**: Every UI tool returns \`{"results": [ { "element_id": "...", "status": "success" | "error" }, ... ]}\` — one entry per element you targeted. \`status\` is EXACTLY \`"success"\` or \`"error"\`, never any other word, and a failed element always carries an \`error\` string saying why. Read it before telling the user the action worked.\n`;
   ruleNo++;
 
-  if (surfaceEcho === "changed") {
+  if (surfaceEcho === "delta") {
     out +=
-      `${ruleNo}. **TOOL-RESULT ENVELOPE (changed-only)**: Every \`click_button\` / \`update_text_field\` (and their batched variants) returns a \`results\` array, plus — under \`extensions["a2ui-svelte"]\` — ONLY what the action actually changed:\n` +
-      '   - `updatedSurface`: present ONLY when the component STRUCTURE changed (a component appeared or disappeared, navigation). When present, replace your structural understanding with it. When absent, the structure you already know is still current.\n' +
-      '   - `updatedDataModel`: `{ "<surfaceId>": { "<fieldId>": "<value>" } }` of field values that changed — including side effects of your action (e.g. a form resetting after save). Merge them (upsert each key); fields not listed are unchanged.\n' +
-      "   - `updatedContext` / `availableElementIds`: present only when they changed.\n" +
-      "   If `extensions` is absent entirely, nothing changed beyond what `results` reports — do NOT re-read or re-request the surface; your current understanding is up to date.\n";
+      `${ruleNo}. **TOOL-RESULT ENVELOPE (delta)**: Alongside \`results\`, \`extensions["a2ui-svelte"].surfaceDelta\` reports ONLY what the action changed — including side effects you did not ask for (a form resetting after save, a total recomputing), so read it before telling the user what happened. Per entry in \`surfaces\`: upsert each \`changed\` entry by its \`id\` (an unfamiliar id is a new component), drop every id in \`removed\`, upsert \`dataModel\`. An entry with \`"full": true\` replaces that surface entirely from its \`surface\` field, and \`removedSurfaces\` names surfaces that are gone. Anything not mentioned is unchanged — if \`extensions\` is absent, nothing changed beyond \`results\`. Do NOT re-read or re-request a surface.\n`;
     ruleNo++;
   } else if (surfaceEcho === "full") {
     out +=
-      `${ruleNo}. **TOOL-RESULT ENVELOPE**: Every \`click_button\` / \`update_text_field\` (and their batched variants) returns an envelope shaped like:\n` +
-      "   ```\n" +
-      "   {\n" +
-      '     "results": [ { "element_id": "...", "status": "success" | "error", ... } ],\n' +
-      '     "extensions": {\n' +
-      '       "a2ui-svelte": {\n' +
-      '         "updatedSurface": [ ... ],\n' +
-      '         "updatedContext": "...",\n' +
-      '         "availableElementIds": [ ... ]\n' +
-      "       }\n" +
-      "     }\n" +
-      "   }\n" +
-      "   ```\n" +
-      '   The `results` field is the per-element outcome. The `extensions["a2ui-svelte"]` block is a post-action snapshot — **after every tool call, trust `updatedSurface` as the authoritative new structure and refresh your understanding from `updatedContext` and `availableElementIds`**. The original static-surface JSON shown at session start is stale the moment you act.\n';
+      `${ruleNo}. **TOOL-RESULT ENVELOPE**: Alongside \`results\`, \`extensions["a2ui-svelte"]\` carries a full post-action snapshot — **trust \`updatedSurface\` as the authoritative new structure and refresh from \`updatedContext\` and \`availableElementIds\`**. The static-surface JSON shown at session start is stale the moment you act.\n`;
     ruleNo++;
   }
 

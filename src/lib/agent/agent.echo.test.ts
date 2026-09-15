@@ -88,8 +88,12 @@ async function call(
 
 const extras = (result: any) => result?.extensions?.[A2UI_EXTENSION_NAMESPACE];
 
+/** The delta entry for one surface inside a `'delta'` echo, if present. */
+const delta = (result: any, surfaceId: string) =>
+	extras(result)?.surfaceDelta?.surfaces?.find((s: any) => s.surfaceId === surfaceId);
+
 describe("Agent — the tool-result echo ('full')", () => {
-	// `'full'` is an opt-in since ALL_EXTRAS moved to `'changed'`.
+	// `'full'` is an opt-in since ALL_EXTRAS moved to `'delta'`.
 	beforeEach(() => configureExtensions({ toolResultSurfaceEcho: 'full' }));
 
 	it('carries ONE echo built from every surface the definition declares', async () => {
@@ -143,9 +147,9 @@ describe("Agent — the tool-result echo ('full')", () => {
 	});
 });
 
-describe("Agent — the tool-result echo ('changed')", () => {
+describe("Agent — the tool-result echo ('delta')", () => {
 	it('reports a change in each surface exactly once, against ONE shared baseline', async () => {
-		configureExtensions({ toolResultSurfaceEcho: 'changed' });
+		configureExtensions({ toolResultSurfaceEcho: 'delta' });
 		render(FieldSurface, { surfaceId: 'a', prefix: 'a' });
 		render(FieldSurface, { surfaceId: 'b', prefix: 'b' });
 		const { model } = await connectedAgent();
@@ -154,7 +158,9 @@ describe("Agent — the tool-result echo ('changed')", () => {
 			element_id: 'a-name',
 			value: 'John'
 		});
-		expect(extras(first).updatedDataModel).toEqual({ a: { name: 'John' } });
+		expect(delta(first, 'a').dataModel).toEqual({ name: 'John' });
+		// Surface b did not move, so it is not in the payload at all.
+		expect(extras(first).surfaceDelta.surfaces.map((s: any) => s.surfaceId)).toEqual(['a']);
 
 		// A per-surface baseline would re-report a's write here, because b's
 		// snapshot was taken before it. One agent-wide baseline reports only b.
@@ -162,11 +168,12 @@ describe("Agent — the tool-result echo ('changed')", () => {
 			element_id: 'b-name',
 			value: 'Jane'
 		});
-		expect(extras(second).updatedDataModel).toEqual({ b: { name: 'Jane' } });
+		expect(extras(second).surfaceDelta.surfaces.map((s: any) => s.surfaceId)).toEqual(['b']);
+		expect(delta(second, 'b').dataModel).toEqual({ name: 'Jane' });
 	});
 
 	it('a no-op action returns bare { results } with no extensions at all', async () => {
-		configureExtensions({ toolResultSurfaceEcho: 'changed' });
+		configureExtensions({ toolResultSurfaceEcho: 'delta' });
 		render(FieldSurface, { surfaceId: 'a', prefix: 'a' });
 		const { model } = await connectedAgent();
 
@@ -187,12 +194,16 @@ describe("Agent — the tool-result echo ('changed')", () => {
 			element_id: 'a-name',
 			value: 'John'
 		});
-		expect(extras(result).updatedDataModel).toEqual({ a: { name: 'John' } });
+		expect(delta(result, 'a').dataModel).toEqual({ name: 'John' });
+		// No whole tree, in either the old field or the delta's `full` escape.
 		expect(extras(result)).not.toHaveProperty('updatedSurface');
+		expect(delta(result, 'a')).not.toHaveProperty('full');
+		// Only the one component that actually moved.
+		expect(delta(result, 'a').changed.map((c: any) => c.id)).toEqual(['a-echo']);
 	});
 
-	it('a structural change (a surface unmounting) echoes the full tree', async () => {
-		configureExtensions({ toolResultSurfaceEcho: 'changed' });
+	it('a surface unmounting is reported as a removed surface, not as the whole tree', async () => {
+		configureExtensions({ toolResultSurfaceEcho: 'delta' });
 		const a = render(FieldSurface, { surfaceId: 'a', prefix: 'a' });
 		render(FieldSurface, { surfaceId: 'b', prefix: 'b' });
 		const { model } = await connectedAgent();
@@ -200,10 +211,58 @@ describe("Agent — the tool-result echo ('changed')", () => {
 		a.unmount();
 		const result = await call(model, 'click_button', { element_id: 'b-btn' });
 		const e = extras(result);
-		expect((e.updatedSurface as Array<{ surfaceId: string }>).map((s) => s.surfaceId)).toEqual([
-			'b'
-		]);
-		expect(e).not.toHaveProperty('updatedDataModel');
+		expect(e.surfaceDelta.removedSurfaces).toEqual(['a']);
+		// Surface b is untouched by a's unmount, so its tree is not re-sent.
+		expect(e.surfaceDelta.surfaces).toEqual([]);
+		// `structural` schedules the watch loop; it is not content for the model.
+		expect(e.surfaceDelta).not.toHaveProperty('structural');
+	});
+
+	it('reseeds the baseline on reconnect, so a delta never diffs against a tree the model lost', async () => {
+		configureExtensions({ toolResultSurfaceEcho: 'delta' });
+		render(FieldSurface, { surfaceId: 'a', prefix: 'a' });
+		const { agent, model } = await connectedAgent();
+
+		await call(model, 'update_text_field', { element_id: 'a-name', value: 'John' });
+		await agent.stop();
+		await agent.start();
+
+		// The new session's system prompt carries the whole tree again, so the
+		// baseline must match it: a no-op call reports nothing, and the next real
+		// change reports only itself.
+		const noop = await call(model, 'update_text_field', {
+			element_id: 'a-name',
+			value: 'John'
+		});
+		expect(noop).not.toHaveProperty('extensions');
+
+		const next = await call(model, 'update_text_field', { element_id: 'a-name', value: 'Jane' });
+		expect(delta(next, 'a').dataModel).toEqual({ name: 'Jane' });
+		expect(delta(next, 'a').changed.map((c: any) => c.id)).toEqual(['a-echo']);
+		await agent.stop();
+	});
+
+	it('a changed Text literal ships that one component, not the surface', async () => {
+		configureExtensions({ toolResultSurfaceEcho: 'delta' });
+		render(FieldSurface, { surfaceId: 'a', prefix: 'a' });
+		render(FieldSurface, { surfaceId: 'b', prefix: 'b' });
+		const { model } = await connectedAgent();
+
+		// `a-echo` is a Text whose content mirrors the field — a literal in the
+		// tree, exactly the shape that used to force a full re-sync.
+		const result = await call(model, 'update_text_field', {
+			element_id: 'a-name',
+			value: 'John'
+		});
+		const d = delta(result, 'a');
+		expect(d.changed.map((c: any) => c.id)).toEqual(['a-echo']);
+		expect(JSON.stringify(d.changed[0].component)).toContain('John');
+		// Nothing appeared or disappeared, so no full tree and no mention of the
+		// untouched sibling surface.
+		expect(d).not.toHaveProperty('full');
+		expect(extras(result).surfaceDelta.surfaces.map((s: any) => s.surfaceId)).toEqual(['a']);
+		// The payload carries content only — no internal scheduling flags.
+		expect(Object.keys(extras(result).surfaceDelta)).toEqual(['surfaces']);
 	});
 });
 
@@ -243,7 +302,7 @@ describe('Agent — the echo in the latency trace', () => {
 		agent.trace.turns.at(-1)!.spans.find((s) => s.kind === 'tool')!;
 
 	it('records what the echo contained, so a small result billed as 30 KB is explainable', async () => {
-		configureExtensions({ toolResultSurfaceEcho: 'changed' });
+		configureExtensions({ toolResultSurfaceEcho: 'delta' });
 		render(FieldSurface, { surfaceId: 'a', prefix: 'a' });
 		const { agent, model } = await connectedAgent();
 
@@ -252,10 +311,10 @@ describe('Agent — the echo in the latency trace', () => {
 		const detail = toolSpan(agent).tool!;
 		// The output pane shows the tool's own return value …
 		expect(detail.output).toContain('a-name');
-		expect(detail.output).not.toContain('updatedDataModel');
+		expect(detail.output).not.toContain('surfaceDelta');
 		// … and the echo is reported separately, by key and by size.
-		expect(detail.echo).toContain('updatedDataModel');
-		expect(detail.echoParts.map((p) => p.key)).toContain('updatedDataModel');
+		expect(detail.echo).toContain('surfaceDelta');
+		expect(detail.echoParts.map((p) => p.key)).toContain('surfaceDelta');
 		expect(detail.echoParts.every((p) => p.bytes > 0)).toBe(true);
 		// `sentBytes` is the whole payload the model received, echo included.
 		expect(detail.sentBytes).toBe(new TextEncoder().encode(JSON.stringify(result)).length);

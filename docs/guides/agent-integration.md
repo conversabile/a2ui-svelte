@@ -303,7 +303,7 @@ payloads — instead of pretty-printing it. Same JSON, same spec compliance;
 on the eval fixture it shrinks the prompt by ~30%, and the saving recurs on
 **every** turn of the session. Default `false` (pretty) for backwards
 compatibility — it is the one token-saving option still off by default;
-`toolResultSurfaceEcho: 'changed'` is already on.
+`toolResultSurfaceEcho: 'delta'` is already on.
 
 ### Reactive state
 
@@ -365,8 +365,10 @@ tokens come from:
    `toolResultSurfaceEcho: 'full'`, each `click_button` / `update_text_field`
    result carries `updatedSurface` = the whole surface JSON again (see
    [The tool-result echo](#the-tool-result-echo)). One batched edit adds one
-   more copy of the whole surface to the conversation. The default `'changed'` sends only
-   what changed, but still sends the whole tree when the structure changes.
+   more copy of the whole surface to the conversation. The default `'delta'`
+   sends only the components that actually changed, and only for the surfaces
+   that changed; it falls back to the whole tree for one surface only when that
+   surface's delta would cost about as much as the tree itself.
 
 So a single 20-field batch update on a large grid can push one turn past a
 hundred thousand tokens. `agent.debug` reports the byte size of each thing the
@@ -462,12 +464,12 @@ agent.trace.turnsAt(2)             // the turns charted at transcript index 2
 agent.trace.turns.at(-1)?.spans    // the last turn's waterfall
 ```
 
-The echo is reported separately from the result because it is usually most of
-the payload: a 300-byte `{ results: [...] }` can go out as 32 KB once
-`updatedSurface` is attached. `echoParts` names the cost per key, so the
-answer to "why was this call so expensive" is on screen rather than inferred —
-see [The tool-result echo](#the-tool-result-echo) for what triggers the
-full-tree branch.
+The echo is reported separately from the result because it can be most of the
+payload: a 300-byte `{ results: [...] }` goes out as 32 KB once a full
+`updatedSurface` is attached. `echoParts` names the cost per key, so the answer
+to "why was this call so expensive" is on screen rather than inferred — see
+[The tool-result echo](#the-tool-result-echo) for what triggers the full-tree
+branch.
 
 Each payload pane has a copy button that yields the exact bytes: arguments,
 results and echoes are stored whole, so what you paste into an issue is what
@@ -501,11 +503,11 @@ A2UI-compliant:
    surface JSON in the prompt and sync payloads (~30% smaller prompt on the
    eval fixture; see [`Agent` construction](#compactsurfacejson)). **Off by
    default** — this is the one you still have to set.
-2. **`toolResultSurfaceEcho: 'changed'`** — a tool result carries **only what
-   changed**: a small `updatedDataModel` for value edits, and the whole
-   `updatedSurface` only when the component structure changed. **On by
-   default**; set it only if you want `'full'` back. See the
-   [extensions guide](extensions.md#changed-only-tool-results-toolresultsurfaceecho-changed).
+2. **`toolResultSurfaceEcho: 'delta'`** — a tool result carries **only what
+   changed**: a `surfaceDelta` naming the components that were added, modified
+   or removed, plus the changed data-model entries. Surfaces that did not move
+   are absent. **On by default**; set it only if you want `'full'` back. See the
+   [extensions guide](extensions.md#delta-tool-results-toolresultsurfaceecho-delta).
 
 On the eval suite's 6-row todo list, a 7-call task costs ~169k input tokens
 across the request/response loop with the full echo and pretty-printed JSON,
@@ -588,8 +590,13 @@ export const assistant: AgentDefinition = {
 So there is nothing extra to wire: the same `surfaces()` and
 `contextInstructions()` the system prompt is built from are what the echo
 reports. How much it reports is the `toolResultSurfaceEcho` extension —
-`'full'`, `'changed'` (deltas only) or `'none'` — see
-[extensions.md](extensions.md#changed-only-tool-results-toolresultsurfaceecho-changed).
+`'full'`, `'delta'` (the default: a per-component diff) or `'none'` — see
+[extensions.md](extensions.md#delta-tool-results-toolresultsurfaceecho-delta).
+
+Under `'delta'` the echo diffs the flat `components` list against what this
+model was last told, so the cost tracks the change, not the page. A recomputed
+total on a 300-component grid is one component entry; a surface that did not
+move is not mentioned at all.
 
 **Calling a tool directly.** `toolRegistry.execute('click_button', { element_id })`
 from `a2ui-svelte/core` is the entry point for an external agent (and for
@@ -620,11 +627,11 @@ they're not extensions.)
 |-------------------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `surfaceWatch`          | `true`   | The `Agent` keeps the model aware of user-driven changes to the mounted surfaces. *How* the change is delivered is governed by `surfaceWatchTuning.mode` — a silent, idle-timed data-model sync (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`). See "Surface-change delivery" below. The payload is wrapped under `extensions['a2ui-svelte']`. |
 | `batchTools`            | `true`   | Registers batched variants `click_buttons({clicks: […]})` and `update_text_fields({updates: […]})` alongside the single-element `click_button` / `update_text_field`. The agent prompt is taught to prefer batching when many ops fall together. |
-| `toolResultSurfaceEcho` | `'changed'` | How much of the post-action surface a click / update result echoes back under `extensions['a2ui-svelte']`. `'changed'` (default) — only what the action changed. `'full'` — the whole snapshot (`updatedSurface`, `updatedContext`, `availableElementIds`), every call. `'none'` — results are just `{ results: [...] }`, exactly what the spec promises. |
+| `toolResultSurfaceEcho` | `'delta'` | How much of the post-action surface a click / update result echoes back under `extensions['a2ui-svelte']`. `'delta'` (default) — a `surfaceDelta`: only the components that changed, in only the surfaces that changed. (`'changed'` is a deprecated alias.) `'full'` — the whole snapshot (`updatedSurface`, `updatedContext`, `availableElementIds`), every call. `'none'` — results are just `{ results: [...] }`, exactly what the spec promises. |
 | `pointerTool`           | `true`   | Registers `point_to_elements({element_ids})`, a non-spec gesture that scrolls components into view and glows them so the agent can point at on-screen data without changing it. |
 
 `STRICT` is the all-off preset; `ALL_EXTRAS` is the all-on default (where "on"
-for `toolResultSurfaceEcho` means `'changed'`, not `'full'`).
+for `toolResultSurfaceEcho` means `'delta'`, not `'full'`).
 Both are exported from `a2ui-svelte/core`.
 
 ### Setting them
@@ -696,25 +703,32 @@ push into between turns, so no poll timer runs at all — the same data-model
 state is flushed right before each typed message / button action instead,
 which gives the model the current UI before it answers.
 
-Structural changes (navigation, a component appearing/disappearing) fall
-back to a full `<event>SURFACE_UPDATED</event>` re-sync (`kind:
-'surfaceUpdated'`, the whole tree) because a value delta can't convey new
-structure. Value changes ride a compact `kind: 'clientDataModel'` payload
-carrying only the changed entries.
+Each delivery is a diff against what the model was last told, and the payload
+takes whichever of three shapes describes it most cheaply:
+
+- `kind: 'clientDataModel'` — only data-model values moved (the user typed).
+  The A2UI v0.9 shape, carrying the changed entries.
+- `kind: 'surfaceDelta'` — component definitions moved. Per surface: the
+  components to upsert by id (`changed`), the ids that went away (`removed`),
+  and the changed data-model entries. Surfaces that did not move are absent;
+  `removedSurfaces` names surfaces that unmounted.
+- `kind: 'surfaceUpdated'` — every mounted surface has to be replaced at once
+  (navigation to a different page). The whole trees.
+
+A single surface that needs replacing wholesale travels inside `surfaceDelta`
+as an entry with `full: true`.
 
 `intervalMs` is the poll cadence (polling only *detects* a change; it doesn't
 deliver on its own). `settleMs` is how long a value must hold steady before
 it's delivered, so mid-typing values ("Joh" → "John") coalesce into one
 delivery. Keep `intervalMs` below `settleMs` for fine settle resolution.
 
-> **Cheap deltas are automatic.** Value-bearing inputs path-bind their value
-> into the data model out of the box, so a keystroke changes only the data
-> model, not the structure — keeping `'sync'`-mode delivery on the cheap delta
-> path. The binding key is the input's `fieldName` when given, otherwise its
-> auto-assigned component id, so this holds even for inputs with no explicit
-> `fieldName`. (The value is only inlined as a literal in the component tree
-> when an input is rendered outside any surface — i.e. nothing the agent
-> watches — so it never costs a per-keystroke re-sync in practice.)
+> **Cheap deltas are automatic, for every kind of change.** Value-bearing
+> inputs path-bind their value into the data model, so a keystroke moves only
+> the data model. Anything that is *not* a bound value — a `Text` showing a
+> recomputed total, a `Button` becoming disabled — is held as a literal inside
+> its component definition, and the diff reports just that component. Neither
+> costs a full re-sync.
 > `<StaticSurface>` / `<DynamicSurface>` expose the data model to the agent via
 > `getDataModel()`; hand-rolled surface handles can implement it too, or let
 > the agent derive it from `getJson()`.

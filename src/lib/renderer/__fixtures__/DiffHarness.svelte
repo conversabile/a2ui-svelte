@@ -3,7 +3,7 @@
 	import TextField from '../../components/TextField.svelte';
 	import Text from '../../components/Text.svelte';
 
-	// Fixture for the 'diff' tool-result mode: one value-bearing field (a
+	// Fixture for the 'delta' tool-result mode: one value-bearing field (a
 	// data-model-only change when updated), one button that ADDS a component
 	// (a structural change), and one that resets the field as a side effect
 	// (a data-model change the agent didn't write itself).

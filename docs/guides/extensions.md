@@ -46,12 +46,12 @@ tool name exists.
 |-------------------------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `surfaceWatch`          | `true`   | The `Agent` keeps the model aware of user-driven surface changes. Delivery is governed by `surfaceWatchTuning.mode`: a silent, idle-timed A2UI v0.9 data-model delta (`'sync'`, default) or a proactive `<event>SURFACE_UPDATED</event>` text turn (`'proactive'`) — payload wrapped in `extensions['a2ui-svelte']` either way. Off → the agent is never told a surface changed. See the [agent-integration guide](agent-integration.md#surface-change-delivery-surfacewatchtuning). |
 | `batchTools`            | `true`   | Declares the batched siblings `click_buttons({clicks})` / `update_text_fields({updates})` to the model **instead of** the singular pair. The singulars stay registered either way. Off → the model sees the singulars.                                                  |
-| `toolResultSurfaceEcho` | `'changed'` | How much of the post-action surface the `Agent` echoes onto a tool result under `extensions['a2ui-svelte']`. `'changed'` (default) → **only what changed** (see [Changed-only tool results](#changed-only-tool-results-toolresultsurfaceecho-changed)). `'full'` → the unconditional snapshot: `updatedSurface`, `updatedContext`, `availableElementIds`. `'none'` → results are exactly `{ results: [...] }`.                                                          |
+| `toolResultSurfaceEcho` | `'delta'` | How much of the post-action surface the `Agent` echoes onto a tool result under `extensions['a2ui-svelte']`. `'delta'` (default) → **only the components that changed**, as a `surfaceDelta` (see [Delta tool results](#delta-tool-results-toolresultsurfaceecho-delta)). `'full'` → the unconditional snapshot: `updatedSurface`, `updatedContext`, `availableElementIds`. `'none'` → results are exactly `{ results: [...] }`. `'changed'` is a deprecated alias for `'delta'`. |
 | `pointerTool`           | `true`   | Registers `point_to_elements({element_ids})` — a non-spec tool that makes components glow and scrolls them into view so the agent can *point at* on-screen data without changing it. Off → the tool is not offered (components still glow as a side effect of the agent editing them). See [On-demand pointing](#on-demand-pointing-point_to_elements). |
 
 Presets: `ALL_EXTRAS` (every extension on, default) and `STRICT` (all off).
 Both are exported from `a2ui-svelte/core`. `toolResultSurfaceEcho` is the one
-extension that isn't a boolean, so "on" means its best setting, `'changed'` —
+extension that isn't a boolean, so "on" means its best setting, `'delta'` —
 `'full'` is an explicit opt-in.
 
 ## Setting them
@@ -84,7 +84,7 @@ but is one more reason to set it at startup rather than per request.
   (more tokens, nothing the delta leaves out):
   `toolResultSurfaceEcho: 'full'` (below).
 
-## Changed-only tool results (`toolResultSurfaceEcho: 'changed'`)
+## Delta tool results (`toolResultSurfaceEcho: 'delta'`)
 
 This is the **default**. The alternative is `'full'`, where every
 `click_button` / `update_text_field` result carries the whole serialized tree.
@@ -93,41 +93,86 @@ tens of KB (thousands of tokens), the text stays in the conversation context
 for the rest of the session, and on a request/response model it is paid for
 again on every following request. The `evals/` context-cost measurement puts a
 7-call task on a 6-row todo list at ~169k billed input tokens with the full
-echo and pretty-printed JSON, vs ~61k with `'changed'` plus
+echo and pretty-printed JSON, vs ~55k with `'delta'` plus
 `compactSurfaceJson`.
 
-With `'changed'` the model stays just as current and the result carries only
+With `'delta'` the model stays just as current and the result carries only
 what changed. The envelope is still `{ results, extensions: { 'a2ui-svelte': … } }`, but the
 extras now report what the action **changed** relative to the model's
 last-known state (the system prompt at connect, or the previous tool result):
 
-```jsonc
-// a value edit — a few hundred bytes instead of the whole tree
-{ "results": [ ... ],
-  "extensions": { "a2ui-svelte": {
-    "updatedDataModel": { "todo-list": { "todo-invoices-due": "2026-04-15" } }
-  } } }
+The unit is one **component**, not one surface: the serialized surface is a flat
+`components: [{ id, component }]` list, so two snapshots compare entry by entry.
 
-// a structural change (a component appeared/disappeared, navigation) —
-// the full tree, exactly like 'full' mode, because a delta can't convey it
+```jsonc
+// a value edit that also recomputed an on-screen total — a few hundred bytes.
+// Only the surface that moved is listed, and only the components that moved.
 { "results": [ ... ],
-  "extensions": { "a2ui-svelte": { "updatedSurface": [ ... ] } } }
+  "extensions": { "a2ui-svelte": { "surfaceDelta": {
+    "surfaces": [ {
+      "surfaceId": "planning",
+      "changed": [ { "id": "plan-foot-total-kitchen",
+                     "component": { "Text": { "text": { "literalString": "44h 00m" } } } } ],
+      "dataModel": { "shift-ana-2026-09-16": "09:00-21:00" }
+    } ],
+    "structural": false
+  } } } }
+
+// a row disappeared, and a second surface unmounted
+{ "results": [ ... ],
+  "extensions": { "a2ui-svelte": { "surfaceDelta": {
+    "surfaces": [ { "surfaceId": "planning", "removed": [ "plan-row-ana" ] } ],
+    "removedSurfaces": [ "sidebar" ],
+    "structural": true
+  } } } }
+
+// a route change replaced the whole tree — a delta would cost more than
+// the tree it describes, so the tree goes instead
+{ "results": [ ... ],
+  "extensions": { "a2ui-svelte": { "surfaceDelta": {
+    "surfaces": [ { "surfaceId": "menu", "full": true, "surface": { ... } } ],
+    "structural": true
+  } } } }
 
 // nothing changed beyond the spec result
 { "results": [ ... ] }
 ```
 
+How the model applies it, per surface: replace each component in `changed` by
+its `id` (an unfamiliar id is a new component), drop every id in `removed`,
+upsert the `dataModel` entries. A surface it is not told about is unchanged.
+That is A2UI's own `surfaceUpdate` semantic — upsert by id, never clear the
+rest — so only `removed` needs the namespace to exist at all.
+
+A surface entry carries `full: true` when its delta would cost at least
+`FULL_RESYNC_RATIO` (0.6) of the surface's own serialized size, or when the
+reader has never seen that surface. `surface` then replaces everything known
+about that id.
+
 `updatedContext` and `availableElementIds` likewise appear only when they
 changed. The prompt-builder reads the mode from the app-wide record and
-teaches the model the changed-only contract instead of the full-echo one.
+teaches the model the delta contract instead of the full-echo one.
 
-`updatedDataModel` matters even though the model "knows what it wrote": a
-click can mutate fields the agent didn't touch (a form resetting after save),
-and the delta is the only way it learns that without a full echo.
+The delta reports changes the agent did not make, not just its own write: a
+click can reset a form or recompute a total, and this is the only way it learns
+that without a full echo.
 
 Spec posture is unchanged: everything rides under `extensions['a2ui-svelte']`;
 the `results` field is byte-identical across `'full'`,
-`'changed'` and `'none'`.
+`'delta'` and `'none'`.
+
+### The `'changed'` alias
+
+`'changed'` was this mode's name while it fell back to the whole tree on any
+structural change. It is a real per-component delta now, and `changed` already
+names one array inside the payload, so the mode is `'delta'` — the same word
+the payload field (`surfaceDelta`) and the watch event (`kind: 'surfaceDelta'`)
+already use.
+`configureExtensions` normalises the old spelling, so an app that still passes
+`'changed'` keeps working. The alias lives on `ExtensionsInput` (what
+`configureExtensions` accepts), not on `Extensions` itself, so
+`getExtensions().toolResultSurfaceEcho` is always one of `'none' | 'full' |
+'delta'` and can be switched on exhaustively.
 
 ### Who builds the echo
 

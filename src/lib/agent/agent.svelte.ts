@@ -5,11 +5,12 @@ import type { AgentSurface } from '../core/registries/surface-index';
 import { userActionBus, type UserAction } from '../core/registries/event-bus';
 import { A2UI_EXTENSION_NAMESPACE, wrapExtension, getExtensions } from '../core/extensions';
 import {
-	stripDataModel,
 	readDataModelFromJson,
-	structuralFingerprint,
-	readDataModelsBySurface,
-	diffDataModelsBySurface
+	snapshotSurface,
+	snapshotFingerprint,
+	diffSurfaces,
+	type SurfaceSnapshot,
+	type SurfaceDelta
 } from '../core/surface-snapshot';
 import type {
 	AgentModel,
@@ -289,13 +290,10 @@ export class Agent {
 	#lastObservedContext = '';
 	#lastObservedChangeAt = 0;
 	// ── Sync-mode delivery tracking ──
-	// The structural snapshot (component tree minus data-model values, plus
-	// surface ids) the model last saw — a change here means structure changed
-	// (navigation / a component appeared) and forces a full re-sync.
-	#lastDeliveredStructure = '';
-	// Per-surface `{ fieldId → value }` data model the model last saw. Deltas
-	// are computed against this; latest value per field wins.
-	#lastDeliveredDataModel: Map<string, Record<string, unknown>> = new Map();
+	// Per-surface component + data-model snapshot the model last saw. Every
+	// delivery diffs against this and advances it, so nothing is sent twice and
+	// a surface that did not move is never mentioned.
+	#lastDeliveredSnapshots: Map<string, SurfaceSnapshot> = new Map();
 	// Settle tracking (sync mode): combined structure+data-model+context
 	// snapshot seen on the previous tick and when it last changed.
 	#lastSyncObservedSnapshot = '';
@@ -306,8 +304,7 @@ export class Agent {
 	// page-wide: a click in surface A and a click in surface B diff against the
 	// same snapshot, so neither re-reports a change the model already has.
 	#echoBaseline: {
-		structure: string;
-		dataModels: Record<string, Record<string, unknown>>;
+		snapshots: Map<string, SurfaceSnapshot>;
 		context: string;
 		elementIds: string;
 	} | null = null;
@@ -1069,18 +1066,18 @@ export class Agent {
 	 * disagree about what is on screen.
 	 */
 	#surfaceJson(): unknown[] {
-		return this.#def
-			.surfaces()
-			.filter((s) => s)
-			.map((s) => s.getJson());
+		return this.#declaredSurfaces().map((s) => s.getJson());
+	}
+
+	/** Every surface the definition declares, dropping empty slots. */
+	#declaredSurfaces(): AgentSurface[] {
+		return this.#def.surfaces().filter((s) => s);
 	}
 
 	/** Record the current page state as "what this model has seen". */
 	#captureEchoBaseline(): void {
-		const surfaces = this.#surfaceJson();
 		this.#echoBaseline = {
-			structure: structuralFingerprint(surfaces),
-			dataModels: readDataModelsBySurface(surfaces),
+			snapshots: this.#snapshotSurfaces(this.#declaredSurfaces()),
 			context: this.#contextInstructions(),
 			elementIds: JSON.stringify(actionRegistry.listActions())
 		};
@@ -1090,11 +1087,8 @@ export class Agent {
 	 * Attach the surface echo to a tool result, per the app-wide
 	 * `toolResultSurfaceEcho` extension:
 	 *
-	 *   `'changed'` (default): only what changed vs `#echoBaseline` —
-	 *                       `updatedSurface` on a structural change,
-	 *                       `updatedDataModel` for value changes,
-	 *                       context/ids only when they moved. Nothing changed ⇒
-	 *                       the result is returned untouched.
+	 *   `'delta'` (default): what changed vs `#echoBaseline`, as a `surfaceDelta`.
+	 *                       Nothing changed ⇒ the result is returned untouched.
 	 *   `'full'`:           the whole serialized page under
 	 *                       `extensions['a2ui-svelte']`, so a 3P consumer that
 	 *                       doesn't know the namespace drops the blob and still
@@ -1118,31 +1112,32 @@ export class Agent {
 		if (mode === 'none') return { result, echo: null };
 		if (!toolRegistry.get(name)?.mutatesSurface) return { result, echo: null };
 
-		const surfaces = this.#surfaceJson();
+		const declared = this.#declaredSurfaces();
+		const surfaces = declared.map((s) => s.getJson());
 		const context = this.#contextInstructions();
 		const actions = actionRegistry.listActions();
 
 		let extras: Record<string, unknown>;
-		if (mode === 'changed') {
-			const structure = structuralFingerprint(surfaces);
-			const dataModels = readDataModelsBySurface(surfaces);
+		if (mode === 'delta') {
+			const snapshots = this.#snapshotSurfaces(declared);
 			const elementIds = JSON.stringify(actions);
 			const prev = this.#echoBaseline;
 			extras = {};
-			if (!prev || structure !== prev.structure) {
-				// A value delta can't convey a component appearing/disappearing,
-				// so echo the full tree — the data-model values ride inside it.
-				extras.updatedSurface = surfaces;
-			} else {
-				const delta = diffDataModelsBySurface(prev.dataModels, dataModels);
-				// The model already knows the value it just wrote — but a click may
-				// have mutated OTHER fields too (a form reset). Report every change;
-				// the agent's own writes are a few bytes and double as confirmation.
-				if (Object.keys(delta).length > 0) extras.updatedDataModel = delta;
+			// No baseline (the first echo) ⇒ every surface diffs against nothing and
+			// comes back whole. The agent's own write is reported too: a click can
+			// mutate other components (a form reset, a recomputed total), and its
+			// own edit costs a few bytes and doubles as confirmation.
+			const diff = diffSurfaces(prev?.snapshots ?? new Map(), snapshots);
+			// `structural` stays behind — it schedules the watch loop, nothing more.
+			if (diff) {
+				extras.surfaceDelta = {
+					surfaces: diff.surfaces,
+					...(diff.removedSurfaces ? { removedSurfaces: diff.removedSurfaces } : {})
+				};
 			}
 			if (!prev || context !== prev.context) extras.updatedContext = context;
 			if (!prev || elementIds !== prev.elementIds) extras.availableElementIds = actions;
-			this.#echoBaseline = { structure, dataModels, context, elementIds };
+			this.#echoBaseline = { snapshots, context, elementIds };
 			if (Object.keys(extras).length === 0) return { result, echo: null };
 		} else {
 			extras = {
@@ -1340,10 +1335,9 @@ export class Agent {
 		if (watched.length === 0) return;
 
 		const now = Date.now();
-		const structure = this.#getStructuralSnapshot(watched);
-		const dataModels = this.#getDataModelSnapshot(watched);
+		const snapshots = this.#snapshotSurfaces(watched);
 		const ctx = this.#contextInstructions();
-		const observed = `${structure} ${this.#serializeDataModels(dataModels)} ${ctx}`;
+		const observed = `${snapshotFingerprint(snapshots)} ${ctx}`;
 
 		// Track when the observed state last moved, independent of delivery.
 		if (observed !== this.#lastSyncObservedSnapshot) {
@@ -1351,10 +1345,12 @@ export class Agent {
 			this.#lastSyncObservedChangeAt = now;
 		}
 
-		const structuralChanged = structure !== this.#lastDeliveredStructure;
+		const diff = diffSurfaces(this.#lastDeliveredSnapshots, snapshots);
 		const settled = now - this.#lastSyncObservedChangeAt >= this.#surfaceWatchTuning.settleMs;
-		if (structuralChanged || settled) {
-			this.#deliverSync(watched, structure, dataModels, ctx);
+		// A component appearing/disappearing is discrete, so it skips the settle
+		// window; an in-place value edit waits for it.
+		if (diff?.structural || settled) {
+			this.#deliverSync(snapshots, diff, ctx);
 		}
 	}
 
@@ -1370,51 +1366,66 @@ export class Agent {
 		if (this.capabilities.interruptible && this.modelTurnActive) return;
 		const watched = this.#watchedSurfaces();
 		if (watched.length === 0) return;
+		const snapshots = this.#snapshotSurfaces(watched);
 		this.#deliverSync(
-			watched,
-			this.#getStructuralSnapshot(watched),
-			this.#getDataModelSnapshot(watched),
+			snapshots,
+			diffSurfaces(this.#lastDeliveredSnapshots, snapshots),
 			this.#contextInstructions()
 		);
 	}
 
 	/**
-	 * Decide what (if anything) to deliver and do it:
-	 * - structure changed (navigation / component appeared/disappeared) → full
-	 *   surface re-sync (a value delta can't convey new structure);
-	 * - else only data-model and/or context changed → a data-model delta
-	 *   (changed `{ fieldId → value }` entries only).
+	 * Deliver the diff, in whichever wire shape describes it most cheaply:
+	 * `clientDataModel` when only values moved (the common case: the user
+	 * typed), `surfaceUpdated` when every watched surface is replaced at once
+	 * (navigation), `surfaceDelta` otherwise.
 	 */
 	#deliverSync(
-		watched: AgentSurface[],
-		structure: string,
-		dataModels: Map<string, Record<string, unknown>>,
+		snapshots: Map<string, SurfaceSnapshot>,
+		diff: SurfaceDelta | null,
 		ctx: string
 	): void {
-		if (structure !== this.#lastDeliveredStructure) {
-			this.#deliverFullSurface(watched, structure, dataModels, ctx);
+		const ctxChanged = ctx !== this.#lastDeliveredContext;
+		if (!diff) {
+			// Context can move on its own (a `contextInstructions` recompute).
+			if (ctxChanged) this.#deliverDataModelDelta({}, true, snapshots, ctx);
 			return;
 		}
-		const delta = this.#computeDataModelDelta(dataModels);
-		const ctxChanged = ctx !== this.#lastDeliveredContext;
-		if (Object.keys(delta).length === 0 && !ctxChanged) return;
-		this.#deliverDataModelDelta(delta, ctxChanged, structure, dataModels, ctx);
+
+		const valuesOnly = diff.surfaces.every(
+			(d) => !d.full && !d.changed && !d.removed && d.rootId === undefined
+		);
+		if (valuesOnly && !diff.removedSurfaces) {
+			const delta: Record<string, Record<string, unknown>> = {};
+			for (const d of diff.surfaces) if (d.dataModel) delta[d.surfaceId] = d.dataModel;
+			this.#deliverDataModelDelta(delta, ctxChanged, snapshots, ctx);
+			return;
+		}
+
+		// Every mounted surface is being replaced anyway — say so in the shape
+		// that already means "replace everything", rather than N full deltas.
+		const allFull =
+			diff.surfaces.length === snapshots.size &&
+			diff.surfaces.length > 0 &&
+			diff.surfaces.every((d) => d.full) &&
+			!diff.removedSurfaces;
+		if (allFull) {
+			this.#deliverFullSurface(snapshots, ctx);
+			return;
+		}
+
+		this.#deliverSurfaceDelta(diff, ctxChanged, snapshots, ctx);
 	}
 
 	/**
-	 * Structural change / navigation: send the full component tree (today's
-	 * `surfaceUpdated` payload), silently. The agent replaces its structural
-	 * understanding and learns the new element ids from it.
+	 * Every watched surface replaced at once (navigation): send the full
+	 * component trees, silently. The agent replaces its structural understanding
+	 * and learns the new element ids from it.
 	 */
-	#deliverFullSurface(
-		watched: AgentSurface[],
-		structure: string,
-		dataModels: Map<string, Record<string, unknown>>,
-		ctx: string
-	): void {
+	#deliverFullSurface(snapshots: Map<string, SurfaceSnapshot>, ctx: string): void {
 		const payload = wrapExtension(A2UI_EXTENSION_NAMESPACE, {
 			kind: 'surfaceUpdated',
-			updatedSurfaces: watched.map((s) => s.getJson()),
+			updatedSurfaces: Array.from(snapshots.values()).map((s) => s.json),
 			updatedContext: ctx,
 			availableElementIds: actionRegistry.listActions()
 		});
@@ -1422,7 +1433,34 @@ export class Agent {
 		if (this.#sendSilently(message)) {
 			// Structural re-sync ships the whole tree — the expensive sync path.
 			this.rec('context-update', message, 'full-surface');
-			this.#markSyncDelivered(structure, dataModels, ctx);
+			this.#markSyncDelivered(snapshots, ctx);
+		}
+	}
+
+	/**
+	 * Component-level change, sent silently. `availableElementIds` rides along
+	 * because a component appearing or disappearing changes what `click_button`
+	 * can target.
+	 */
+	#deliverSurfaceDelta(
+		diff: SurfaceDelta,
+		ctxChanged: boolean,
+		snapshots: Map<string, SurfaceSnapshot>,
+		ctx: string
+	): void {
+		const ext: Record<string, unknown> = {
+			kind: 'surfaceDelta',
+			delta: true,
+			surfaces: diff.surfaces,
+			...(diff.removedSurfaces ? { removedSurfaces: diff.removedSurfaces } : {}),
+			availableElementIds: actionRegistry.listActions()
+		};
+		if (ctxChanged) ext.updatedContext = ctx;
+		const payload = wrapExtension(A2UI_EXTENSION_NAMESPACE, ext);
+		const message = `<event>SURFACE_UPDATED</event>\n<payload>\n${this.#stringifyPayload(payload)}\n</payload>`;
+		if (this.#sendSilently(message)) {
+			this.rec('context-update', message, 'surface-delta');
+			this.#markSyncDelivered(snapshots, ctx);
 		}
 	}
 
@@ -1435,8 +1473,7 @@ export class Agent {
 	#deliverDataModelDelta(
 		delta: Record<string, Record<string, unknown>>,
 		ctxChanged: boolean,
-		structure: string,
-		dataModels: Map<string, Record<string, unknown>>,
+		snapshots: Map<string, SurfaceSnapshot>,
 		ctx: string
 	): void {
 		const ext: Record<string, unknown> = {
@@ -1451,7 +1488,7 @@ export class Agent {
 		if (this.#sendSilently(message)) {
 			// The cheap path: only the changed fields, not the tree.
 			this.rec('context-update', message, 'data-model-delta');
-			this.#markSyncDelivered(structure, dataModels, ctx);
+			this.#markSyncDelivered(snapshots, ctx);
 		}
 	}
 
@@ -1476,63 +1513,27 @@ export class Agent {
 	}
 
 	/**
-	 * Structural snapshot = the component tree with data-model *values* removed
-	 * (the static `dataModel` array / the dynamic `data` object), keyed by
-	 * surface id so navigation (the id set changing) is detected too. For
-	 * path-bound / `fieldName` inputs this is value-independent — typing changes
-	 * only the data model, not the structure — so the common case stays on the
-	 * cheap delta path. Inputs that inline their value in the tree fall back to
-	 * a full re-sync per keystroke (correct, just not economical).
+	 * Per-surface snapshot of the watched surfaces — what every sync delivery
+	 * diffs against. Keyed by surface id, so a surface mounting or unmounting is
+	 * a key appearing or disappearing rather than a shifted array index.
 	 */
-	#getStructuralSnapshot(watched: AgentSurface[]): string {
-		return JSON.stringify(
-			watched.map((s) => ({ id: s.id, structure: stripDataModel(s.getJson()) }))
-		);
-	}
-
-	/** Current `{ fieldId → value }` data model per watched surface. */
-	#getDataModelSnapshot(watched: AgentSurface[]): Map<string, Record<string, unknown>> {
-		const map = new Map<string, Record<string, unknown>>();
-		for (const s of watched) map.set(s.id, readDataModel(s));
-		return map;
-	}
-
-	#serializeDataModels(dataModels: Map<string, Record<string, unknown>>): string {
-		return JSON.stringify(Array.from(dataModels.entries()));
-	}
-
-	/**
-	 * Changed `{ fieldId → value }` entries per surface, vs the last-delivered
-	 * data model. Edits to the same field across a buffered window collapse to
-	 * its final value (latest wins); edits to different fields accumulate.
-	 * Cleared fields surface as `key: ""` (an empty TextField reads as ""), so
-	 * they're delivered, not silently dropped.
-	 */
-	#computeDataModelDelta(
-		current: Map<string, Record<string, unknown>>
-	): Record<string, Record<string, unknown>> {
-		const delta: Record<string, Record<string, unknown>> = {};
-		for (const [id, model] of current) {
-			const prev = this.#lastDeliveredDataModel.get(id) ?? {};
-			const surfaceDelta: Record<string, unknown> = {};
-			for (const [key, value] of Object.entries(model)) {
-				if (JSON.stringify(prev[key]) !== JSON.stringify(value)) surfaceDelta[key] = value;
-			}
-			if (Object.keys(surfaceDelta).length > 0) delta[id] = surfaceDelta;
-		}
-		return delta;
+	#snapshotSurfaces(watched: AgentSurface[]): Map<string, SurfaceSnapshot> {
+		const out = new Map<string, SurfaceSnapshot>();
+		watched.forEach((s, i) => {
+			// The handle's own id wins over the JSON's `surfaceId`, and its
+			// `getDataModel()` over the values derivable from the tree — a handle
+			// may hold values the serialized surface doesn't carry.
+			const id = s.id ?? String(i);
+			out.set(id, snapshotSurface(s.getJson(), id, readDataModel(s)));
+		});
+		return out;
 	}
 
 	/** Advance the sync baselines after a successful sync-mode delivery. */
-	#markSyncDelivered(
-		structure: string,
-		dataModels: Map<string, Record<string, unknown>>,
-		ctx: string
-	): void {
-		this.#lastDeliveredStructure = structure;
-		this.#lastDeliveredDataModel = dataModels;
+	#markSyncDelivered(snapshots: Map<string, SurfaceSnapshot>, ctx: string): void {
+		this.#lastDeliveredSnapshots = snapshots;
 		this.#lastDeliveredContext = ctx;
-		this.#lastSyncObservedSnapshot = `${structure} ${this.#serializeDataModels(dataModels)} ${ctx}`;
+		this.#lastSyncObservedSnapshot = `${snapshotFingerprint(snapshots)} ${ctx}`;
 		this.#lastSyncObservedChangeAt = Date.now();
 	}
 
@@ -1548,11 +1549,7 @@ export class Agent {
 		// Proactive baselines.
 		this.#markDelivered(this.#getSurfaceSnapshot(), ctx, this.#getSurfaceIds());
 		// Sync baselines.
-		this.#markSyncDelivered(
-			this.#getStructuralSnapshot(watched),
-			this.#getDataModelSnapshot(watched),
-			ctx
-		);
+		this.#markSyncDelivered(this.#snapshotSurfaces(watched), ctx);
 	}
 
 	// ===== Proactive mode =====

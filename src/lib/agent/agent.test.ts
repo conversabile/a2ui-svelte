@@ -585,7 +585,7 @@ describe("Agent with a neutral mock model", () => {
       await agent.stop();
     });
 
-    it("sends a full surfaceUpdated re-sync when the structure changes (navigation)", async () => {
+    it("sends only the new component when one appears, not the whole tree", async () => {
       const { state, model, agent } = syncSetup(NO_POLL);
       await agent.start();
       flushSync();
@@ -597,6 +597,51 @@ describe("Agent with a neutral mock model", () => {
         components: [{ id: "b", component: { Button: {} } }] as unknown[],
       };
       const turn = agent.send("what changed?");
+      flushSync();
+
+      expect(model.contextUpdates.length).toBe(1);
+      const ext = lastSilentExt(model);
+      expect(ext.kind).toBe("surfaceDelta");
+      expect(ext.surfaces).toEqual([
+        {
+          surfaceId: "main",
+          changed: [{ id: "b", component: { Button: {} } }],
+        },
+      ]);
+      // A component appearing changes what click_button can target.
+      expect(Array.isArray(ext.availableElementIds)).toBe(true);
+
+      model.emit("turn-complete", {});
+      await turn;
+      await agent.stop();
+    });
+
+    it("falls back to a full surfaceUpdated re-sync when a route change replaces the tree", async () => {
+      const { state, model, agent } = syncSetup(NO_POLL);
+      state.struct = {
+        surfaceId: "main",
+        rootId: "root",
+        components: [
+          { id: "old-header", component: { Text: { text: "Planning" } } },
+          { id: "old-save", component: { Button: { child: "old-label" } } },
+          { id: "old-label", component: { Text: { text: "Save shifts" } } },
+        ] as unknown[],
+      };
+      await agent.start();
+      flushSync();
+
+      // Navigation: every component is replaced, so a delta would cost more
+      // than the tree it describes.
+      state.struct = {
+        surfaceId: "main",
+        rootId: "root",
+        components: [
+          { id: "menu-header", component: { Text: { text: "Menu" } } },
+          { id: "menu-add", component: { Button: { child: "menu-label" } } },
+          { id: "menu-label", component: { Text: { text: "Add a dish" } } },
+        ] as unknown[],
+      };
+      const turn = agent.send("where am I?");
       flushSync();
 
       expect(model.contextUpdates.length).toBe(1);

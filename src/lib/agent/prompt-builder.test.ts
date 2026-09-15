@@ -42,20 +42,31 @@ describe('prompt-builder', () => {
 		expect(out).toContain('"main"');
 	});
 
-	it('teaches the agent both SURFACE_UPDATED extension envelope wire formats', () => {
+	it('teaches the agent all three SURFACE_UPDATED extension envelope wire formats', () => {
 		const out = staticSurfacesBlock([
 			{ id: 'main', getJson: () => ({}) }
 		]);
-		expect(out).toContain("a2ui-svelte");
-		// Data-model delta (the common case).
-		expect(out).toContain('"clientDataModel"');
-		expect(out).toContain('"surfaces"');
-		expect(out).toContain('Only CHANGED fields are included');
-		// Full re-sync on structural change.
-		expect(out).toContain('"surfaceUpdated"');
-		expect(out).toContain('"updatedSurfaces"');
-		expect(out).toContain('"availableElementIds"');
-		expect(out).toContain('kind');
+		expect(out).toContain('a2ui-svelte');
+		// All three kinds are named, and each says how to APPLY it — the shape
+		// itself is not restated, because the agent receives the payload.
+		expect(out).toContain('clientDataModel');
+		expect(out).toContain('CHANGED field values only');
+		expect(out).toContain('surfaceDelta');
+		expect(out).toContain('upsert each `changed` entry by its `id`');
+		expect(out).toContain('drop every id in `removed`');
+		expect(out).toContain('Anything not mentioned is unchanged');
+		expect(out).toContain('surfaceUpdated');
+		expect(out).toContain('updatedSurfaces');
+		expect(out).toContain('availableElementIds');
+	});
+
+	it('states the surface-update rules without restating the payload shape', () => {
+		const out = staticSurfacesBlock([{ id: 'main', getJson: () => ({}) }]);
+		// No JSON scaffolding for payloads the agent already receives in full:
+		// every extra token in the system prompt is paid for on every request.
+		expect(out).not.toContain('"a2ui-svelte": {');
+		expect(out).not.toContain('"<fieldId>": "<value>"');
+		expect(out).not.toContain('{ "id": "...", "component"');
 	});
 
 	it('emits the dynamic mini-spec when includeGuide is true even with no surfaces', () => {
@@ -235,12 +246,16 @@ describe('prompt-builder', () => {
 			expect(out).not.toContain('SURFACE UPDATES');
 		});
 
-		it("toolResultSurfaceEcho 'changed': teaches the changed-only envelope instead of the full echo", () => {
-			configureExtensions({ toolResultSurfaceEcho: 'changed' });
+		it("toolResultSurfaceEcho 'delta': teaches the diff envelope instead of the full echo", () => {
+			configureExtensions({ toolResultSurfaceEcho: 'delta' });
 			const out = staticSurfacesBlock([{ id: 'main', getJson: () => ({}) }]);
-			expect(out).toContain('TOOL-RESULT ENVELOPE (changed-only)');
-			expect(out).toContain('updatedDataModel');
-			expect(out).toContain('present ONLY when the component STRUCTURE changed');
+			expect(out).toContain('TOOL-RESULT ENVELOPE (delta)');
+			expect(out).toContain('surfaceDelta');
+			// The merge rule the delta depends on is spelled out — it is the only
+			// part the payload itself cannot convey.
+			expect(out).toContain('upsert each `changed` entry by its `id`');
+			expect(out).toContain('drop every id in `removed`');
+			expect(out).toContain('Anything not mentioned is unchanged');
 			// The full-echo guidance must NOT also be present.
 			expect(out).not.toContain('The original static-surface JSON shown at session start is stale');
 		});
