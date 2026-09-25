@@ -242,6 +242,12 @@ export class Agent {
 	 */
 	muted = $state(false);
 	/**
+	 * True while the agent's speech is playing, until its last queued chunk
+	 * ends (audio-output models only). Playback runs behind the transcript,
+	 * which arrives faster than real time.
+	 */
+	speaking = $state(false);
+	/**
 	 * Live token/byte telemetry for the session — outbound payload sizes the
 	 * agent sends (system prompt, tool results, context syncs, audio) plus the
 	 * provider's authoritative usage reports. Reactive; bind a debug box to it
@@ -666,7 +672,7 @@ export class Agent {
 	 */
 	async #startAudio(): Promise<void> {
 		if (this.capabilities.output.includes('audio')) {
-			this.#player = new AudioPlayer(24000);
+			this.#player = new AudioPlayer(24000, (playing) => (this.speaking = playing));
 		}
 		if (!this.capabilities.input.includes('audio')) return;
 		if (typeof this.#model.sendAudioChunk !== 'function') {

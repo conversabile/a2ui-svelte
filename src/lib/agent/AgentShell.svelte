@@ -11,7 +11,10 @@
 		agent: Agent;
 		/** Render no UI — the owner provides their own. The agent lifecycle is still the consumer's. */
 		headless?: boolean;
-		/** Replace the message list. Receives the live transcript + a `sendText` helper. */
+		/**
+		 * Replace the message list (transcript panel and subtitles). Receives the
+		 * live transcript + a `sendText` helper.
+		 */
 		messages?: Snippet<
 			[
 				{
@@ -53,18 +56,32 @@
 		>;
 		/** Replace the status badge. */
 		status?: Snippet<[{ status: AgentStatus }]>;
-		/** Replace the controls row (reset + chat toggle + debug toggle). */
+		/** Replace the controls row (reset + chat, subtitles and debug toggles). */
 		controls?: Snippet<
 			[
 				{
 					resetConversation: () => void;
 					toggleChat: () => void;
 					isChatOpen: boolean;
+					toggleSubtitles: () => void;
+					subtitles: boolean;
 					toggleDebug: () => void;
 					isDebugOpen: boolean;
 				}
 			]
 		>;
+		/**
+		 * Show the agent's latest reply as a subtitle over the app, above the
+		 * bar, while the chat panel is closed. A captions button in the bar
+		 * toggles it. Bindable. On by default.
+		 */
+		subtitles?: boolean;
+		/**
+		 * How long (ms) a subtitle stays after its text stops changing or the
+		 * agent stops speaking. A longer reply stays for its reading time
+		 * (15 characters per second from when it appeared). Default 2000.
+		 */
+		subtitleDuration?: number;
 		/**
 		 * Enable the debug view. A chart-icon button in the controls toggles it;
 		 * when open it shows the token/byte stats box at the top of the shell
@@ -89,6 +106,8 @@
 		mic,
 		status,
 		controls,
+		subtitles = $bindable(true),
+		subtitleDuration = 2000,
 		debug = false
 	}: Props = $props();
 
@@ -120,6 +139,10 @@
 
 	function toggleChat() {
 		isChatOpen = !isChatOpen;
+	}
+
+	function toggleSubtitles() {
+		subtitles = !subtitles;
 	}
 
 	function toggleDebug() {
@@ -173,25 +196,63 @@
 		return marked.parse(text, { async: false }) as string;
 	}
 
+	// Subtitles keep emphasis and code but no blocks; line breaks come from
+	// `white-space: pre-line`.
+	function renderInlineMarkdown(text: string): string {
+		return marked.parseInline(text, { async: false }) as string;
+	}
+
 	const statusBadge = $derived(
 		agent.status === 'thinking' || agent.status === 'error' ? agent.status : null
 	);
 
-	// The "peek": the latest exchange (last user + agent turn) shown as bare
-	// balloons above the input when the full panel is collapsed, so a response
-	// never covers the app.
-	const peekEntries = $derived(agent.transcript.slice(-2));
-
-	// The user can dismiss the peek with its [x]. We re-show it whenever a new
-	// turn lands (transcript grows), so the dismissal only hides the *current*
-	// exchange. `lastTranscriptLen` is intentionally non-reactive — the effect
-	// reads it but mustn't re-run on its own write.
-	let peekDismissed = $state(false);
-	let lastTranscriptLen = 0;
+	// Subtitle: the agent's latest reply. It shows while the text changes or
+	// the agent speaks, and hides at the latest of: `subtitleDuration` after the
+	// last change or the end of speech, and its reading time from when it
+	// appeared. A user turn does not replace it — the reply times out as usual.
+	const READING_CHARS_PER_SECOND = 15;
+	let subtitle = $state<string | null>(null);
+	// Hide-timer bookkeeping, owned by the effect below. Non-reactive: the
+	// effect reads and writes it without re-running on its own writes.
+	let subtitleEntry = -1;
+	let subtitleText = '';
+	let subtitleShownAt = 0;
+	let subtitleHideAt = 0;
+	let wasSpeaking = false;
 	$effect(() => {
-		const len = agent.transcript.length;
-		if (len > lastTranscriptLen) peekDismissed = false;
-		lastTranscriptLen = len;
+		const i = agent.transcript.length - 1;
+		const last = agent.transcript[i];
+		const speaking = agent.speaking;
+		const now = Date.now();
+		if (!last) {
+			// Empty transcript: nothing said yet, or the conversation was reset.
+			subtitle = null;
+			subtitleEntry = -1;
+			subtitleHideAt = 0;
+			return;
+		}
+		if (last.role === 'model' && (i !== subtitleEntry || last.text !== subtitleText)) {
+			if (i !== subtitleEntry) subtitleShownAt = now;
+			subtitleEntry = i;
+			subtitleText = last.text;
+			subtitle = last.text;
+			const readingMs = (last.text.length / READING_CHARS_PER_SECOND) * 1000;
+			subtitleHideAt = Math.max(subtitleShownAt + readingMs, now + subtitleDuration);
+		}
+		if (speaking) {
+			wasSpeaking = true;
+			return;
+		}
+		if (wasSpeaking && subtitleHideAt) {
+			subtitleHideAt = Math.max(subtitleHideAt, now + subtitleDuration);
+		}
+		wasSpeaking = false;
+		if (!subtitleHideAt) return;
+		const timer = setTimeout(() => {
+			subtitle = null;
+			subtitleHideAt = 0;
+		}, subtitleHideAt - now);
+		return () => clearTimeout(timer);
 	});
 </script>
 
@@ -251,38 +312,13 @@
 					</div>
 				</div>
 			</div>
-		{:else if agent.hasStarted && peekEntries.length > 0 && !peekDismissed}
-			<div class="peek">
-				<button
-					class="peek-close"
-					onclick={() => (peekDismissed = true)}
-					aria-label="Dismiss latest messages"
-					title="Dismiss"
-				>
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						width="16"
-						height="16"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					>
-						<path d="M18 6 6 18" />
-						<path d="m6 6 12 12" />
-					</svg>
-				</button>
-				{#each peekEntries as message}
-					<div class="message {message.role}">
-						{#if message.role === 'model'}
-							<span class="md">{@html renderMarkdown(message.text)}</span>
-						{:else}
-							{message.text}
-						{/if}
-					</div>
-				{/each}
+		{:else if subtitles && subtitle}
+			<!-- Overlays the app above the bar: it never changes the bar's height
+			     and lets clicks through to the page. -->
+			<div class="subtitle-track">
+				<p class="subtitle">
+					<span class="subtitle-text">{@html renderInlineMarkdown(subtitle)}</span>
+				</p>
 			</div>
 		{/if}
 
@@ -293,6 +329,8 @@
 						resetConversation: handleReset,
 						toggleChat,
 						isChatOpen,
+						toggleSubtitles,
+						subtitles,
 						toggleDebug,
 						isDebugOpen
 					})}
@@ -510,6 +548,29 @@
 				{/if}
 				{#if !controls && agent.hasStarted}
 					<button
+						class="subtitles-toggle-btn outline secondary"
+						class:active={subtitles}
+						onclick={toggleSubtitles}
+						aria-label="Toggle subtitles"
+						aria-pressed={subtitles}
+						title="Toggle subtitles"
+					>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="20"
+							height="20"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<rect width="18" height="14" x="3" y="5" rx="2" ry="2" />
+							<path d="M7 15h4M15 15h2M7 11h2M13 11h4" />
+						</svg>
+					</button>
+					<button
 						class="expand-btn outline secondary"
 						onclick={toggleChat}
 						aria-label={isChatOpen ? 'Collapse Chat' : 'Expand Chat'}
@@ -576,51 +637,60 @@
 		border-bottom: 1px solid var(--a2ui-shell-border, var(--pico-muted-border-color));
 	}
 
-	/* The compact peek: balloons on a semi-transparent panel (the app shows through
-	   behind it), showing just the latest exchange above the input. Caps its own
-	   height and scrolls so a long turn never grows the bar off-screen. */
-	.peek {
-		position: relative;
+	/* Film-style subtitle: centred lines on their own background, over the app
+	   just above the bar. Caps its height and keeps the newest lines visible, so
+	   a long reply never climbs up the page. */
+	.subtitle-track {
+		position: absolute;
+		bottom: 100%;
+		left: 0;
+		right: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
-		/* Symmetric side gutters leave room for the dismiss [x] at top-right so it
-		   never overlaps the right-aligned user balloon. */
-		padding: 0.75rem 1.75rem;
+		justify-content: flex-end;
 		max-width: 800px;
+		max-height: 30vh;
 		margin: 0 auto;
-		max-height: 40vh;
-		overflow-y: auto;
+		padding: 0 1rem 0.75rem;
+		overflow: hidden;
+		pointer-events: none;
+		animation: subtitle-in 0.15s ease-out;
+	}
+
+	.subtitle {
+		margin: 0;
+		text-align: center;
+		font-size: 1.1rem;
+		line-height: 1.6;
+		white-space: pre-line;
+		overflow-wrap: anywhere;
+	}
+
+	/* Inline, so the background wraps each line rather than one block. */
+	.subtitle-text {
+		padding: 0.15em 0.5em;
 		border-radius: var(--pico-border-radius);
-		background: var(
-			--a2ui-shell-peek-bg,
-			color-mix(in srgb, var(--a2ui-shell-bg, var(--pico-card-background-color)) 75%, transparent)
-		);
-		backdrop-filter: blur(4px);
+		background: var(--a2ui-shell-subtitle-bg);
+		color: var(--a2ui-shell-subtitle-fg);
+		box-decoration-break: clone;
+		-webkit-box-decoration-break: clone;
 	}
 
-	/* Small dismiss [x] pinned to the peek's top-right corner. */
-	.peek-close {
-		position: absolute;
-		top: 0.25rem;
-		right: 0.25rem;
-		width: 24px;
-		height: 24px;
-		padding: 0;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border: none;
-		border-radius: 50%;
-		background: transparent;
-		color: var(--pico-muted-color);
-		cursor: pointer;
-		opacity: 0.7;
+	.subtitle-text :global(*) {
+		color: inherit;
 	}
 
-	.peek-close:hover {
-		opacity: 1;
-		background: color-mix(in srgb, currentColor 12%, transparent);
+	.subtitle-text :global(code) {
+		background: color-mix(in srgb, currentColor 15%, transparent);
+		padding: 0 0.3em;
+		border-radius: 4px;
+		font-size: 0.9em;
+	}
+
+	@keyframes subtitle-in {
+		from {
+			opacity: 0;
+		}
 	}
 
 	.chat-container {
@@ -912,6 +982,7 @@
 
 	.reset-convo-btn,
 	.expand-btn,
+	.subtitles-toggle-btn,
 	.debug-toggle-btn {
 		width: 40px;
 		height: 40px;
@@ -925,12 +996,15 @@
 	}
 
 	.expand-btn svg,
+	.subtitles-toggle-btn svg,
 	.debug-toggle-btn svg {
 		width: 20px;
 		height: 20px;
 	}
 
-	/* Active = stats box open. Drop the outline for a filled, "pressed" look. */
+	/* Active = subtitles on / stats box open. Drop the outline for a filled,
+	   "pressed" look. */
+	.subtitles-toggle-btn.active,
 	.debug-toggle-btn.active {
 		background: var(--a2ui-shell-accent-bg);
 		color: var(--a2ui-shell-accent-fg);

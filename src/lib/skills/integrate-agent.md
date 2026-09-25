@@ -164,8 +164,9 @@ voice ↔ text ↔ scripted-test without touching anything else.
 <AgentShell {agent} debug="auto" />
 ```
 
-One shell for every model: chat bar, transcript peek/panel, status,
-reset and debug controls. When `agent.capabilities.input` includes
+One shell for every model: chat bar, subtitles of the agent's latest
+reply (captions button; `subtitles={false}` starts them off), transcript
+panel, status, reset and debug controls. When `agent.capabilities.input` includes
 `'audio'`, a mic button (session toggle) and a mute button join the bar
 automatically. Typing lazy-starts the session on any model.
 
@@ -191,7 +192,7 @@ For a headless setup (custom UI):
 {/each}
 ```
 
-`agent.connected`, `agent.recording`, `agent.muted`, `agent.status`,
+`agent.connected`, `agent.recording`, `agent.muted`, `agent.speaking`, `agent.status`,
 `agent.transcript`, `agent.hasStarted`, `agent.configIssue` are all
 `$state` — bind freely. `agent.capabilities` tells you what the
 model can do.

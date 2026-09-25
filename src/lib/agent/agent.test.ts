@@ -27,7 +27,11 @@ const recorderHolder = vi.hoisted(() => ({ last: null as EventTarget | null }));
 const playerHolder = vi.hoisted(
   () =>
     ({ last: null }) as {
-      last: { stop: ReturnType<typeof vi.fn>; addToQueue: ReturnType<typeof vi.fn> } | null;
+      last: {
+        stop: ReturnType<typeof vi.fn>;
+        addToQueue: ReturnType<typeof vi.fn>;
+        onPlayingChange?: (playing: boolean) => void;
+      } | null;
     },
 );
 vi.mock("./audio-recorder", () => ({
@@ -44,7 +48,10 @@ vi.mock("./audio-player", () => ({
   AudioPlayer: class {
     stop = vi.fn();
     addToQueue = vi.fn();
-    constructor(_: number) {
+    constructor(
+      _: number,
+      public onPlayingChange?: (playing: boolean) => void,
+    ) {
       playerHolder.last = this;
     }
   },
@@ -2153,6 +2160,22 @@ describe("Agent audio surface (capability-gated)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("reports speaking while the player plays audio", async () => {
+    const agent = new Agent(
+      { instructions: "persona", surfaces: () => [] },
+      new MockAudioModel(),
+    );
+
+    await agent.start();
+    expect(agent.speaking).toBe(false);
+    playerHolder.last!.onPlayingChange!(true);
+    expect(agent.speaking).toBe(true);
+    playerHolder.last!.onPlayingChange!(false);
+    expect(agent.speaking).toBe(false);
+
+    await agent.stop();
   });
 
   it("on interruption stops playback and returns to 'thinking'", async () => {

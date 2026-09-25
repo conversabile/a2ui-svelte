@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { flushSync } from 'svelte';
 import { render, fireEvent } from '@testing-library/svelte';
 import AgentShell from './AgentShell.svelte';
 import { Agent } from './agent.svelte';
@@ -12,7 +13,8 @@ import type {
 } from './model';
 
 // ScriptedModel defers its emits to a microtask; a macrotask hop settles it.
-const flush = () => new Promise((r) => setTimeout(r, 0));
+const flush = () =>
+	vi.isFakeTimers() ? vi.advanceTimersByTimeAsync(0) : new Promise((r) => setTimeout(r, 0));
 
 function makeAgent(reactions: ConstructorParameters<typeof ScriptedModel>[0]): Agent {
 	return new Agent(
@@ -66,6 +68,7 @@ describe('AgentShell', () => {
 		const { container, findByText } = render(AgentShell, { agent });
 
 		await sendMessage(container, 'hello');
+		await fireEvent.click(container.querySelector('.expand-btn') as HTMLButtonElement);
 
 		// The user's message reached the agent (and the surface) …
 		expect(agent.transcript).toContainEqual({ role: 'user', text: 'hello' });
@@ -106,49 +109,107 @@ describe('AgentShell', () => {
 		expect(container.querySelector('.mute-button')).toBeNull();
 	});
 
-	it('surfaces the latest exchange as a peek without opening the full panel', async () => {
-		const agent = makeAgent([{ on: 'hello', text: 'Hi there.' }]);
-		const { container } = render(AgentShell, { agent });
+	describe('subtitles', () => {
+		afterEach(() => {
+			vi.useRealTimers();
+		});
 
-		// Nothing above the input bar at first — no peek, no full transcript box.
-		expect(container.querySelector('.peek')).toBeNull();
-		expect(container.querySelector('.transcript')).toBeNull();
+		const subtitle = (c: HTMLElement) => c.querySelector('.subtitle')?.textContent ?? null;
 
-		await sendMessage(container, 'hello');
+		it('shows only the agent reply, over the app, until subtitleDuration passes', async () => {
+			vi.useFakeTimers();
+			const agent = makeAgent([{ on: 'hello', text: 'Hi there.' }]);
+			const { container } = render(AgentShell, { agent, subtitleDuration: 1000 });
 
-		// Sending shows the compact peek (last user + agent turn) above the input …
-		const peek = container.querySelector('.peek');
-		expect(peek).not.toBeNull();
-		expect(peek?.textContent).toContain('hello');
-		expect(peek?.textContent).toContain('Hi there.');
-		// … but does NOT open the full transcript panel, which would cover the app.
-		expect(container.querySelector('.transcript')).toBeNull();
+			expect(subtitle(container)).toBeNull();
+			await sendMessage(container, 'hello');
 
-		await agent.stop();
-	});
+			expect(subtitle(container)).toBe('Hi there.');
+			// The user's own turn is not subtitled, and the panel stays closed.
+			expect(container.textContent).not.toContain('hello');
+			expect(container.querySelector('.transcript')).toBeNull();
 
-	it('dismisses the peek with its [x], and re-shows it on the next turn', async () => {
-		const agent = makeAgent([
-			{ on: 'hello', text: 'Hi there.' },
-			{ on: 'again', text: 'Hello once more.' }
-		]);
-		const { container } = render(AgentShell, { agent });
+			await vi.advanceTimersByTimeAsync(990);
+			flushSync();
+			expect(subtitle(container)).toBe('Hi there.');
+			await vi.advanceTimersByTimeAsync(20);
+			flushSync();
+			expect(subtitle(container)).toBeNull();
 
-		await sendMessage(container, 'hello');
-		expect(container.querySelector('.peek')).not.toBeNull();
+			await agent.stop();
+		});
 
-		// Closing hides the current exchange …
-		const close = container.querySelector('.peek-close') as HTMLButtonElement;
-		await fireEvent.click(close);
-		expect(container.querySelector('.peek')).toBeNull();
+		it('keeps a long reply for its reading time', async () => {
+			vi.useFakeTimers();
+			const reply = 'x'.repeat(60); // 4 s at 15 characters per second
+			const agent = makeAgent([{ on: 'hello', text: reply }]);
+			const { container } = render(AgentShell, { agent, subtitleDuration: 1000 });
 
-		// … but a fresh turn brings the peek back.
-		await sendMessage(container, 'again');
-		const peek = container.querySelector('.peek');
-		expect(peek).not.toBeNull();
-		expect(peek?.textContent).toContain('Hello once more.');
+			await sendMessage(container, 'hello');
+			await vi.advanceTimersByTimeAsync(3900);
+			flushSync();
+			expect(subtitle(container)).toBe(reply);
+			await vi.advanceTimersByTimeAsync(200);
+			flushSync();
+			expect(subtitle(container)).toBeNull();
 
-		await agent.stop();
+			await agent.stop();
+		});
+
+		it('stays while the agent speaks, then for subtitleDuration after', async () => {
+			vi.useFakeTimers();
+			const agent = makeAgent([{ on: 'hello', text: 'Hi there.' }]);
+			const { container } = render(AgentShell, { agent, subtitleDuration: 1000 });
+
+			await sendMessage(container, 'hello');
+			agent.speaking = true;
+			await vi.advanceTimersByTimeAsync(5000);
+			flushSync();
+			expect(subtitle(container)).toBe('Hi there.');
+
+			agent.speaking = false;
+			await vi.advanceTimersByTimeAsync(990);
+			flushSync();
+			expect(subtitle(container)).toBe('Hi there.');
+			await vi.advanceTimersByTimeAsync(20);
+			flushSync();
+			expect(subtitle(container)).toBeNull();
+
+			await agent.stop();
+		});
+
+		it('are toggled by the captions button, and can start off', async () => {
+			const agent = makeAgent([
+				{ on: 'hello', text: 'Hi there.' },
+				{ on: 'again', text: 'Hello once more.' }
+			]);
+			const { container } = render(AgentShell, { agent, subtitles: false });
+
+			await sendMessage(container, 'hello');
+			expect(subtitle(container)).toBeNull();
+
+			const toggle = container.querySelector('.subtitles-toggle-btn') as HTMLButtonElement;
+			expect(toggle.getAttribute('aria-pressed')).toBe('false');
+			await fireEvent.click(toggle);
+			expect(toggle.getAttribute('aria-pressed')).toBe('true');
+
+			await sendMessage(container, 'again');
+			expect(subtitle(container)).toBe('Hello once more.');
+
+			await agent.stop();
+		});
+
+		it('are hidden while the chat panel is open', async () => {
+			const agent = makeAgent([{ on: 'hello', text: 'Hi there.' }]);
+			const { container } = render(AgentShell, { agent });
+
+			await sendMessage(container, 'hello');
+			expect(subtitle(container)).toBe('Hi there.');
+			await fireEvent.click(container.querySelector('.expand-btn') as HTMLButtonElement);
+			expect(subtitle(container)).toBeNull();
+
+			await agent.stop();
+		});
 	});
 
 	it('expands the full transcript panel only when the user toggles it', async () => {
@@ -158,11 +219,10 @@ describe('AgentShell', () => {
 		await sendMessage(container, 'hello');
 		expect(container.querySelector('.transcript')).toBeNull();
 
-		// Clicking the expand control reveals the full transcript and hides the peek.
+		// Clicking the expand control reveals the full transcript.
 		const expandBtn = container.querySelector('.expand-btn') as HTMLButtonElement;
 		await fireEvent.click(expandBtn);
 		expect(container.querySelector('.transcript')).not.toBeNull();
-		expect(container.querySelector('.peek')).toBeNull();
 
 		await agent.stop();
 	});
@@ -223,6 +283,7 @@ describe('AgentShell', () => {
 		const { container } = render(AgentShell, { agent });
 
 		await sendMessage(container, 'hello');
+		await fireEvent.click(container.querySelector('.expand-btn') as HTMLButtonElement);
 
 		// The agent's `**world**` became real emphasis markup (inside the rendered
 		// `.md` body — not the "Agent:" role label, which is also a <strong>) …

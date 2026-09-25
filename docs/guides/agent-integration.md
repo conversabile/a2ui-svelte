@@ -314,6 +314,7 @@ conversation:
 | `connected`      | `boolean`                                             |
 | `recording`      | `boolean` — mic capturing (audio models only)     |
 | `muted`          | `boolean` — mic muted while the session stays open    |
+| `speaking`       | `boolean` — agent speech playing (audio models only) |
 | `status`         | `'idle' | 'thinking' | 'error'`                       |
 | `transcript`     | `Array<{ role: 'user' | 'model', text: string }>`     |
 | `hasStarted`     | `boolean`                                             |
@@ -541,9 +542,9 @@ mount only the one currently on screen.
 <AgentShell {agent} />
 ```
 
-One shell for every model: a chat bar (text input + send), a compact
-"peek" of the latest exchange, an expandable transcript panel, status
-badge, reset and debug controls. When `agent.capabilities.input`
+One shell for every model: a chat bar (text input + send), subtitles of
+the agent's latest reply, an expandable transcript panel, status badge,
+reset and debug controls. When `agent.capabilities.input`
 includes `'audio'`, a mic button (session toggle) and a mute button join
 the bar — same shell, one extra cluster. Typing lazy-starts the session
 on any model; on audio models the mic button is the explicit
@@ -560,8 +561,22 @@ can opt out of any of them while keeping the rest:
 | `input`      | `{ sendText, connected, status }`                                       |
 | `mic`        | `{ connected, status, toggle, muted, toggleMute }` — only rendered on audio-input models |
 | `status`     | `{ status }`                                                            |
-| `controls`   | `{ resetConversation, toggleChat, isChatOpen, toggleDebug, isDebugOpen }` |
+| `controls`   | `{ resetConversation, toggleChat, isChatOpen, toggleSubtitles, subtitles, toggleDebug, isDebugOpen }` |
 | `debug`      | `{ debug }` — see [Debugging a session](#debugging-a-session)       |
+
+### Subtitles
+
+While the transcript panel is closed, the agent's latest reply appears
+over the app above the bar, like a film subtitle. User turns are not
+shown. The subtitle stays while the text changes or the agent speaks
+(`agent.speaking`), then hides at the latest of `subtitleDuration`
+(default 2000 ms) after that and its reading time (15 characters per
+second from when it appeared). A captions button in the bar toggles
+subtitles; `subtitles` (bindable, default `true`) sets the initial state.
+
+```svelte
+<AgentShell {agent} bind:subtitles subtitleDuration={3000} />
+```
 
 Or skip the UI entirely with `headless={true}` and render your own
 bound to the agent's `$state` fields. `debug` doubles as a prop:

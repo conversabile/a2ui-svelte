@@ -47,6 +47,8 @@ literal when Pico isn't loaded.
 | `--a2ui-shell-accent-bg`       | `--a2ui-button-primary-bg`               | `<AgentShell>` accent (mic, bubbles, status) |
 | `--a2ui-shell-accent-fg`       | `--a2ui-button-primary-fg`               | `<AgentShell>` accent text     |
 | `--a2ui-shell-glow`            | accent @ 45% alpha                       | `<AgentShell>` active glow     |
+| `--a2ui-shell-subtitle-bg`     | `--pico-contrast-background` @ 85% alpha | `<AgentShell>` subtitle background |
+| `--a2ui-shell-subtitle-fg`     | `--pico-contrast-inverse`                | `<AgentShell>` subtitle text   |
 | `--a2ui-shell-border-active`   | `--a2ui-shell-accent-bg`                 | `<AgentShell>` active border   |
 | `--a2ui-shell-left`            | `0`                                      | `<AgentShell>` left inset (e.g. for a sidebar layout) |
 | `--a2ui-shell-right`           | `0`                                      | `<AgentShell>` right inset      |

@@ -31,11 +31,9 @@
 
 	--a2ui-glow-color: var(--pico-primary-focus, rgba(16, 149, 193, 0.4));
 
-	/* Base surface of the agent/voice shells (control bar, and the translucent
-	   peek panel mixes from it). Pico only defines --pico-card-background-color
-	   under [data-theme], so a theme-less app would leave the shell background
-	   unset — and the peek's color-mix would collapse to an invalid value and be
-	   dropped. The plain #fff fallback keeps both solid/visible regardless. */
+	/* Base surface of the agent shell's control bar. Pico only defines
+	   --pico-card-background-color under [data-theme], so a theme-less app would
+	   leave the shell background unset; the plain #fff fallback keeps it solid. */
 	--a2ui-shell-bg: var(--pico-card-background-color, #fff);
 
 	/* Agent shell accent — the "active" colour of <AgentShell> (mic button, chat
@@ -52,6 +50,16 @@
 	   dark-on-dark. The fallbacks (#5d6b89 / #fff) keep it readable regardless. */
 	--a2ui-shell-bubble-bg: var(--a2ui-button-secondary-bg);
 	--a2ui-shell-bubble-fg: var(--a2ui-button-secondary-fg);
+
+	/* Shell subtitle (the agent's latest reply over the app). Pico's contrast
+	   pair, so it stands out from the page: dark on a light theme, light on a
+	   dark one. */
+	--a2ui-shell-subtitle-bg: color-mix(
+		in srgb,
+		var(--pico-contrast-background, #181c25) 85%,
+		transparent
+	);
+	--a2ui-shell-subtitle-fg: var(--pico-contrast-inverse, #fff);
 
 	/* Turn-latency timeline (<AgentShell debug>). A development panel, so it
 	   defaults to neutral, low-contrast surfaces mixed from the current text

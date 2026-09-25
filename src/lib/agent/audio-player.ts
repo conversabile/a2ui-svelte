@@ -12,7 +12,13 @@ export class AudioPlayer {
     private chunkBuffer: Float32Array[] = [];
     private bufferThreshold = 4; // Number of chunks to hold before starting
 
-    constructor(sampleRate: number = 24000) {
+    // True from the first scheduled chunk until the last one ends (or stop()).
+    private playing = false;
+
+    constructor(
+        sampleRate: number = 24000,
+        private onPlayingChange?: (playing: boolean) => void
+    ) {
         this.sampleRate = sampleRate;
         // Don't force sampleRate on the AudioContext — let the browser use its
         // native hardware rate.  createBuffer() already tags each buffer with
@@ -84,6 +90,7 @@ export class AudioPlayer {
 
         source.start(this.nextStartTime);
         this.scheduledSources.push(source);
+        this.setPlaying(true);
 
         // Increment next start time by the exact duration of the buffer
         this.nextStartTime += audioBuffer.duration;
@@ -93,10 +100,17 @@ export class AudioPlayer {
             if (index > -1) this.scheduledSources.splice(index, 1);
 
             // Auto-rebuffer if we run completely out of scheduled audio
-            if (this.scheduledSources.length === 0 && !this.isBuffering) {
+            if (this.scheduledSources.length === 0) {
                 this.isBuffering = true;
+                this.setPlaying(false);
             }
         };
+    }
+
+    private setPlaying(playing: boolean) {
+        if (playing === this.playing) return;
+        this.playing = playing;
+        this.onPlayingChange?.(playing);
     }
 
     stop() {
@@ -105,5 +119,6 @@ export class AudioPlayer {
         this.chunkBuffer = [];
         this.isBuffering = true;
         this.nextStartTime = 0;
+        this.setPlaying(false);
     }
 }
