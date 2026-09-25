@@ -292,6 +292,11 @@ token bill is the production one; only the frames are dropped.
   `staticSurfacesBlock`, `toolsBlock`, etc. from `a2ui-svelte/agent` to
   compose your own.
 - **Custom TTS voice.** `new GeminiLiveModel({ token, voice: 'Charon' })`.
+- **Extended thinking (Gemini Live).** `new GeminiLiveModel({ token, model:
+  'gemini-3.8-live-extended-thinking' })` — background reasoning while the
+  model speaks. `thinkingLevel` defaults to `'low'`; pass `'medium'` or
+  `'high'` for harder tasks. Tools are declared `NON_BLOCKING` for you, as
+  that model requires.
 - **Bring-your-own UI.** `headless={true}` plus snippet slots
   (`messages`, `input`, `mic`, `status`, `controls`, `debug`) let you
   mix-and-match — replace one piece, keep the rest.

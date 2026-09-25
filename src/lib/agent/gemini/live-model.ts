@@ -6,6 +6,9 @@ import type {
 	AgentModelCapabilities
 } from '../model';
 
+/** Background reasoning levels the Live API accepts (`MINIMAL` is not supported). */
+export type GeminiThinkingLevel = 'low' | 'medium' | 'high';
+
 export interface GeminiLiveModelOptions {
 	/**
 	 * Auth for the Live socket: an ephemeral token (or raw API key), or a
@@ -17,6 +20,13 @@ export interface GeminiLiveModelOptions {
 	token: string | (() => string | Promise<string>);
 	/** Gemini Live model. Default `'gemini-3.1-flash-live-preview'`. */
 	model?: string;
+	/**
+	 * Background reasoning level, sent as `thinkingConfig.thinkingLevel`.
+	 * Defaults to `'low'` on an extended-thinking model and is left unset on
+	 * every other one, where the API rejects it. A higher level reasons longer
+	 * before answering.
+	 */
+	thinkingLevel?: GeminiThinkingLevel;
 	/** API version. Default 'v1alpha' (required for Gemini Live). */
 	apiVersion?: string;
 	/** Prebuilt TTS voice name. Default `'Aoede'`. */
@@ -37,6 +47,22 @@ type EventName = keyof AgentModelEventMap;
 const TURN_COMPLETE_FALLBACK_MS = 1500;
 
 /**
+ * Level used when the model is an extended-thinking one and the caller named
+ * none. `'low'` keeps answer latency closest to the non-thinking models, which
+ * is what a live voice UI needs; raise it per session for harder reasoning.
+ */
+const DEFAULT_THINKING_LEVEL: GeminiThinkingLevel = 'low';
+
+/**
+ * Whether the model id names an extended-thinking Live model. The id is the
+ * only signal available: thinking is configured in the setup message, before
+ * the socket can report anything about the model.
+ */
+function isExtendedThinking(model: string): boolean {
+	return model.includes('extended-thinking');
+}
+
+/**
  * Gemini Live implementation of {@link AgentModel} — the streaming
  * audio-to-audio profile. Translates Gemini's message shapes into the
  * normalised event map and back, so the rest of the library never touches
@@ -49,6 +75,7 @@ export class GeminiLiveModel implements AgentModel {
 	#model: string;
 	#apiVersion: string;
 	#voice: string;
+	#thinkingLevel: GeminiThinkingLevel | undefined;
 	#session: any = null;
 	#listeners: { [E in EventName]?: Set<(p: AgentModelEventMap[E]) => void> } = {};
 	#closed = false;
@@ -76,6 +103,9 @@ export class GeminiLiveModel implements AgentModel {
 		this.#model = opts.model ?? 'gemini-3.1-flash-live-preview';
 		this.#apiVersion = opts.apiVersion ?? 'v1alpha';
 		this.#voice = opts.voice ?? 'Aoede';
+		this.#thinkingLevel =
+			opts.thinkingLevel ??
+			(isExtendedThinking(this.#model) ? DEFAULT_THINKING_LEVEL : undefined);
 	}
 
 	/**
@@ -104,8 +134,16 @@ export class GeminiLiveModel implements AgentModel {
 			httpOptions: { apiVersion: this.#apiVersion }
 		});
 
+		// A thinking model runs the tool loop asynchronously — it keeps speaking
+		// while a call is outstanding — and rejects a blocking declaration with a
+		// hard error, so every declaration is marked. It also refuses a
+		// `scheduling` field on the response, which is why `sendToolResult` sends
+		// the result plain. Other models get the declarations as they came.
+		const declarations = this.#thinkingLevel
+			? opts.tools.map((t) => ({ ...t, behavior: 'NON_BLOCKING' }))
+			: opts.tools;
 		const toolsConfig =
-			opts.tools.length > 0 ? [{ functionDeclarations: opts.tools }] : undefined;
+			declarations.length > 0 ? [{ functionDeclarations: declarations }] : undefined;
 
 		const config: Record<string, unknown> = {
 			responseModalities: [Modality.AUDIO],
@@ -116,6 +154,7 @@ export class GeminiLiveModel implements AgentModel {
 				voiceConfig: { prebuiltVoiceConfig: { voiceName: this.#voice } }
 			}
 		};
+		if (this.#thinkingLevel) config.thinkingConfig = { thinkingLevel: this.#thinkingLevel };
 		if (toolsConfig) config.tools = toolsConfig;
 
 		await new Promise<void>((resolve, reject) => {

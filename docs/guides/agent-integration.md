@@ -162,7 +162,7 @@ free tiers, cost posture, what was evaluated and rejected — see
 
 | Model | Import from | Profile | Notes |
 |---|---|---|---|
-| `GeminiLiveModel` | `a2ui-svelte/agent/gemini` | streaming speech-to-speech | Server tool loop, barge-in, silent context. Auth: ephemeral token (`mintGeminiToken`). |
+| `GeminiLiveModel` | `a2ui-svelte/agent/gemini` | streaming speech-to-speech | Server tool loop, barge-in, silent context. `model: 'gemini-3.8-live-extended-thinking'` adds background reasoning — `thinkingLevel` defaults to `'low'`, takes `'medium'`/`'high'`, and makes every tool declaration `NON_BLOCKING` (that model rejects blocking ones). Auth: ephemeral token (`mintGeminiToken`). |
 | `GeminiTextModel` | `a2ui-svelte/agent/gemini` | request/response text | Client tool loop, streamed deltas, 429 retry. Auth: `apiKey` or `baseUrl` proxy. |
 | `AnthropicTextModel` | `a2ui-svelte/agent/anthropic` | request/response text | Claude via the official SDK; adaptive thinking on by default (`thinking: false` for pre-4.6 models); default model `claude-opus-4-8`. Auth: `apiKey` or `baseUrl` proxy. |
 | `OpenAITextModel` | `a2ui-svelte/agent/openai` | request/response text | Chat Completions via the official SDK; default model `gpt-5.2`. Auth: `apiKey` or `baseUrl` proxy. |

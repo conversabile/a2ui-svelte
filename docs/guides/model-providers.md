@@ -26,6 +26,13 @@ OpenAI `gpt-5.2` (text) / `gpt-realtime-2` (Realtime), Deepgram
 `nova-3` + `gpt-4o-mini` + `aura-2-thalia-en` (listen/think/speak),
 Hume — the platform default unless you pin a `configId`/`voiceId`.
 
+`GeminiLiveModel` also drives the 3.8 Live models. Pointing it at
+`gemini-3.8-live-extended-thinking` turns on background reasoning at
+`thinkingLevel: 'low'` (pass `'medium'` or `'high'` for harder tasks) and
+declares every tool `NON_BLOCKING`, which that model requires — a blocking
+declaration is a hard error. The model reasons while it speaks, so answers
+start sooner than the level suggests.
+
 ## Practical hints
 
 - **Cheapest voice demo:** Deepgram. The signup credits are far beyond

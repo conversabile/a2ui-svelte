@@ -8,6 +8,7 @@ import { GeminiLiveModel } from './live-model';
 const { captured } = vi.hoisted(() => ({
 	captured: {
 		callbacks: null as null | { onopen: () => void; onmessage: (m: unknown) => void },
+		connectArgs: null as null | { model: string; config: any },
 		toolResponses: [] as unknown[]
 	}
 }));
@@ -15,7 +16,9 @@ vi.mock('@google/genai', () => ({
 	Modality: { AUDIO: 'AUDIO' },
 	GoogleGenAI: class {
 		live = {
-			connect: async ({ callbacks }: { callbacks: any }) => {
+			connect: async (args: { model: string; config: any; callbacks: any }) => {
+				const { callbacks } = args;
+				captured.connectArgs = args;
 				captured.callbacks = callbacks;
 				callbacks.onopen();
 				return {
@@ -31,6 +34,7 @@ vi.mock('@google/genai', () => ({
 
 beforeEach(() => {
 	captured.callbacks = null;
+	captured.connectArgs = null;
 	captured.toolResponses.length = 0;
 });
 afterEach(() => {
@@ -242,5 +246,63 @@ describe('GeminiLiveModel turn-complete normalisation', () => {
 		expect(ev.turnComplete).toBe(1);
 		vi.advanceTimersByTime(5000);
 		expect(ev.turnComplete).toBe(1);
+	});
+});
+
+describe('GeminiLiveModel thinking configuration', () => {
+	const EXTENDED = 'gemini-3.8-live-extended-thinking';
+	const tools = [{ name: 'click_button', description: 'Clicks', parameters: { type: 'object' } }];
+
+	async function setup(opts: Partial<ConstructorParameters<typeof GeminiLiveModel>[0]> = {}) {
+		const model = new GeminiLiveModel({ token: 'k', ...opts });
+		await model.connect({ systemInstruction: 'sys', tools });
+		return captured.connectArgs!;
+	}
+
+	it('sends no thinking config on a non-thinking model', async () => {
+		const { config } = await setup();
+		expect(config.thinkingConfig).toBeUndefined();
+		expect(config.tools[0].functionDeclarations[0].behavior).toBeUndefined();
+	});
+
+	it('defaults the extended-thinking model to the low level', async () => {
+		const { model, config } = await setup({ model: EXTENDED });
+		expect(model).toBe(EXTENDED);
+		expect(config.thinkingConfig).toEqual({ thinkingLevel: 'low' });
+	});
+
+	it('uses the level the caller asked for', async () => {
+		const { config } = await setup({ model: EXTENDED, thinkingLevel: 'high' });
+		expect(config.thinkingConfig).toEqual({ thinkingLevel: 'high' });
+	});
+
+	it('sends an explicit level on any model id', async () => {
+		const { config } = await setup({ thinkingLevel: 'medium' });
+		expect(config.thinkingConfig).toEqual({ thinkingLevel: 'medium' });
+	});
+
+	it('declares every tool NON_BLOCKING when thinking is on, without mutating the input', async () => {
+		const { config } = await setup({ model: EXTENDED });
+		expect(config.tools[0].functionDeclarations).toEqual([
+			{ ...tools[0], behavior: 'NON_BLOCKING' }
+		]);
+		expect(tools[0]).not.toHaveProperty('behavior');
+	});
+
+	it('omits the tools config entirely when there are no tools', async () => {
+		const model = new GeminiLiveModel({ token: 'k', model: EXTENDED });
+		await model.connect({ systemInstruction: 'sys', tools: [] });
+		expect(captured.connectArgs!.config.tools).toBeUndefined();
+		expect(captured.connectArgs!.config.thinkingConfig).toEqual({ thinkingLevel: 'low' });
+	});
+
+	it('sends a thinking model its tool result without a scheduling field', async () => {
+		const model = new GeminiLiveModel({ token: 'k', model: EXTENDED });
+		await model.connect({ systemInstruction: 'sys', tools });
+		captured.callbacks!.onmessage(toolCall('click_button'));
+		model.sendToolResult('c0', 'click_button', { status: 'success' });
+		expect(captured.toolResponses).toEqual([
+			{ functionResponses: [{ id: 'c0', name: 'click_button', response: { status: 'success' } }] }
+		]);
 	});
 });
