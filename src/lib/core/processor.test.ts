@@ -100,6 +100,60 @@ describe('processMessage — dynamic surface validation', () => {
 		});
 	});
 
+	it('accepts an update that detaches components, and keeps them buffered', () => {
+		// v0.8 removes a component by dropping it from its parent's children;
+		// there is no per-component delete, so an orphan is not an error.
+		push('detach', [
+			{ id: 'main-col', component: col(['old-a', 'old-b']) },
+			{ id: 'old-a', component: text('a') },
+			{ id: 'old-b', component: col(['never-sent']) }
+		]);
+		expect(render('detach', 'main-col').status).toBe('error'); // old-b is on screen
+		push('detach', [{ id: 'old-b', component: text('b') }]);
+		render('detach', 'main-col');
+
+		const result = push('detach', [
+			{ id: 'main-col', component: col(['title']) },
+			{ id: 'title', component: text('new') },
+			// Off screen, so its dangling reference is not wiring the user sees.
+			{ id: 'parked', component: col(['never-sent']) }
+		]);
+
+		expect(result).toEqual({ status: 'success' });
+		expect(Object.keys(a2uiState.getSurface('detach')!.components).sort()).toEqual([
+			'main-col',
+			'old-a',
+			'old-b',
+			'parked',
+			'title'
+		]);
+	});
+
+	it('lets a later update reattach a buffered component without resending it', () => {
+		push('reattach', [
+			{ id: 'main-col', component: col(['label']) },
+			{ id: 'label', component: text('hello') }
+		]);
+		render('reattach', 'main-col');
+		push('reattach', [{ id: 'main-col', component: col([]) }]);
+
+		expect(push('reattach', [{ id: 'main-col', component: col(['label']) }])).toEqual({
+			status: 'success'
+		});
+	});
+
+	it('still checks the shape of components that are off screen', () => {
+		push('parked-shape', [{ id: 'main-col', component: col([]) }]);
+		render('parked-shape', 'main-col');
+
+		const result = push('parked-shape', [
+			{ id: 'parked', component: { Text: {}, Button: {} } as object }
+		]);
+
+		expect(result.status).toBe('error');
+		expect(result.issues?.map((i) => i.componentId)).toEqual(['parked']);
+	});
+
 	it('judges the agent tree against the page catalog when one is published', () => {
 		a2uiState.setCatalogTypes('custom', new Set(['Column', 'FancyGrid']));
 		push('custom', [

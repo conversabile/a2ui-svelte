@@ -3,6 +3,7 @@ import type { ClientMessage } from './types';
 import {
     validateSurface,
     formatSurfaceIssues,
+    reachableComponents,
     type SurfaceValidationIssue
 } from './validate-surface';
 
@@ -29,7 +30,11 @@ const OK: ProcessResult = { status: 'success' };
  * `incoming` is passed through unchecked so a malformed payload reaches the
  * validator and is reported, not thrown.
  */
-function prospectiveJson(surfaceId: string, incoming: unknown, rootId?: string): unknown {
+function prospectiveJson(
+    surfaceId: string,
+    incoming: unknown,
+    rootId?: string
+): { surfaceId: string; rootId: string | undefined; components: unknown } {
     const surface = a2uiState.getSurface(surfaceId);
     const list = Array.isArray(incoming) ? (incoming as Array<{ id?: unknown }>) : null;
     const replaced = new Set(list?.map((c) => c?.id));
@@ -52,11 +57,24 @@ function prospectiveJson(surfaceId: string, incoming: unknown, rootId?: string):
  * a half-sent tree has no root and dangling children by construction, and
  * failing it would reject every legitimate render.
  */
-function check(surfaceId: string, candidate: unknown, complete: boolean): ProcessResult {
+function check(
+    surfaceId: string,
+    candidate: ReturnType<typeof prospectiveJson>,
+    complete: boolean
+): ProcessResult {
     const catalog = a2uiState.getSurface(surfaceId)?.catalogTypes;
-    const issues = validateSurface(candidate, catalog ? { catalog } : {}).filter(
-        (i) => complete || i.scope === 'shape'
-    );
+    const options = catalog ? { catalog } : {};
+    // Shape is checked on the whole buffer, wiring only on the part that hangs
+    // off the root: v0.8 removes a component by dropping it from its parent's
+    // children, so the buffer legitimately keeps unreachable components. They
+    // are not rendered and `serializeSurface` omits them.
+    const issues = validateSurface(candidate, options).filter((i) => i.scope === 'shape');
+    if (complete) {
+        const onScreen = Array.isArray(candidate.components)
+            ? { ...candidate, components: reachableComponents(candidate.components, candidate.rootId) }
+            : candidate;
+        issues.push(...validateSurface(onScreen, options).filter((i) => i.scope === 'wiring'));
+    }
     const errors = issues.filter((i) => i.severity === 'error');
     const warnings = issues.filter((i) => i.severity === 'warning');
     if (warnings.length > 0) {

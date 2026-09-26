@@ -108,8 +108,12 @@ a `<DynamicSurface>`:
   back in the tool result so the model can fix them. `web_core` throws on
   malformed input instead — taking the page down on a bad generation is worse
   than a retry. The checks that need a finished tree (a root, resolvable
-  references, reachability) apply from `beginRendering` on, since the
-  components arrive before the root does.
+  references) apply from `beginRendering` on, since the components arrive
+  before the root does, and only to the components reachable from the root.
   `validateSurface()` from `a2ui-svelte/core` runs the same checks in CI.
+- **Detached components stay buffered, but the agent doesn't see them.** As in
+  `web_core`, a component dropped from its parent's children stays in the
+  buffer (v0.8 has no per-component delete) and can be reattached by id. It
+  is not rendered, and `getJson()` omits it.
 
 These differences only affect `<DynamicSurface>`.

@@ -149,7 +149,6 @@ export function validateSurface(
 	for (const comp of byId.values()) {
 		const type = Object.keys(comp.component)[0];
 		const props = comp.component[type] ?? {};
-		const refs: string[] = [];
 
 		if (!catalog.has(type)) {
 			warn(comp.id, `unknown component type "${type}" (not in catalog)`);
@@ -173,7 +172,6 @@ export function validateSurface(
 					} else {
 						for (const c of children.explicitList) {
 							if (typeof c !== 'string') err(comp.id, `${type} child reference is not a string id`);
-							else refs.push(c);
 						}
 					}
 				} else if (children.template === undefined) {
@@ -190,8 +188,6 @@ export function validateSurface(
 					warn(comp.id, 'Card has no `child` (an empty Card shows nothing)');
 				} else if (typeof props.child !== 'string') {
 					err(comp.id, 'Card must have a single string `child` (wrap multiples in a Column/Row)');
-				} else {
-					refs.push(props.child);
 				}
 				break;
 			}
@@ -200,8 +196,6 @@ export function validateSurface(
 					warn(comp.id, 'Button has no `child` (its label Text node)');
 				} else if (typeof props.child !== 'string') {
 					err(comp.id, 'Button must have a single string `child` (its label Text node)');
-				} else {
-					refs.push(props.child);
 				}
 				// No `action.name === id` check: on our own trees the serializer
 				// synthesises the name from the id (Rule 3, pinned by
@@ -210,25 +204,9 @@ export function validateSurface(
 				// name and the source component id both.
 				break;
 			}
-			case 'Modal': {
-				for (const slot of ['entryPointChild', 'contentChild'] as const) {
-					const ref = props[slot];
-					if (typeof ref === 'string') refs.push(ref);
-				}
-				break;
-			}
-			case 'Tabs': {
-				const items = props.tabItems;
-				if (Array.isArray(items)) {
-					for (const item of items) {
-						const child = (item as { child?: unknown })?.child;
-						if (typeof child === 'string') refs.push(child);
-					}
-				}
-				break;
-			}
 		}
 
+		const refs = componentRefs(type, props);
 		childRefs.set(comp.id, refs);
 		for (const ref of refs) {
 			if (!byId.has(ref)) {
@@ -241,16 +219,7 @@ export function validateSurface(
 	// An unreachable component is in the tree the agent reads but not on the
 	// user's screen — a screen/tree parity violation (Rule 4).
 	if (rootId && byId.has(rootId)) {
-		const reachable = new Set<string>();
-		const queue = [rootId];
-		while (queue.length > 0) {
-			const id = queue.pop()!;
-			if (reachable.has(id)) continue;
-			reachable.add(id);
-			for (const ref of childRefs.get(id) ?? []) {
-				if (byId.has(ref)) queue.push(ref);
-			}
-		}
+		const reachable = reachableIds(rootId, (id) => childRefs.get(id) ?? []);
 		for (const id of byId.keys()) {
 			if (!reachable.has(id)) {
 				err(id, 'component is not reachable from the root (orphan)', 'wiring');
@@ -259,6 +228,85 @@ export function validateSurface(
 	}
 
 	return issues;
+}
+
+/**
+ * The component ids a component references as children. Only well-formed
+ * string references count; malformed ones are reported by `validateSurface`.
+ */
+export function componentRefs(type: string, props: Record<string, unknown>): string[] {
+	const refs: string[] = [];
+	switch (type) {
+		case 'Row':
+		case 'Column':
+		case 'List': {
+			const list = (props.children as { explicitList?: unknown } | undefined)?.explicitList;
+			if (Array.isArray(list)) {
+				for (const c of list) if (typeof c === 'string') refs.push(c);
+			}
+			break;
+		}
+		case 'Card':
+		case 'Button':
+			if (typeof props.child === 'string') refs.push(props.child);
+			break;
+		case 'Modal':
+			for (const slot of ['entryPointChild', 'contentChild'] as const) {
+				const ref = props[slot];
+				if (typeof ref === 'string') refs.push(ref);
+			}
+			break;
+		case 'Tabs':
+			if (Array.isArray(props.tabItems)) {
+				for (const item of props.tabItems) {
+					const child = (item as { child?: unknown })?.child;
+					if (typeof child === 'string') refs.push(child);
+				}
+			}
+			break;
+	}
+	return refs;
+}
+
+function reachableIds(rootId: string, refsOf: (id: string) => string[]): Set<string> {
+	const reachable = new Set<string>();
+	const queue = [rootId];
+	while (queue.length > 0) {
+		const id = queue.pop()!;
+		if (reachable.has(id)) continue;
+		reachable.add(id);
+		queue.push(...refsOf(id));
+	}
+	return reachable;
+}
+
+/**
+ * The components reachable from `rootId`, in their original order. Malformed
+ * entries are dropped. With no root, returns the list unchanged: nothing is
+ * on screen yet to measure against.
+ *
+ * A dynamic surface's component buffer keeps components the agent detached —
+ * v0.8 removes a component by dropping it from its parent's children and has
+ * no per-component delete — so the buffer is not the tree on screen. This is.
+ */
+export function reachableComponents<T extends { id: string; component: object }>(
+	components: T[],
+	rootId: string | null | undefined
+): T[] {
+	if (!rootId) return components;
+	const byId = new Map<string, T>();
+	for (const c of components) {
+		if (typeof c?.id === 'string' && typeof c.component === 'object' && c.component !== null) {
+			byId.set(c.id, c);
+		}
+	}
+	const reachable = reachableIds(rootId, (id) => {
+		const envelope = byId.get(id)?.component as Record<string, Record<string, unknown>> | undefined;
+		if (!envelope) return [];
+		const [type] = Object.keys(envelope);
+		return type ? componentRefs(type, envelope[type] ?? {}) : [];
+	});
+	return components.filter((c) => byId.get(c?.id) === c && reachable.has(c.id));
 }
 
 /** One readable line per issue, for a console message or a thrown error. */
